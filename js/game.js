@@ -1337,6 +1337,7 @@ function drinkPotion(kind) {
 
 /* ---------------- level flow ---------------- */
 function enterLevel(dlvl, fresh) {
+  if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
   G.lvl = dlvl === 0 ? genTown() : genLevel(dlvl);
@@ -1420,6 +1421,7 @@ function startGame(clsId, save, slot) {
     autoEquip: save && save.autoEquip !== undefined ? save.autoEquip : true,
     autoSell: save && save.autoSell !== undefined ? save.autoSell : 1,
     portalFloor: (save && save.portalFloor) || 0,
+    anchor: null, offPortal: true,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -1590,6 +1592,26 @@ function update(dt) {
       const dd = dist(p.x, p.y, p.moveTo.x, p.moveTo.y);
       if (dd < 6) p.moveTo = null;
       else { const a = Math.atan2(p.moveTo.y - p.y, p.moveTo.x - p.x); p.dir = a; moveCircle(p, Math.cos(a) * spd * dt, Math.sin(a) * spd * dt); }
+    }
+  }
+
+  /* --- portals --- */
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) {
+    if (dist(p.x, p.y, G.lvl.portal.x, G.lvl.portal.y) < 26) { returnThroughPortal(); return; }
+  }
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) {
+    const dp = dist(p.x, p.y, G.anchor.x, G.anchor.y);
+    if (dp > 44) G.offPortal = true;
+    else if (dp < 24 && G.offPortal) {
+      // step back into your own portal → to town (same anchor kept)
+      G.offPortal = false;
+      spark(p.x, p.y, '#5ab0ff', 18, 200);
+      sfx.stairs();
+      const keep = G.anchor;
+      enterLevel(0, false);
+      G.anchor = keep;
+      G.lvl.portal = { x: p.x + 54, y: p.y };
+      return;
     }
   }
 
@@ -2087,6 +2109,10 @@ function render() {
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
   if (G.lvl.stable) drawStable(G.lvl.stable);
 
+  /* portals: town-side return + dungeon-side anchor */
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) drawPortal(G.anchor.x, G.anchor.y);
+
   /* entities sorted by y */
   const ents = [];
   for (const m of G.lvl.monsters) if (m.hp > 0 && m.x > cam.x - VW / ZOOM && m.x < cam.x + VW / ZOOM && m.y > cam.y - VH / ZOOM && m.y < cam.y + VH / ZOOM) ents.push(m);
@@ -2237,6 +2263,8 @@ function drawLights() {
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) hole(G.anchor.x, G.anchor.y - 6, 90, 0.85);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -3206,6 +3234,26 @@ function drawStable(st) {
   ctx.fillText('🐾 Stable', st.x, st.y - 42);
 }
 
+function drawPortal(x, y) {
+  const t = G.time;
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(x, y + 16, 14, 5, 0, 0, 7); ctx.fill();
+  const g = ctx.createRadialGradient(x, y - 6, 2, x, y - 6, 22);
+  g.addColorStop(0, 'rgba(154,220,255,0.7)');
+  g.addColorStop(0.6, 'rgba(90,176,255,0.35)');
+  g.addColorStop(1, 'rgba(90,176,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 16, 22, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#5ab0ff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 12, 18, Math.sin(t * 1.5) * 0.15, 0, 7); ctx.stroke();
+  ctx.strokeStyle = '#bfe8ff'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 7 + Math.sin(t * 3) * 1.5, 12 + Math.cos(t * 2.4) * 2, -Math.sin(t * 1.5) * 0.2, 0, 7); ctx.stroke();
+  if (Math.random() < 0.3) G.parts.push({ x: x + rand(-8, 8), y: y - 6 + rand(-14, 14), vx: rand(-8, 8), vy: rand(-18, -6), r: rand(1, 2), color: '#9adcff', life: rand(0.3, 0.6), glow: true });
+  ctx.font = '10px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#9adcff';
+  ctx.fillText('portal', x, y - 34);
+}
+
 function drawTrunk(s) {
   const t = G.time;
   ctx.fillStyle = '#00000060';
@@ -3456,8 +3504,10 @@ function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
     : WORLDS[worldOf(d)].name + ' · Floor ' + d;
-  const ret = G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
-    ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '';
+  const ret = G.anchor && G.anchor.dlvl !== G.dlvl
+    ? `<button class="smallbtn" data-portal-return style="border-color:#5ab0ff">🌀 Return through portal — Floor ${G.anchor.dlvl}</button>`
+    : (G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
+      ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '');
   $('wpPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🌀 Waypoint</div>
@@ -3472,6 +3522,8 @@ function renderWp() {
     closePanels();
     if (d !== G.dlvl) enterLevel(d, false);
   }));
+  const prBtn = $('wpPanel').querySelector('[data-portal-return]');
+  if (prBtn) prBtn.addEventListener('click', () => { closePanels(); returnThroughPortal(); });
 }
 
 function renderShop() {
@@ -3908,13 +3960,44 @@ $('btnChar').addEventListener('click', () => togglePanel('charPanel'));
 $('btnPortal').addEventListener('click', () => {
   if (!G || paused || G.p.hp <= 0) return;
   audioInit();
-  if (G.dlvl === 0) { banner('You are already in town'); return; }
+  if (G.dlvl === 0) {
+    if (G.anchor) returnThroughPortal();
+    else banner('You are already in town');
+    return;
+  }
+  // anchor the portal to this exact spot; the whole floor is preserved
   G.portalFloor = G.dlvl;
+  G.anchor = { dlvl: G.dlvl, x: G.p.x, y: G.p.y, lvl: G.lvl, drops: G.drops, world: G.world };
   spark(G.p.x, G.p.y, '#5ab0ff', 24, 220);
   sfx.stairs();
   enterLevel(0, false);
-  banner('Town portal — return via the waypoint');
+  G.lvl.portal = { x: G.p.x + 54, y: G.p.y };
+  G.offPortal = true;
+  banner('Town portal opened — step back through when ready');
 });
+
+function returnThroughPortal() {
+  const a = G.anchor;
+  if (!a) return;
+  G.dlvl = a.dlvl;
+  G.world = a.world;
+  G.lvl = a.lvl;
+  G.drops = a.drops;
+  G.projs = []; G.parts = []; G.texts = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = [];
+  G.minions = [];
+  const act = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = act ? spawnPet(act) : null;
+  G.p.x = a.x; G.p.y = a.y;
+  G.p.target = null; G.p.path = null; G.p.moveTo = null;
+  G.onWp = false; G.offPortal = false;   // must step away before the portal triggers again
+  const wname = WORLDS[G.world].name;
+  $('floorLabel').textContent = wname + ' · ' + a.dlvl + (G.ng ? ' · NG+' + G.ng : '');
+  banner('Back through the portal — ' + wname + ' ' + a.dlvl);
+  spark(G.p.x, G.p.y, '#5ab0ff', 18, 200);
+  sfx.stairs();
+  saveDirty = true;
+}
 $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
 $('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
 $('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
