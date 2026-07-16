@@ -64,8 +64,20 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   pointer-events:none;
 }
 #hud > * { pointer-events:auto; }
+.globecol { display:flex; flex-direction:column; align-items:center; gap:5px; flex:none; }
+.potbtn {
+  position:relative; width:min(11vw, 44px); height:min(11vw, 44px); font-size:min(5.5vw, 22px); line-height:1;
+  background:radial-gradient(circle at 35% 28%, #3a2d1c, #1c130a);
+  border:2px solid #4f3d57; border-radius:10px;
+  box-shadow:0 2px 6px #000a, inset 0 1px 0 #ffffff14;
+}
+.potbtn:active { transform:scale(.92); }
+.potbtn .count {
+  position:absolute; bottom:-1px; right:2px; font-size:12px; font-weight:bold;
+  color:#ffe9b0; text-shadow:0 1px 2px #000;
+}
 .globe {
-  position:relative; width:min(18vw, 92px); height:min(18vw, 92px);
+  position:relative; width:min(16vw, 84px); height:min(16vw, 84px);
   border-radius:50%; overflow:hidden; flex:none;
   border:3px solid #4a3417; box-shadow:0 0 12px #000c, inset 0 0 18px #000c;
   background:#180804;
@@ -109,7 +121,8 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   background:#000000b8; pointer-events:none;
 }
 .skillbtn.nomana .sicon { filter:grayscale(.8) brightness(.6); }
-.skillbtn.potion { border-color:#4f3d57; }
+.skillbtn.lockedskill .sicon { filter:grayscale(1) brightness(.45); }
+.skillbtn.lockedskill .cost { color:#9a8a68; }
 
 /* ---------- full screens ---------- */
 .screen {
@@ -213,9 +226,24 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 #itemPopup .ibtns .smallbtn { min-width:90px; }
 .rc-common { color:#e8e4da; } .rc-magic { color:#7f95e8; } .rc-rare { color:#e8d45a; } .rc-unique { color:#d98d4a; }
 
+/* shop rows */
+.shoprow {
+  display:flex; align-items:center; gap:9px; padding:8px 4px;
+  border-bottom:1px solid #2c2012;
+}
+.shoprow .sicon2 { font-size:24px; flex:none; }
+.shoprow .snm { flex:1; font-size:13.5px; line-height:1.3; min-width:0; }
+.shoprow .snm small { color:#8a7a58; font-size:11px; }
+.shoprow .smallbtn { flex:none; min-width:86px; }
+
+/* runeword line in item popup */
+.rword { text-align:center; color:#d98d4a; font-size:15px; margin-bottom:8px; letter-spacing:1px; }
+.rword span { display:block; color:#c9b98a; font-size:12.5px; letter-spacing:0; margin-top:2px; }
+
 @media (max-height:460px) { /* landscape phones */
-  .globe { width:70px; height:70px; }
-  .skillbtn { width:54px; height:54px; }
-  .skillbtn .sicon { font-size:26px; }
+  .globe { width:64px; height:64px; }
+  .potbtn { width:38px; height:38px; font-size:18px; }
+  .skillbtn { width:50px; height:50px; }
+  .skillbtn .sicon { font-size:24px; }
   #minimap { width:96px; height:96px; }
 }
