@@ -28,6 +28,15 @@ const SAVE_KEY = 'sanctuary_save_v1';
 const BOSS_NAMES = ['Gharok the Flayed', 'Mistress Vex', 'Korlath, Tomb Warden',
   'The Hollow King', 'Balegrim the Devourer', 'Ashmaw the Eternal'];
 
+/* cursed floors: opt-in pain for opt-in riches — roughly one floor in
+   eight rolls a curse that makes monsters meaner and rewards richer */
+const CURSES = [
+  { id: 'wither', name: 'The Withering', desc: 'monsters +40% life · magic find +60%', hp: 1.4, mf: 60 },
+  { id: 'frenzy', name: 'The Frenzy', desc: 'monsters swifter & fiercer · gold +75%', spd: 1.3, dmg: 1.3, gold: 1.75 },
+  { id: 'legion', name: 'The Legion', desc: 'half again as many monsters · +50% experience', count: 1.5, xp: 1.5 },
+  { id: 'unstable', name: 'The Unstable', desc: 'slain monsters detonate · +50% item drops', item: 1.5, boom: true },
+];
+
 /* the world tyrants: one dragonkind per realm, waiting on its floor 25.
    ele picks the breath element; final tyrants end an act with a victory */
 const ELE_COLORS = { fire: '#ff8a3a', cold: '#7ac8ff', light: '#ffd23a', poison: '#4ad46a' };
@@ -748,11 +757,12 @@ function genLevel(dlvl, riftMode) {
   const isDragonFloor = wf === 25 && !riftMode;             // the realm's tyrant
   const isBossFloor = (wf % 5 === 0 && !riftMode) || isDragonFloor;   // mini-bosses every 5th
   const pool = MTYPES.filter(t => t.minL <= dlvl && (t.wOnly === undefined || t.wOnly === wIdx));
+  const curse = (!riftMode && G && wf !== 25 && Math.random() < 0.13) ? choice(CURSES) : null;
   const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
   const eff = effDepth(dlvl);
-  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
-  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
-  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
+  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm * (curse && curse.hp || 1);
+  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm * (curse && curse.dmg || 1);
+  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm * (curse && curse.xp || 1);
   const wpick = () => {
     let tot = 0; for (const t of pool) tot += t.w;
     let r = Math.random() * tot;
@@ -762,7 +772,8 @@ function genLevel(dlvl, riftMode) {
   for (let i = 1; i < rooms.length; i++) {
     const room = rooms[i];
     if (isBossFloor && room === exit) continue;         // boss room kept clear for the boss
-    const n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
+    let n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
+    if (curse && curse.count) n = Math.min(10, Math.round(n * curse.count));
     for (let k = 0; k < n; k++) {
       const t = wpick();
       const champ = Math.random() < (G && G.p.challenge === 'gauntlet' ? 0.5 : 0.08);
@@ -806,7 +817,7 @@ function genLevel(dlvl, riftMode) {
 
   // dungeon events: shrines, treasure chests, gold piles
   const shrines = [], chests = [], goldPiles = [];
-  const SHRINE_KINDS = ['combat', 'armor', 'speed', 'healing', 'gem', 'xp'];
+  const SHRINE_KINDS = ['combat', 'armor', 'speed', 'healing', 'gem', 'xp', 'bandit'];
   for (const room of rooms) {
     if (room === r0 || room === exit) continue;
     const mx = room.x + Math.floor(room.w / 2), topY = room.y + 1, botY = room.y + room.h - 2;
@@ -843,8 +854,10 @@ function genLevel(dlvl, riftMode) {
     }
   }
 
+  if (curse && curse.spd) for (const mm of monsters) mm.spd *= curse.spd;
+
   return {
-    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders,
+    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders, curse,
     props, propSet, questNpc, satchel,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor || !!riftMode,
@@ -1231,7 +1244,7 @@ function makeItem(slot, ilvl, forceRarity) {
   const p = G.p, clsId = p.cls;
   let rarity = forceRarity;
   if (!rarity) {
-    const mf = 1 + (G.d ? G.d.mf : 0) / 100;
+    const mf = 1 + ((G.d ? G.d.mf : 0) + (G.lvl && G.lvl.curse && G.lvl.curse.mf || 0)) / 100;
     const r = Math.random();
     rarity = r < 0.006 * mf ? 'exotic' : r < 0.02 * mf ? 'unique' : r < 0.035 * mf ? 'set'
       : r < 0.13 * mf ? 'rare' : r < 0.43 * mf ? 'magic' : 'common';
@@ -1442,6 +1455,21 @@ function activateShrine(s) {
       ftext(s.x, s.y - 22, '+' + amt + ' xp', '#b8a4e8', 14);
       banner('Shrine of Wisdom!');
       grantLevelUps();
+      break;
+    }
+    case 'bandit': {   // a burst of gilded imps, scattering with the loot
+      const eff = effDepth(G.dlvl), ngm = 1 + (G.ng || 0) * 0.8;
+      const sh = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
+      const sxp = (1 + 0.3 * (eff - 1)) * ngm;
+      for (let k = 0; k < 4; k++) {
+        const imp = makeMonster(TIMP_TYPE, s.x + rand(-46, 46), s.y + rand(-34, 34), sh, 1, sxp, false, false, G.dlvl);
+        imp.aggro = true;
+        imp.fleeT = 9 + k * 1.6;   // staggered escapes keep the panic going
+        G.lvl.monsters.push(imp);
+        spark(imp.x, imp.y - 8, '#ffd23a', 8, 190);
+      }
+      banner('💰 Bandit shrine — gilded imps scatter! Catch them!');
+      sfx.epic();
       break;
     }
   }
@@ -1694,6 +1722,10 @@ function killMonster(m) {
     for (let k = 0; k < 8; k++) shoot(m.x, m.y, k / 8 * Math.PI * 2, 260, Math.round(m.dmg[1] * 0.9), 'm', { kind: 'fireball', r: 5 });
     G.rings.push({ x: m.x, y: m.y, r: 6, max: 62, color: '#ff8a3a', life: 0.25 });
     sfx.fire();
+  } else if (G.lvl.curse && G.lvl.curse.boom && !m.boss && !m.type.flee) {
+    // the Unstable curse: every corpse detonates
+    for (let k = 0; k < 6; k++) shoot(m.x, m.y, k / 6 * Math.PI * 2 + Math.random() * 0.5, 220, Math.max(1, Math.round(m.dmg[1] * 0.6)), 'm', { kind: 'fireball', r: 4 });
+    G.rings.push({ x: m.x, y: m.y, r: 5, max: 46, color: '#b86adf', life: 0.2 });
   }
   if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
   // side quest: cull progress counts only on the quest's own world floors
@@ -1766,12 +1798,13 @@ function newGamePlus() {
 
 function dropLoot(m) {
   const x = m.x, y = m.y, dlvl = G.dlvl;
+  const cr = (G.lvl && G.lvl.curse) || {};   // cursed floors pay better
   const scatter = () => ({ x: x + rand(-22, 22), y: y + rand(-22, 22) });
-  const rGold = m.boss ? 1 : 0.62, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const rGold = m.boss ? 1 : 0.62, rItem = (m.boss ? 1 : (m.champ ? 0.55 : 0.17)) * (cr.item || 1);
   const rPot = G.p.challenge === 'ascetic' ? 0 : m.boss ? 1 : 0.16;   // Ascetic: no potions, ever
   const ngb = (G.ng || 0);
   if (Math.random() < rGold) {
-    const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25) * (1 + ngb * 0.6));
+    const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25) * (1 + ngb * 0.6) * (cr.gold || 1));
     G.drops.push({ kind: 'gold', amt, ...scatter() });
   }
   if (Math.random() < rPot) G.drops.push({ kind: Math.random() < 0.6 ? 'hpPot' : 'mpPot', ...scatter() });
@@ -2391,6 +2424,13 @@ function enterLevel(dlvl, fresh) {
       : wf % 5 === 0 ? tierName + ' — ' + wf + '/25  ⚠ a great evil stirs…'
         : tierName + ' — Floor ' + wf + '/25');
     if (wf % 5 === 0) sfx.boss(); else sfx.stairs();
+    if (G.lvl.curse) {   // announce the curse once the floor banner clears
+      $('floorLabel').textContent += ' · ☠' + G.lvl.curse.name;
+      const cur = G.lvl;
+      setTimeout(() => {
+        if (G && G.lvl === cur) { banner('☠ Cursed floor — ' + cur.curse.name + ': ' + cur.curse.desc); sfx.boss(); }
+      }, 2400);
+    }
     if (G.blessPending) {   // Amara's blessing kicks in past the gate
       G.buffDmg = G.buffArmor = G.blessPending;
       G.blessPending = 0;
@@ -5644,7 +5684,7 @@ function drawPet(pet) {
   }
 }
 
-const SHRINE_COLORS = { combat: '#ff5a3a', armor: '#c9b98a', speed: '#7ac8ff', healing: '#ff8a7a', gem: '#4ad46a', xp: '#b8a4e8' };
+const SHRINE_COLORS = { combat: '#ff5a3a', armor: '#c9b98a', speed: '#7ac8ff', healing: '#ff8a7a', gem: '#4ad46a', xp: '#b8a4e8', bandit: '#ffd23a' };
 /* per-world exit doorways: every realm descends through something else */
 function drawExit(px, py, locked, wrld) {
   const cx = px + TILE / 2, cy = py + TILE / 2, t = G.time;

@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.2.0';
+const SANCTUARY_VERSION = '1.3.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.3.0', date: '2026-07-16', title: 'Cursed floors & bandit shrines',
+    notes: [
+      'Roughly one floor in eight is cursed: The Withering, The Frenzy, The Legion or The Unstable — meaner monsters, richer rewards',
+      'A new golden shrine releases a scatter of Gilded Imps — catch them before they portal away',
+    ],
+  },
   {
     v: '1.2.0', date: '2026-07-16', title: 'Every realm breathes',
     notes: [
