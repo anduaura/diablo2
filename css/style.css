@@ -159,6 +159,20 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   box-shadow:0 4px 14px #000c; display:flex; flex-direction:column; gap:6px; align-items:center;
 }
 .classcard:active { transform:scale(.96); border-color:#c9b98a; }
+.classcard.disabled { opacity:.35; pointer-events:none; }
+#roster { display:flex; flex-direction:column; gap:9px; width:min(88vw, 380px); }
+.slotrow { display:flex; gap:8px; align-items:stretch; }
+.slotrow .slotbtn {
+  flex:1; padding:12px 14px; font-size:15.5px; letter-spacing:.5px; text-align:left;
+  color:#f0e3bb; background:linear-gradient(#3a2a12, #1c1206);
+  border:1px solid #6b5326; border-radius:10px; box-shadow:0 3px 10px #000c;
+}
+.slotrow .slotbtn:active { transform:scale(.97); }
+.slotrow .slotbtn small { color:#93835f; font-size:12px; }
+.slotrow .slotdel {
+  width:46px; font-size:16px; color:#c86a5a; border-radius:10px;
+  background:#1c0e0a; border:1px solid #5a2a1e;
+}
 .classcard .cicon { font-size:42px; }
 .classcard .cname { font-size:17px; color:#e0d0a0; letter-spacing:1px; }
 .classcard .cdesc { font-size:11.5px; color:#93835f; line-height:1.35; }
