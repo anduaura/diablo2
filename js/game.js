@@ -196,6 +196,30 @@ function runewordOf(it) {
   const k = it.gems.map(g => g.g).join('+');
   return RUNEWORDS[k] || RUNEWORDS[it.gems.map(g => g.g).reverse().join('+')] || null;
 }
+/* wearable sets: fixed per-piece mods plus escalating bonuses (index =
+   pieces worn) that activate as you equip more of the same set */
+const SETS = {
+  gravewarden: {
+    name: "Gravewarden's Vigil",
+    pieces: { helm: 'Gravewarden Casque', armor: 'Gravewarden Carapace', boots: 'Gravewarden Treads', amulet: 'Gravewarden Sigil' },
+    pieceMods: { vit: 8, armor: 12, hp: 20 },
+    bonuses: [null, null, { hp: 40, armor: 25 }, { vit: 15, leech: 5 }, { hp: 100, dmgPct: 20 }],
+  },
+  tempest: {
+    name: 'Tempest Covenant',
+    pieces: { weapon: 'Tempest Fang', ring: 'Tempest Loop', amulet: 'Tempest Eye', helm: 'Tempest Crown' },
+    pieceMods: { ene: 8, mp: 15, lightDmg: 4 },
+    bonuses: [null, null, { lightDmg: 10, coldDmg: 8 }, { dmgPct: 20, mp: 40 }, { fireDmg: 12, lightDmg: 15, ene: 20 }],
+  },
+  wolfpack: {
+    name: "Wolfpack's Hunt",
+    pieces: { weapon: 'Wolfpack Claw', armor: 'Wolfpack Hide', boots: 'Wolfpack Lopers', ring: 'Wolfpack Band' },
+    pieceMods: { dex: 8, dmgPct: 8 },
+    bonuses: [null, null, { dex: 12, mf: 15 }, { dmgPct: 15, leech: 4 }, { dex: 25, dmgPct: 30 }],
+  },
+};
+const EXOTIC_NAMES = ['Voidfang', 'Starweaver', 'Nightmare Coil', 'Soulrender', 'Dawnbreaker', 'Chaosbrand', 'The Unmaking'];
+
 const UNIQUES = [
   { slot: 'weapon', name: 'Gravebite', mods: { dmgPct: 60, leech: 8, str: 10, poisonDmg: 8 } },
   { slot: 'weapon', name: 'Embersong', mods: { dmgPct: 45, ene: 15, mp: 30, fireDmg: 12 } },
@@ -257,6 +281,20 @@ function derived(p) {
     if (it.gems) for (const g of it.gems) m[GEMS[g.g].stat] += g.v;
     const rw = runewordOf(it);
     if (rw) for (const k in rw.mods) m[k] = (m[k] || 0) + rw.mods[k];
+  }
+  // set bonuses: each threshold up to the worn count applies
+  const setCount = {};
+  for (const s of SLOTS) {
+    const it = p.equip[s];
+    if (it && it.set) setCount[it.set] = (setCount[it.set] || 0) + 1;
+  }
+  for (const sid in setCount) {
+    const def = SETS[sid];
+    if (!def) continue;
+    for (let n = 2; n <= setCount[sid] && n < def.bonuses.length; n++) {
+      const b = def.bonuses[n];
+      if (b) for (const k in b) m[k] = (m[k] || 0) + b[k];
+    }
   }
   const str = p.stats.str + m.str, dex = p.stats.dex + m.dex,
     vit = p.stats.vit + m.vit, ene = p.stats.ene + m.ene;
@@ -530,7 +568,21 @@ function makeItem(slot, ilvl, forceRarity) {
   if (!rarity) {
     const mf = 1 + (G.d ? G.d.mf : 0) / 100;
     const r = Math.random();
-    rarity = r < 0.02 * mf ? 'unique' : r < 0.12 * mf ? 'rare' : r < 0.42 * mf ? 'magic' : 'common';
+    rarity = r < 0.006 * mf ? 'exotic' : r < 0.02 * mf ? 'unique' : r < 0.035 * mf ? 'set'
+      : r < 0.13 * mf ? 'rare' : r < 0.43 * mf ? 'magic' : 'common';
+  }
+  if (rarity === 'set') {
+    const pool = Object.keys(SETS).filter(k => SETS[k].pieces[slot]);
+    const sid = choice(pool);
+    const def = SETS[sid];
+    const it = {
+      slot, set: sid, base: def.pieces[slot], name: def.pieces[slot],
+      icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot],
+      rarity: 'set', lvl: ilvl, mods: { ...def.pieceMods },
+    };
+    if (slot === 'weapon') it.dmg = [2 + ilvl * 2, 5 + ilvl * 3];
+    else if (slot !== 'ring' && slot !== 'amulet') it.armor = 3 + Math.round(ilvl * 2.5);
+    return it;
   }
   if (rarity === 'unique') {
     const pool = UNIQUES.filter(u => u.slot === slot);
@@ -550,22 +602,31 @@ function makeItem(slot, ilvl, forceRarity) {
   if (slot === 'weapon') it.dmg = [Math.max(1, 2 + Math.round(ilvl * 1.6 * rand(0.8, 1.1))), 4 + Math.round(ilvl * 2.4 * rand(0.85, 1.15))];
   else if (slot === 'ring' || slot === 'amulet') { /* jewelry: mods only */ }
   else it.armor = 2 + Math.round(ilvl * 2.2 * rand(0.8, 1.2));
-  const nAff = rarity === 'rare' ? ri(3, 4) : rarity === 'magic' ? ri(1, 2) : 0;
+  const nAff = rarity === 'exotic' ? 5 : rarity === 'rare' ? ri(3, 4) : rarity === 'magic' ? ri(1, 2) : 0;
   const used = new Set();
   for (let i = 0; i < nAff; i++) {
     const a = choice(AFFIXES);
     if (used.has(a.stat)) continue;
     used.add(a.stat);
-    it.mods[a.stat] = (it.mods[a.stat] || 0) + a.roll(ilvl);
+    let v = a.roll(ilvl);
+    if (rarity === 'exotic') v = Math.max(1, Math.round(v * 1.5));
+    it.mods[a.stat] = (it.mods[a.stat] || 0) + v;
   }
   if (slot === 'weapon') it.sockets = Math.random() < 0.08 ? 2 : Math.random() < 0.25 ? 1 : 0;
   else if (slot === 'helm' || slot === 'armor') it.sockets = Math.random() < 0.15 ? 1 : 0;
   if (it.sockets) it.gems = [];
   if (rarity === 'magic') it.name = base + ' ' + choice(['of Power', 'of the Fox', 'of the Wolf', 'of Souls', 'of Embers', 'of Frost', 'of the Colossus']);
   if (rarity === 'rare') it.name = choice(['Doom', 'Grim', 'Storm', 'Blood', 'Shadow', 'Bone', 'Raven']) + choice([' Spike', ' Ward', ' Song', ' Grasp', ' Veil', ' Brand']) ;
+  if (rarity === 'exotic') {
+    it.name = choice(EXOTIC_NAMES);
+    if (slot === 'weapon') {
+      it.sockets = 2; it.gems = [];
+      it.dmg = [Math.round(it.dmg[0] * 1.3), Math.round(it.dmg[1] * 1.3)];
+    }
+  }
   return it;
 }
-const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200 }[it.rarity] + it.lvl * 6);
+const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200, set: 120, exotic: 320 }[it.rarity] + it.lvl * 6);
 /* rough power score used by auto-equip to compare items */
 function itemScore(it) {
   if (!it) return -1;
@@ -582,6 +643,7 @@ function itemScore(it) {
   const rw = runewordOf(it);
   if (rw) for (const k in rw.mods) s += rw.mods[k];
   s += (it.sockets || 0) * 4;
+  if (it.set) s += 10;   // set potential counts for something
   return s;
 }
 function modLines(it) {
@@ -769,7 +831,9 @@ function dropLoot(m) {
   if (Math.random() < rPot) G.drops.push({ kind: Math.random() < 0.6 ? 'hpPot' : 'mpPot', ...scatter() });
   if (Math.random() < rItem) {
     const slot = choice(SLOTS);
-    const it = makeItem(slot, Math.max(1, dlvl + ri(-1, 1) + ngb * 8), m.boss ? (Math.random() < 0.3 ? 'unique' : 'rare') : null);
+    const r3 = Math.random();
+    const it = makeItem(slot, Math.max(1, dlvl + ri(-1, 1) + ngb * 8),
+      m.boss ? (r3 < 0.12 ? 'exotic' : r3 < 0.35 ? 'unique' : r3 < 0.55 ? 'set' : 'rare') : null);
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
   if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
@@ -3012,7 +3076,7 @@ function drawMinimap() {
 }
 
 /* ---------------- HUD & panels ---------------- */
-const rarityColor = r => ({ common: '#e8e4da', magic: '#7f95e8', rare: '#e8d45a', unique: '#d98d4a' }[r]);
+const rarityColor = r => ({ common: '#e8e4da', magic: '#7f95e8', rare: '#e8d45a', unique: '#d98d4a', set: '#4adf6a', exotic: '#e86ae8' }[r]);
 
 function buildSkillbar() {
   const c = CLASSES[G.p.cls];
@@ -3260,11 +3324,39 @@ function renderInv() {
   gb.addEventListener('click', () => {
     if (p.gold < gambleCost || p.inv.length >= p.bagSlots) return;
     p.gold -= gambleCost;
-    const it = makeItem(choice(SLOTS), Math.max(1, G.dlvl), Math.random() < 0.08 ? 'unique' : Math.random() < 0.4 ? 'rare' : 'magic');
+    const r2 = Math.random();
+    const it = makeItem(choice(SLOTS), Math.max(1, G.dlvl),
+      r2 < 0.03 ? 'exotic' : r2 < 0.1 ? 'unique' : r2 < 0.2 ? 'set' : r2 < 0.55 ? 'rare' : 'magic');
     p.inv.push(it);
     sfx.pickup(); renderInv(); updateHUD(); saveDirty = true;
     showItemPopup(it, p.inv.length - 1, false);
   });
+}
+
+function diffLines(it) {
+  // compare derived stats with the candidate swapped into its slot
+  const p = G.p;
+  if (it.g || !SLOTS.includes(it.slot)) return '';
+  const saved = p.equip[it.slot];
+  p.equip[it.slot] = it;
+  const alt = derived(p);
+  p.equip[it.slot] = saved;
+  const cur = G.d;
+  const rows = [];
+  const fmt = (label, a, b) => {
+    const d = Math.round((b - a) * 10) / 10;
+    if (Math.abs(d) < 0.05) return;
+    rows.push(`<span style="color:${d > 0 ? '#7adf6a' : '#ff7a6a'}">${label} ${d > 0 ? '+' : ''}${d}</span>`);
+  };
+  fmt('Dmg', (cur.dmgLo + cur.dmgHi) / 2, (alt.dmgLo + alt.dmgHi) / 2);
+  fmt('Armor', cur.armor, alt.armor);
+  fmt('Life', cur.maxHp, alt.maxHp);
+  fmt('Mana', cur.maxMp, alt.maxMp);
+  fmt('Crit%', cur.crit * 100, alt.crit * 100);
+  fmt('Elem', cur.fire + cur.cold + cur.light + cur.poison, alt.fire + alt.cold + alt.light + alt.poison);
+  fmt('MF%', cur.mf, alt.mf);
+  fmt('Steal%', cur.leech * 100, alt.leech * 100);
+  return `<div class="idiff">${rows.length ? 'vs equipped: ' + rows.join(' · ') : '≈ no change vs equipped'}</div>`;
 }
 
 function showItemPopup(it, ref, equipped) {
@@ -3287,12 +3379,26 @@ function showItemPopup(it, ref, equipped) {
   const rwHtml = rw
     ? `<div class="rword">⟪ ${rw.name} ⟫<span>${Object.keys(rw.mods).map(k => { const a = AFFIXES.find(a => a.stat === k); return a ? a.txt(rw.mods[k]) : ''; }).filter(Boolean).join(' · ')}</span></div>`
     : '';
+  const setHtml = it.set && SETS[it.set] ? (() => {
+    const def = SETS[it.set];
+    const worn = SLOTS.filter(s => p.equip[s] && p.equip[s].set === it.set).length;
+    const lines = [];
+    for (let n = 2; n < def.bonuses.length; n++) {
+      const b = def.bonuses[n];
+      if (!b) continue;
+      const txt = Object.keys(b).map(k => { const a = AFFIXES.find(a => a.stat === k); return a ? a.txt(b[k]) : ''; }).filter(Boolean).join(', ');
+      lines.push(`<span style="color:${worn >= n ? '#4adf6a' : '#5a6a5a'}">(${n} pieces) ${txt}</span>`);
+    }
+    return `<div class="setinfo"><b style="color:#4adf6a">◈ ${def.name}</b> · ${worn}/${Object.keys(def.pieces).length} worn<br>${lines.join('<br>')}</div>`;
+  })() : '';
   pop.innerHTML = `
     <div class="iname rc-${it.rarity}" ${it.g ? `style="color:${GEMS[it.g].color}"` : ''}>${it.icon} ${it.name}</div>
     <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
     ${rwHtml}
+    ${setHtml}
     <div class="imods">${modLines(it).join('<br>') || '<i>no properties</i>'}${gemLines}</div>
     ${sockHtml}
+    ${!equipped && !it.g ? diffLines(it) : ''}
     <div class="ibtns">
       ${equipped
         ? `<button class="smallbtn" data-act="unequip">Unequip</button>`
