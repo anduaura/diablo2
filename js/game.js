@@ -4398,9 +4398,10 @@ function renderChar() {
 
 const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
 const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
-// bulk-sellable: never gems, charms, sigils, or anything with sockets (gem hosts)
+// bulk-sellable: everything of the tier (gems included) except socketed
+// gem hosts, charms (their power is live from the bag) and quest sigils
 const sellListUpTo = (p, tier) =>
-  p.inv.filter(i => !i.g && !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' &&
+  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' &&
     RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
 
 function sockBadge(it) {
@@ -4445,7 +4446,7 @@ function renderInv() {
         return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
       }).join('')}
     </div>
-    <div class="derived" style="text-align:center; margin:2px 0 8px">Selling skips gems, charms, sigils and socketed items.</div>
+    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms and sigils always stay.</div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {
@@ -4467,7 +4468,10 @@ function renderInv() {
     if (!list.length) return;
     const total = list.reduce((s, i) => s + sellPrice(i), 0);
     const label = tier === 'exotic' ? 'every rarity' : 'rarities up to ' + tier;
-    if (!confirm('Sell ' + list.length + ' items (' + label + ') for ' + total + ' gold?\nGems and socketed items always stay.')) return;
+    const gemCount = list.filter(i => i.g).length;
+    if (!confirm('Sell ' + list.length + ' items (' + label + ') for ' + total + ' gold?'
+      + (gemCount ? '\nIncludes ' + gemCount + ' gem' + (gemCount > 1 ? 's' : '') + '.' : '')
+      + '\nSocketed items always stay.')) return;
     p.inv = p.inv.filter(i => !list.includes(i));
     p.gold += total;
     ftext(p.x, p.y - 30, '+' + total + 'g', '#e8c14d', 14);
