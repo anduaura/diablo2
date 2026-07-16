@@ -75,6 +75,74 @@ const sfx = {
   epic: () => { blip(659, 0.12, 'triangle', 0.065, 0); setTimeout(() => blip(880, 0.12, 'triangle', 0.065, 0), 110); setTimeout(() => blip(1318, 0.35, 'triangle', 0.07, 0), 220); },
 };
 
+/* ---------------- ambient music (tiny procedural score) ----------------
+   A low drone in each world's key plus sparse minor-pentatonic bells,
+   scheduled a second ahead from the frame loop. No audio assets. */
+let musicOn = true;
+const music = { drone: null, key: null, nextBell: 0 };
+function stopDrone() {
+  if (!music.drone) return;
+  try {
+    music.drone.g.gain.setTargetAtTime(0, AC.currentTime, 0.4);
+    const oscs = music.drone.oscs;
+    setTimeout(() => oscs.forEach(o => { try { o.stop(); } catch (e) { } }), 2000);
+  } catch (e) { }
+  music.drone = null; music.key = null;
+}
+function startDrone(rootHz) {
+  stopDrone();
+  try {
+    const g = AC.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(0.05, AC.currentTime, 3);
+    const filt = AC.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 340;
+    g.connect(filt); filt.connect(AC.destination);
+    const oscs = [];
+    for (const [ratio, type, det] of [[1, 'sine', 0], [1.5, 'sine', 3], [2, 'triangle', -4]]) {
+      const o = AC.createOscillator();
+      o.type = type; o.frequency.value = rootHz * ratio; o.detune.value = det;
+      o.connect(g); o.start();
+      oscs.push(o);
+    }
+    music.drone = { oscs, g };
+  } catch (e) { }
+}
+function bellNote(freq, t, vol) {
+  try {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 3);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t + 3.2);
+  } catch (e) { }
+}
+const MUSIC_OFFS = [0, -2, -5, 3, -7];   // key offset per world (semitones)
+const PENTATONIC = [0, 3, 5, 7, 10, 12, 15];
+function musicTick() {
+  if (!AC || AC.state !== 'running') return;
+  if (!musicOn || !G) { stopDrone(); return; }
+  const key = G.dlvl === 0 ? 'town' : 'w' + (G.world || 0);
+  const off = G.dlvl === 0 ? 5 : MUSIC_OFFS[G.world || 0] || 0;
+  const root = 55 * Math.pow(2, off / 12);
+  if (music.key !== key) {
+    startDrone(root);
+    music.key = key;
+    music.nextBell = AC.currentTime + 2;
+  }
+  while (music.nextBell < AC.currentTime + 1) {
+    const t = Math.max(music.nextBell, AC.currentTime + 0.05);
+    const step = choice(PENTATONIC);
+    const freq = root * 4 * Math.pow(2, step / 12);
+    const vol = G.dlvl === 0 ? 0.022 : 0.03;
+    bellNote(freq, t, vol);
+    if (Math.random() < 0.3) bellNote(freq * 1.5, t + 0.3, vol * 0.5);   // faint echo a fifth up
+    music.nextBell = t + rand(2.2, G.dlvl === 0 ? 7 : 5);
+  }
+}
+
 /* ---------------- class data ---------------- */
 const CLASSES = {
   warrior: {
@@ -1346,7 +1414,7 @@ function saveGame() {
       skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
       hardcore: p.hardcore || false,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
-      hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
+      hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn, musicOn,
       waypoints: G.waypoints, deepest: G.deepest,
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
@@ -1369,6 +1437,7 @@ function startGame(clsId, save, slot) {
       hardcore: !!save.hardcore,
     });
     soundOn = save.soundOn !== false;
+    musicOn = save.musicOn !== false;
   } else {
     p.hardcore = hardcoreNext;
   }
@@ -3670,6 +3739,7 @@ function renderPause() {
     <div class="invactions" style="flex-direction:column">
       <button class="smallbtn" data-close>▶ Resume</button>
       <button class="smallbtn" data-snd>${soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF'}</button>
+      <button class="smallbtn" data-music>${musicOn ? '🎵 Music: ON' : '🎵 Music: OFF'}</button>
       <button class="smallbtn" data-autopot>🧪 Auto-Potion: ${G.autoPot > 0 ? 'below ' + Math.round(G.autoPot * 100) + '% life' : 'OFF'}</button>
       <button class="smallbtn" data-autoskill>🤖 Auto-Skills: ${G.autoSkill ? 'ON' : 'OFF'}</button>
       <button class="smallbtn" data-autoequip>⬆ Auto-Equip upgrades: ${G.autoEquip ? 'ON' : 'OFF'}</button>
@@ -3682,6 +3752,7 @@ function renderPause() {
     </div>`;
   $('pausePanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
   $('pausePanel').querySelector('[data-snd]').addEventListener('click', () => { soundOn = !soundOn; saveDirty = true; renderPause(); });
+  $('pausePanel').querySelector('[data-music]').addEventListener('click', () => { musicOn = !musicOn; saveDirty = true; renderPause(); });
   $('pausePanel').querySelector('[data-autopot]').addEventListener('click', () => {
     const steps = [0, 0.25, 0.35, 0.5];
     G.autoPot = steps[(steps.indexOf(G.autoPot) + 1) % steps.length];
@@ -3904,6 +3975,7 @@ function frame(now) {
   try {
     if (G && !paused && !anyPanelOpen()) update(dt);
     render();
+    musicTick();
   } catch (err) {
     console.error(err);
   }
