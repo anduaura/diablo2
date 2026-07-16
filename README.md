@@ -43,11 +43,14 @@ python3 -m http.server 8000
 - **4 classes** — Warrior (melee bruiser), Sorceress (fire & frost),
   Huntress (bow volleys), Necromancer (skeletal army), each with four
   skills, two passives, and skill points to rank them up (respec for gold)
-- **Ten themed worlds, 25 floors each** — every realm has its own
-  construction and scenery, a **mini-boss** sealing the stairs every 5th
-  floor, and a unique **dragon tyrant** with elemental breath waiting on
-  floor 25; slay it to conquer the world and unlock the next realm's
-  **gate** in town
+- **Twelve themed worlds, 25 floors each** — meadow, tundra, caldera,
+  catacombs, drowned ruins, fungal depths, screaming sands, crystal
+  hollows, blood gardens, the void — then up into **sky isles** among
+  the clouds and a futuristic **chrome bastion** patrolled by rogue
+  machines; every realm has its own construction, scenery and exit, a
+  **mini-boss** sealing the stairs every 5th floor, and a unique
+  **dragon tyrant** with elemental breath waiting on floor 25; slay it
+  to conquer the world and unlock the next realm's **gate** in town
 - **A living town** — merchant, stash, stable, rift obelisk, the world
   gates, and townsfolk: Elder Maro trades lore & hints, Sister Amara
   heals for free and sells blessings for the road
