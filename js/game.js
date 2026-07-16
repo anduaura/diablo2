@@ -472,6 +472,11 @@ function fusableGroups(inv) {
       key = 'c:' + charmT(it);
     } else if (it.slot === 'sigil' && !it.golden) {
       key = 's:0';
+    } else if (it.rarity === 'set' && it.set && setGradeIdx(it) < GEM_GRADES.length - 1
+      && !(it.gems && it.gems.length)) {
+      // 3 copies of the same piece at the same grade climb a grade;
+      // pieces with a gem socketed stay out so the gem isn't destroyed
+      key = 'st:' + it.set + ':' + it.slot + ':' + setGradeIdx(it);
     }
     if (!key) continue;
     (groups[key] = groups[key] || []).push(i);
@@ -491,6 +496,8 @@ function fusableGroups(inv) {
     } else if (key[0] === 'c') {
       result = makeCharm(lvl, charmT(src) + 1);
       from = CHARM_TIERS[charmT(src)].name.trim();
+    } else if (key.startsWith('st:')) {
+      result = makeSetPiece(src.set, src.slot, lvl, setGradeIdx(src) + 1);
     } else {
       result = makeSigil(lvl, true);
       from = 'Bovine Sigil';
@@ -499,8 +506,9 @@ function fusableGroups(inv) {
   }
   return out;
 }
-/* fusion feedback color: a gem's stone, otherwise the result's rarity */
-const fuseColor = it => it.g ? GEMS[it.g].color : rarityColor(it.rarity);
+/* fusion feedback color: a gem's stone, a set piece's grade, else rarity */
+const fuseColor = it => it.g ? GEMS[it.g].color
+  : it.rarity === 'set' && it.grade ? rarityColor(it.grade) : rarityColor(it.rarity);
 /* kept for quick "is anything fusable" checks */
 function fusableGems(inv) {
   const gs = fusableGroups(inv);
@@ -1499,6 +1507,28 @@ function findPath(sx, sy, tx, ty) {
 }
 
 /* ---------------- items ---------------- */
+/* set pieces roll a grade of their own: higher grades multiply the
+   piece's stats while set membership & bonuses stay identical */
+const SET_GRADE_NAMES = ['', 'Fine ', 'Exalted ', 'Mythic ', 'Celestial '];
+const SET_GRADE_MULT = [1, 1.25, 1.55, 1.95, 2.5];
+const setGradeIdx = it => Math.max(0, GEM_GRADES.indexOf(it.grade || 'common'));
+function makeSetPiece(sid, slot, ilvl, gIdx) {
+  const def = SETS[sid];
+  const mult = SET_GRADE_MULT[gIdx];
+  const mods = {};
+  for (const k in def.pieceMods) mods[k] = Math.max(1, Math.round(def.pieceMods[k] * mult));
+  const it = {
+    slot, set: sid, grade: GEM_GRADES[gIdx],
+    base: def.pieces[slot],
+    name: SET_GRADE_NAMES[gIdx] + def.pieces[slot],
+    icon: slot === 'weapon' ? choice(WEAPON_ICONS[G.p.cls]) : SLOT_ICONS[slot],
+    rarity: 'set', lvl: ilvl, mods,
+  };
+  if (slot === 'weapon') it.dmg = [Math.round((2 + ilvl * 2) * mult), Math.round((5 + ilvl * 3) * mult)];
+  else if (slot !== 'ring' && slot !== 'amulet') it.armor = Math.round((3 + ilvl * 2.5) * mult);
+  if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
+  return it;
+}
 function makeItem(slot, ilvl, forceRarity) {
   const p = G.p, clsId = p.cls;
   let rarity = forceRarity;
@@ -1511,26 +1541,9 @@ function makeItem(slot, ilvl, forceRarity) {
   if (rarity === 'set') {
     const pool = Object.keys(SETS).filter(k => SETS[k].pieces[slot]);
     const sid = choice(pool);
-    const def = SETS[sid];
-    // set pieces roll a grade of their own: higher grades multiply the
-    // piece's stats while set membership & bonuses stay identical
     const gr = Math.random();
     const gIdx = gr < 0.04 ? 4 : gr < 0.12 ? 3 : gr < 0.3 ? 2 : gr < 0.6 ? 1 : 0;
-    const grade = ['common', 'magic', 'rare', 'unique', 'exotic'][gIdx];
-    const mult = [1, 1.25, 1.55, 1.95, 2.5][gIdx];
-    const mods = {};
-    for (const k in def.pieceMods) mods[k] = Math.max(1, Math.round(def.pieceMods[k] * mult));
-    const it = {
-      slot, set: sid, grade,
-      base: def.pieces[slot],
-      name: ['', 'Fine ', 'Exalted ', 'Mythic ', 'Celestial '][gIdx] + def.pieces[slot],
-      icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot],
-      rarity: 'set', lvl: ilvl, mods,
-    };
-    if (slot === 'weapon') it.dmg = [Math.round((2 + ilvl * 2) * mult), Math.round((5 + ilvl * 3) * mult)];
-    else if (slot !== 'ring' && slot !== 'amulet') it.armor = Math.round((3 + ilvl * 2.5) * mult);
-    if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
-    return it;
+    return makeSetPiece(sid, slot, ilvl, gIdx);
   }
   if (rarity === 'unique') {
     const pool = UNIQUES.filter(u => u.slot === slot);
@@ -4438,10 +4451,22 @@ function render() {
       ctx.restore();
       ctx.font = '11px Georgia';
       ctx.fillStyle = '#000000aa';
+      const graded = dr.item.rarity === 'set' && setGradeIdx(dr.item) > 0;
       const nw = ctx.measureText(dr.item.name).width;
-      ctx.fillRect(dr.x - nw / 2 - 3, dr.y - 24, nw + 6, 13);
+      ctx.fillRect(dr.x - nw / 2 - 3, dr.y - 24, nw + 6 + (graded ? 13 : 0), 13);
       ctx.fillStyle = col;
       ctx.fillText(dr.item.name, dr.x, dr.y - 17.5);
+      // grade star beside the label so a Fine+ set drop reads at a glance
+      if (graded) {
+        ctx.fillStyle = rarityColor(dr.item.grade);
+        const sx3 = dr.x + nw / 2 + 8.5, sy3 = dr.y - 17.5;
+        ctx.beginPath();
+        for (let k = 0; k < 8; k++) {   // 4-point sparkle
+          const a = k * Math.PI / 4 - Math.PI / 2, r3 = k % 2 ? 1.7 : 4.4;
+          ctx[k ? 'lineTo' : 'moveTo'](sx3 + Math.cos(a) * r3, sy3 + Math.sin(a) * r3);
+        }
+        ctx.closePath(); ctx.fill();
+      }
       if (dr.item.sockets) {   // socket pips under the label
         for (let k = 0; k < dr.item.sockets; k++) {
           const g2 = dr.item.gems && dr.item.gems[k];
@@ -7624,7 +7649,7 @@ function renderStable() {
 
 function renderStash() {
   const p = G.p, stash = loadStash(), sMax = stashMax();
-  const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) : ''}</button>`;
+  const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) + gradeBadge(it) : ''}</button>`;
   // show filled slots plus a row of empties — huge trunks stay fast
   const shownSt = Math.min(sMax, Math.ceil((stash.length + 6) / 6) * 6);
   const shownBg = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
@@ -7793,20 +7818,25 @@ function renderQuestDialog() {
 function renderFuse() {
   const p = G.p;
   const groups = fusableGroups(p.inv);
+  // graded set pieces tint by their grade so the upgrade reads in the row
+  const tint = it => it.rarity === 'set' && setGradeIdx(it) > 0
+    ? ` style="color:${rarityColor(it.grade)}"` : '';
   const rows = groups.map((g, i) => `
     <button class="smallbtn" data-fuserow="${i}" style="width:100%">
-      ${g.result.icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}">${g.from}</span>
-      &nbsp;→&nbsp; <span class="rc-${g.result.rarity}">${g.result.name}</span>
+      ${g.result.icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}"${tint(p.inv[g.idx[0]])}>${g.from}</span>
+      &nbsp;→&nbsp; <span class="rc-${g.result.rarity}"${tint(g.result)}>${g.result.name}</span>
     </button>`).join('');
   $('fusePanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">⚗ Gem Fusion</div>
+    <div class="ptitle">⚗ Fusion</div>
     <div class="invactions" style="flex-direction:column">
       ${rows || '<div class="derived" style="text-align:center">Nothing left to fuse — gather three of a kind.</div>'}
     </div>
     ${groups.length ? '<div class="invactions"><button class="smallbtn" data-fuseall2>⚡ Fuse all</button></div>' : ''}
     <div class="derived" style="text-align:center">Three of a kind climb the ladder: Chipped → Gem → Flawless,<br>
-    then Flawless grades ascend all the way to <span class="rc-exotic">Celestial</span>.</div>`;
+    then Flawless grades ascend all the way to <span class="rc-exotic">Celestial</span>.<br>
+    Three copies of the same <span class="rc-set">set piece</span> at the same grade forge
+    the next grade — empty a piece's socket first, gems don't survive the crucible.</div>`;
   $('fusePanel').querySelector('[data-close]').addEventListener('click', closePanels);
   const fa = $('fusePanel').querySelector('[data-fuseall2]');
   if (fa) fa.addEventListener('click', () => {
@@ -8023,20 +8053,26 @@ function sockBadge(it) {
   }).join('')}</span>`;
 }
 
+/* set-piece grade star: marks graded (Fine+) set items in slot grids */
+function gradeBadge(it) {
+  if (!it || it.rarity !== 'set' || setGradeIdx(it) < 1) return '';
+  return `<span class="gradepip" style="color:${rarityColor(it.grade)}">✦</span>`;
+}
+
 function renderInv() {
   const p = G.p;
   const gambleCost = 120 + G.dlvl * 45;
   const potCost = 25 + G.dlvl * 6;
   const eqSlot = s => {
     const it = p.equip[s];
-    return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}<span class="slotlabel">${s}</span></button>`;
+    return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
   // show every filled slot plus a row of empties — huge bags stay fast
   const shownBag = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
   for (let i = 0; i < shownBag; i++) {
     const it = p.inv[i];
-    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) : ''}</button>`;
+    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}</button>`;
   }
   if (p.bagSlots > shownBag) grid += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${p.bagSlots - shownBag} more empty slots</div>`;
   $('invPanel').innerHTML = `
@@ -8047,7 +8083,7 @@ function renderInv() {
       <button class="smallbtn" data-buy="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
-      <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 matching gems into a finer one">⚗ Fuse gems${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
+      <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 of a kind into a finer one">⚗ Fuse${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
       <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Apply every possible fusion, cascading up the ladder">⚡ Fuse all</button>
       ${p.bagSlots < BAG_MAX
         ? `<button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button>`
@@ -8692,5 +8728,5 @@ window.__sanctuary = {
   makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false),
   enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
   killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES,
-  CHALLENGES, showVictory, loadBadges,
+  CHALLENGES, showVictory, loadBadges, fusableGroups, makeSetPiece,
 };

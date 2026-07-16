@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.12.0';
+const SANCTUARY_VERSION = '1.13.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.13.0', date: '2026-07-16', title: 'Set grades, visible & fusable',
+    notes: [
+      'Set pieces join the fusion ladder: three copies of the same piece at the same grade forge the next grade, Fine through Celestial (socketed gems must come out first)',
+      'Graded set items now show their grade at a glance — a colored ✦ star on the drop label and on bag, equipment and trunk slots',
+    ],
+  },
   {
     v: '1.12.0', date: '2026-07-16', title: 'Bottomless bags & trunks',
     notes: [
