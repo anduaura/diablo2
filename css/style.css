@@ -257,7 +257,12 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 #itemPopup .iname { font-size:17px; text-align:center; margin-bottom:2px; }
 #itemPopup .ibase { font-size:12.5px; color:#8a7a58; text-align:center; margin-bottom:7px; }
 #itemPopup .imods { font-size:14px; color:#7f95e8; text-align:center; line-height:1.55; margin-bottom:10px; }
-#itemPopup .isock { text-align:center; font-size:22px; letter-spacing:6px; margin-bottom:10px; }
+#itemPopup .isock { text-align:center; font-size:22px; margin-bottom:4px; }
+#itemPopup .sockbtn {
+  background:none; border:none; font-size:24px; padding:2px 8px; line-height:1;
+  display:inline-block;
+}
+#itemPopup button.sockbtn:active { transform:scale(1.25); }
 #itemPopup .ibtns { display:flex; gap:7px; flex-wrap:wrap; }
 #itemPopup .ibtns .smallbtn { min-width:90px; }
 .rc-common { color:#e8e4da; } .rc-magic { color:#7f95e8; } .rc-rare { color:#e8d45a; } .rc-unique { color:#d98d4a; }

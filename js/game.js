@@ -1635,11 +1635,16 @@ function update(dt) {
       if (!G.lockMsgT || G.time - G.lockMsgT > 3) { banner('The stairs are sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!'); G.lockMsgT = G.time; }
       p.moveTo = null; p.path = null;
       moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
+    } else if (G.stairsHold) {
+      // chose to stay: ease the hero off the stairs
+      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
+    } else if (G.drops.length > 0) {
+      togglePanel('stairsPanel');
     } else {
       enterLevel(G.dlvl + 1, false);
       return;
     }
-  }
+  } else G.stairsHold = false;
 
   /* --- pickups (the hero, pets and minions all use the same logic) --- */
   collectDropsAt(p.x, p.y);
@@ -3378,10 +3383,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3396,8 +3401,41 @@ function togglePanel(id) {
     if (id === 'shopPanel') renderShop();
     if (id === 'stashPanel') renderStash();
     if (id === 'stablePanel') renderStable();
+    if (id === 'stairsPanel') renderStairs();
     paused = true;
   }
+}
+
+function renderStairs() {
+  const items = G.drops.filter(d => d.kind === 'item').length;
+  const gold = G.drops.filter(d => d.kind === 'gold').length;
+  const pots = G.drops.length - items - gold;
+  const bits = [];
+  if (items) bits.push(items + ' item' + (items > 1 ? 's' : ''));
+  if (gold) bits.push(gold + ' gold pile' + (gold > 1 ? 's' : ''));
+  if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
+  $('stairsPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">⬇ Descend?</div>
+    <div class="derived" style="text-align:center; font-size:14px">
+      Still lying on this floor:<br><b style="color:#e8c14d">${bits.join(' · ')}</b><br>
+      Loot left behind is lost forever.
+    </div>
+    <div class="invactions" style="margin-top:12px">
+      <button class="smallbtn" data-stay>↩ Stay & collect</button>
+      <button class="smallbtn" data-descend style="border-color:#d9c65a">⬇ Descend anyway</button>
+    </div>`;
+  const stay = () => {
+    G.stairsHold = true;
+    G.p.moveTo = null; G.p.path = null;
+    closePanels();
+  };
+  $('stairsPanel').querySelector('[data-close]').addEventListener('click', stay);
+  $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
+  $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
+    closePanels();
+    enterLevel(G.dlvl + 1, false);
+  });
 }
 
 function renderStable() {
@@ -3695,10 +3733,13 @@ function showItemPopup(it, ref, equipped) {
     ? '<br>' + it.gems.map(g => `<span style="color:${GEMS[g.g].color}">◆ ${GEMS[g.g].txt(g.v)}</span>`).join('<br>')
     : '';
   const sockHtml = it.sockets
-    ? '<div class="isock">' + Array.from({ length: it.sockets }, (_, i) => {
-      const g = it.gems && it.gems[i];
-      return g ? `<span style="color:${GEMS[g.g].color}">◆</span>` : '<span style="color:#5a4c34">◇</span>';
-    }).join(' ') + '</div>'
+    ? '<div class="isock">' + Array.from({ length: it.sockets }, (_, i2) => {
+      const g = it.gems && it.gems[i2];
+      return g
+        ? `<button class="sockbtn" data-unsock="${i2}" style="color:${GEMS[g.g].color}" title="Remove gem">◆</button>`
+        : '<span class="sockbtn" style="color:#5a4c34">◇</span>';
+    }).join('') + '</div>' +
+    (it.gems && it.gems.length ? '<div class="ibase">tap a filled socket to pry its gem out</div>' : '')
     : '';
   const gemTargets = it.g ? SLOTS.filter(s => {
     const e2 = p.equip[s];
@@ -3739,6 +3780,20 @@ function showItemPopup(it, ref, equipped) {
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
   pop.classList.remove('hidden');
+  pop.querySelectorAll('[data-unsock]').forEach(b => b.addEventListener('click', () => {
+    const gi = +b.dataset.unsock;
+    const g = it.gems && it.gems[gi];
+    if (!g) return;
+    if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Bag is full!', '#ff8a7a', 13); return; }
+    it.gems.splice(gi, 1);
+    p.inv.push({ slot: 'gem', g: g.g, v: g.v, icon: GEMS[g.g].icon, rarity: 'magic', mods: {}, name: GEMS[g.g].name, base: 'gem', lvl: it.lvl });
+    recalc(); sfx.pickup();
+    ftext(p.x, p.y - 30, GEMS[g.g].name + ' pried out', GEMS[g.g].color, 13);
+    saveDirty = true;
+    pop.classList.add('hidden');
+    renderInv(); updateHUD();
+    showItemPopup(it, ref, equipped);   // reopen with the freed socket
+  }));
   pop.querySelectorAll('[data-embed]').forEach(b => b.addEventListener('click', () => {
     const target = p.equip[b.dataset.embed];
     if (!target || !target.sockets) return;
