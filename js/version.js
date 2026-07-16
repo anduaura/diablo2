@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.6.1';
+const SANCTUARY_VERSION = '1.7.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.7.0', date: '2026-07-16', title: 'Fuse all',
+    notes: [
+      'A new ⚡ Fuse all button in the bag (and the fusion picker) applies every possible gem fusion in one tap, cascading up the ladder',
+    ],
+  },
   {
     v: '1.6.1', date: '2026-07-16', title: 'A touch of Pokémon',
     notes: [
