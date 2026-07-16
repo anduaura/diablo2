@@ -1,6 +1,7 @@
-# ⚔ Sanctuary — a Diablo II–style web ARPG
+# ⚔ Sanctuary — a Diablo II–style web ARPG with a touch of Pokémon
 
-A dark, gothic hack-and-slash action RPG that runs entirely in your browser —
+A dark, gothic hack-and-slash action RPG — with wild beasts to battle,
+tame, hatch and collect — that runs entirely in your browser,
 **designed for phones first**. No installs, no build step, no dependencies:
 one HTML file, one stylesheet, one script. All art is drawn procedurally on a
 `<canvas>`; this is an original fan homage inspired by Diablo II and uses no
