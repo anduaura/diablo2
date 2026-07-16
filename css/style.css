@@ -300,9 +300,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 
 /* ---- versioning: menu tag, changelog panel, update toast ---- */
 #versionTag {
-  position:absolute; right:10px; bottom:calc(8px + env(safe-area-inset-bottom));
+  /* in normal flow under the hint line — an absolutely-positioned corner
+     tag overlapped the hint whenever the roster made the menu tall */
   background:none; border:none; color:#65573d; font-family:Georgia, serif;
-  font-size:11px; padding:6px 8px; cursor:pointer;
+  font-size:11px; padding:2px 8px 6px; cursor:pointer; flex:none;
 }
 #versionTag:active { color:#c9b98a; }
 #versionTag .vnew {
