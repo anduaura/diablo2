@@ -22,6 +22,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp build info into version.js
+        run: |
+          BUILD="${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7} ($(date -u +%Y-%m-%d))"
+          sed -i "s/const SANCTUARY_BUILD = 'dev';/const SANCTUARY_BUILD = '${BUILD}';/" js/version.js
+          grep SANCTUARY_BUILD js/version.js
       - uses: actions/configure-pages@v5
         with:
           enablement: true

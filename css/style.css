@@ -297,3 +297,32 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   .skillbtn .sicon { font-size:24px; }
   #minimap { width:96px; height:96px; }
 }
+
+/* ---- versioning: menu tag, changelog panel, update toast ---- */
+#versionTag {
+  position:absolute; right:10px; bottom:calc(8px + env(safe-area-inset-bottom));
+  background:none; border:none; color:#65573d; font-family:Georgia, serif;
+  font-size:11px; padding:6px 8px; cursor:pointer;
+}
+#versionTag:active { color:#c9b98a; }
+#versionTag .vnew {
+  background:#7a1a12; color:#ffd76a; border-radius:6px;
+  font-size:9px; padding:1px 5px; margin-left:3px; vertical-align:1px;
+}
+.clog { overflow-y:auto; max-height:60vh; margin-top:10px; text-align:left; }
+.clog-entry { margin-bottom:14px; }
+.clog-head { color:#c9b98a; font-size:13px; }
+.clog-head b { color:#e8c14d; }
+.clog-date { color:#65573d; font-size:11px; float:right; }
+.clog ul { margin:6px 0 0 18px; padding:0; }
+.clog li { color:#9a8a68; font-size:12px; margin-bottom:3px; line-height:1.45; }
+#updateToast {
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(14px + env(safe-area-inset-bottom));
+  background:#1a1208ee; color:#ffd76a; border:1px solid #7a6a3a; border-radius:10px;
+  padding:10px 16px; font-family:Georgia, serif; font-size:13px;
+  z-index:60; cursor:pointer; box-shadow:0 4px 18px #000c;
+  animation:toastIn 0.4s ease-out;
+}
+@keyframes toastIn { from { opacity:0; transform:translate(-50%, 16px); } to { opacity:1; transform:translate(-50%, 0); } }
+#changelogPanel { z-index:35; }   /* readable over the z-30 menu screen */

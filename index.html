@@ -70,6 +70,7 @@
   <div id="graveyard" class="hidden"></div>
   <p id="slotsFull" class="hint hidden">All three slots are full — release a hero to forge a new one.</p>
   <p class="hint">Tap to move & attack · hold to run · buttons cast skills</p>
+  <button id="versionTag" title="What's new"></button>
 </div>
 
 <!-- victory screen -->
@@ -99,11 +100,29 @@
 <div id="fusePanel" class="panel hidden"></div>
 <div id="stablePanel" class="panel hidden"></div>
 <div id="stairsPanel" class="panel hidden"></div>
+<div id="changelogPanel" class="panel hidden"></div>
 <div id="itemPopup" class="hidden"></div>
+<div id="updateToast" class="hidden">⬆ Update ready — tap to reload</div>
 
+<script src="js/version.js"></script>
 <script src="js/game.js"></script>
 <script>
-if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+if ('serviceWorker' in navigator) addEventListener('load', () => {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // a fresh service worker over an existing one means a new build shipped
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          const t = document.getElementById('updateToast');
+          t.classList.remove('hidden');
+          t.addEventListener('click', () => location.reload(), { once: true });
+        }
+      });
+    });
+  }).catch(() => {});
+});
 </script>
 </body>
 </html>

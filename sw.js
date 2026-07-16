@@ -1,6 +1,11 @@
-/* Sanctuary service worker — network-first with offline cache fallback */
-const CACHE = 'sanctuary-v1';
-const ASSETS = ['./', 'index.html', 'css/style.css', 'js/game.js', 'manifest.json', 'icon.svg'];
+/* Sanctuary service worker — network-first with offline cache fallback.
+   The cache is named after SANCTUARY_VERSION (js/version.js), so every
+   release gets a fresh cache and old ones are swept on activate. The
+   browser re-checks imported scripts for changes, so bumping the version
+   is what triggers the update flow (and the in-page update toast). */
+importScripts('js/version.js');
+const CACHE = 'sanctuary-v' + (typeof SANCTUARY_VERSION === 'string' ? SANCTUARY_VERSION : 'x');
+const ASSETS = ['./', 'index.html', 'css/style.css', 'js/game.js', 'js/version.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
