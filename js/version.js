@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.9.0';
+const SANCTUARY_VERSION = '1.10.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.10.0', date: '2026-07-16', title: 'Two-way stairs & a livelier town',
+    notes: [
+      'Stairs go both ways — step on the up-stairs to climb back a floor (with the same loot warning before you leave things behind)',
+      'Your tamed beasts now wander the town green instead of standing frozen at the stable',
+      'Waypoints move to every realm\'s floors 5, 10, 15, 20 and 25 — the town gates already cover each realm\'s first floor',
+    ],
+  },
   {
     v: '1.9.0', date: '2026-07-16', title: 'Charm & sigil fusion',
     notes: [

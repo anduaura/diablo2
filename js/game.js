@@ -21,7 +21,7 @@ const thash = (x, y) => {
 /* ---------------- constants ---------------- */
 const TILE = 44, MAP_W = 52, MAP_H = 52;
 const T_WALL = 0, T_FLOOR = 1, T_UP = 2, T_DOWN = 3, T_WP = 4;
-const isWpFloor = dlvl => dlvl % 5 === 1;   // a waypoint every five floors
+const isWpFloor = dlvl => dlvl > 0 && dlvl % 5 === 0;   // fixed portals on floors 5, 10, 15, 20, 25 (gates already cover each world's floor 1)
 const AUTO_TARGET_R = 180;   // idle heroes lock onto monsters inside this radius
 const SAVE_KEY = 'sanctuary_save_v1';
 
@@ -2601,6 +2601,28 @@ function updateMinions(dt) {
   }
 }
 
+/* town pets amble around the green: pick a spot, wander over, ponder */
+function updateTownPets(dt) {
+  const R = G.lvl.rooms && G.lvl.rooms[0];
+  if (!R) return;
+  for (const tp of G.townPets || []) {
+    tp.wt -= dt;
+    if (tp.wt <= 0) {
+      tp.wt = rand(2.5, 7);
+      tp.tx = (R.x + 1.5 + Math.random() * (R.w - 3)) * TILE;
+      tp.ty = (R.y + 1.5 + Math.random() * (R.h - 3)) * TILE;
+    }
+    if (tp.tx) {
+      const d2 = dist(tp.x, tp.y, tp.tx, tp.ty);
+      if (d2 > 8) {
+        const a = Math.atan2(tp.ty - tp.y, tp.tx - tp.x);
+        tp.dir = a;
+        moveCircle(tp, Math.cos(a) * 65 * dt, Math.sin(a) * 65 * dt);
+      }
+    }
+  }
+}
+
 function updatePet(dt) {
   const pet = G.pet, p = G.p;
   if (!pet) return;
@@ -2724,6 +2746,22 @@ function enterLevel(dlvl, fresh) {
   if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
   const actPet = G.p.pets && G.p.pets[G.p.activePet];
   G.pet = actPet ? spawnPet(actPet) : null;
+  // in town the rest of the menagerie roams the green instead of
+  // standing frozen at the stable
+  G.townPets = [];
+  if (dlvl === 0 && G.p.pets) {
+    G.townPets = G.p.pets
+      .filter((_, i) => i !== G.p.activePet)
+      .slice(0, 8)
+      .map(d => {
+        const sp = PET_SPECIES[d.sp];
+        return {
+          isPet: true, townPet: true, kind: sp.form || sp.id, data: d, r: 10,
+          x: G.lvl.stable.x + rand(-70, 70), y: G.lvl.stable.y + rand(20, 80),
+          dir: rand(0, 6.28), atkT: 0, swingT: 0, wt: rand(0.5, 2), tx: 0, ty: 0,
+        };
+      });
+  }
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null;
@@ -3100,6 +3138,7 @@ function update(dt) {
       togglePanel('wpPanel');
     }
   } else G.onWp = false;
+  const onUpStairs = tileAt(ptx, pty) === T_UP && G.dlvl > 0 && !G.rift && !G.cowLevel && !G.petLair;
   if (tileAt(ptx, pty) === T_DOWN) {
     if (G.lvl.locked) {
       if (!G.lockMsgT || G.time - G.lockMsgT > 3) { banner('The stairs are sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!'); G.lockMsgT = G.time; }
@@ -3109,9 +3148,21 @@ function update(dt) {
       // chose to stay: ease the hero off the stairs
       moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
     } else if (G.drops.length > 0) {
+      G.stairsDir = 'down';
       togglePanel('stairsPanel');
     } else {
       enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
+      return;
+    }
+  } else if (onUpStairs) {
+    // stairs go both ways: climb back toward the surface
+    if (G.stairsHold) {
+      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
+    } else if (G.drops.length > 0) {
+      G.stairsDir = 'up';
+      togglePanel('stairsPanel');
+    } else {
+      enterLevel(G.dlvl - 1, false);
       return;
     }
   } else G.stairsHold = false;
@@ -3328,6 +3379,7 @@ function update(dt) {
 
   updateMinions(dt);
   updatePet(dt);
+  if (G.dlvl === 0) updateTownPets(dt);
   updateWorldFx(dt);
 
   /* --- fog of war (reveal near player) --- */
@@ -4426,6 +4478,7 @@ function render() {
   for (const m of G.lvl.monsters) if (m.hp > 0 && m.x > cam.x - VW / ZOOM && m.x < cam.x + VW / ZOOM && m.y > cam.y - VH / ZOOM && m.y < cam.y + VH / ZOOM) ents.push(m);
   for (const pr of G.lvl.props || []) if (pr.x > cam.x - VW / ZOOM && pr.x < cam.x + VW / ZOOM && pr.y > cam.y - VH / ZOOM && pr.y < cam.y + VH / ZOOM) ents.push(pr);
   for (const mi of G.minions) ents.push(mi);
+  for (const tp of G.townPets || []) ents.push(tp);
   if (G.pet) ents.push(G.pet);
   ents.push(p);
   ents.sort((a, b) => a.y - b.y);
@@ -7451,16 +7504,17 @@ function renderStairs() {
   if (gold) bits.push(gold + ' gold pile' + (gold > 1 ? 's' : ''));
   if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
   const leaving = G.cowLevel || G.rift || G.petLair;   // these stairs lead back to town
+  const up = G.stairsDir === 'up';
   $('stairsPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">${leaving ? '🌀 Return to town?' : '⬇ Descend?'}</div>
+    <div class="ptitle">${leaving ? '🌀 Return to town?' : up ? '⬆ Climb back up?' : '⬇ Descend?'}</div>
     <div class="derived" style="text-align:center; font-size:14px">
       Still lying on this floor:<br><b style="color:#e8c14d">${bits.join(' · ')}</b><br>
       Loot left behind is lost forever.
     </div>
     <div class="invactions" style="margin-top:12px">
       <button class="smallbtn" data-stay>↩ Stay & collect</button>
-      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : '⬇ Descend anyway'}</button>
+      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : up ? '⬆ Climb anyway' : '⬇ Descend anyway'}</button>
     </div>`;
   const stay = () => {
     G.stairsHold = true;
@@ -7471,7 +7525,7 @@ function renderStairs() {
   $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
   $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
     closePanels();
-    enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
+    enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : up ? G.dlvl - 1 : G.dlvl + 1, false);
   });
 }
 
@@ -7753,7 +7807,7 @@ function renderRift() {
 function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
-    : WORLDS[worldOf(d)].name + ' · Floor ' + d;
+    : WORLDS[worldOf(d)].name + ' · Floor ' + worldFloor(d) + '/25';
   const ret = G.anchor && G.anchor.dlvl !== G.dlvl
     ? `<button class="smallbtn" data-portal-return style="border-color:#5ab0ff">🌀 Return through portal — Floor ${G.anchor.dlvl}</button>`
     : (G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
@@ -7765,7 +7819,7 @@ function renderWp() {
       ${ret}
       ${dests.map(d => `<button class="smallbtn" data-wp="${d}" ${d === G.dlvl ? 'disabled' : ''}>${nameOf(d)}${d === G.dlvl ? ' (here)' : ''}</button>`).join('')}
     </div>
-    <div class="derived" style="text-align:center">A waypoint awakens every five floors (1, 6, 11…).<br>Step on one to bind it forever.</div>`;
+    <div class="derived" style="text-align:center">A waypoint awakens on every 5th floor of a realm (5, 10, 15…).<br>Step on one to bind it forever.</div>`;
   $('wpPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('wpPanel').querySelectorAll('[data-wp]').forEach(b => b.addEventListener('click', () => {
     const d = +b.dataset.wp;
