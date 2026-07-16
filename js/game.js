@@ -109,7 +109,21 @@ const CLASSES = {
       { id: 'poisoncloud', name: 'Poison Cloud', icon: '☠️', mana: 12, cd: 6, lvl: 6, desc: 'Toxic cloud poisons foes inside for 4s' },
       { id: 'strafe', name: 'Strafe', icon: '🌠', mana: 16, cd: 7, lvl: 12, desc: 'Rapid-fire 8 auto-aimed arrows' }],
   },
+  necromancer: {
+    name: 'Necromancer', icon: '💀', color: '#9adc8a',
+    desc: 'Master of the dead. Raises an army of skeletal minions.',
+    base: { str: 14, dex: 18, vit: 22, ene: 36 }, primary: 'ene',
+    weapon: { slot: 'weapon', base: 'Bone Wand', icon: '🦴', rarity: 'common', lvl: 1, dmg: [2, 5], mods: {} },
+    atkRange: 310, atkCd: 0.6, ranged: true, projKind: 'bone',
+    skills: [
+      { id: 'bonespear', name: 'Bone Spear', icon: '🦴', mana: 10, cd: 1.8, desc: 'Piercing spear of bone: 190% damage' },
+      { id: 'raiseskel', name: 'Raise Skeleton', icon: '💀', mana: 15, cd: 1.5, desc: 'Summon a skeletal warrior (more with level)' },
+      { id: 'curse', name: 'Curse of Frailty', icon: '🕯️', mana: 14, cd: 6, lvl: 6, desc: 'Cursed foes take +50% damage for 8s' },
+      { id: 'golem', name: 'Bone Golem', icon: '🗿', mana: 25, cd: 10, lvl: 12, desc: 'Summon a hulking golem to tank for you' }],
+  },
 };
+/* companion pets — the necromancer's companions are his minions */
+const PETS = { warrior: 'hound', sorceress: 'familiar', huntress: 'hawk', necromancer: null };
 
 /* ---------------- monster data ---------------- */
 const MTYPES = [
@@ -124,9 +138,9 @@ const MTYPES = [
 /* ---------------- item data ---------------- */
 const SLOTS = ['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet'];
 const SLOT_ICONS = { weapon: '🗡️', helm: '⛑️', armor: '🥋', boots: '🥾', ring: '💍', amulet: '📿' };
-const WEAPON_ICONS = { warrior: ['🗡️', '⚔️', '🪓', '🔨'], sorceress: ['🪄', '🦯', '🔱'], huntress: ['🏹'] };
+const WEAPON_ICONS = { warrior: ['🗡️', '⚔️', '🪓', '🔨'], sorceress: ['🪄', '🦯', '🔱'], huntress: ['🏹'], necromancer: ['🦴', '🪄'] };
 const BASE_NAMES = {
-  weapon: { warrior: ['Sword', 'War Axe', 'Great Maul', 'Broad Blade'], sorceress: ['Staff', 'Rune Rod', 'Grim Scepter'], huntress: ['Hunting Bow', 'War Bow', 'Razor Bow'] },
+  weapon: { warrior: ['Sword', 'War Axe', 'Great Maul', 'Broad Blade'], sorceress: ['Staff', 'Rune Rod', 'Grim Scepter'], huntress: ['Hunting Bow', 'War Bow', 'Razor Bow'], necromancer: ['Bone Wand', 'Skull Scepter', 'Tomb Staff'] },
   helm: ['Cap', 'Helm', 'Great Helm', 'Crown'], armor: ['Leather Armor', 'Ring Mail', 'Plate Mail', 'Ancient Plate'],
   boots: ['Boots', 'Heavy Boots', 'Greaves', 'War Treads'], ring: ['Ring', 'Band', 'Seal'], amulet: ['Amulet', 'Talisman', 'Idol'],
 };
@@ -591,6 +605,7 @@ function hitMonster(m, dmg, opts) {
   if (m.hp <= 0) return;
   const crit = !opts.noCrit && Math.random() < G.d.crit;
   if (crit) dmg = Math.round(dmg * 1.8);
+  if (m.curseT > 0) dmg = Math.round(dmg * 1.5);
   dmg = Math.max(1, Math.round(dmg));
   m.hp -= dmg; m.hurtT = 0.15; m.hitT = 0; m.aggro = true;
   if (opts.stun) m.stunT = Math.max(m.stunT, opts.stun);
@@ -610,7 +625,7 @@ function hitMonster(m, dmg, opts) {
     if (d2.light > 0) { m.hp -= d2.light; ftext(m.x, m.y - m.r - 20, d2.light, '#ffd23a', 12); spark(m.x, m.y - m.r / 2, '#ffd23a', 4, 220); }
     if (d2.poison > 0) { m.poisonT = 3; m.poisonDps = d2.poison / 3; m.pTick = 0; }
   }
-  if (G.d.leech > 0) G.p.hp = Math.min(G.d.maxHp, G.p.hp + dmg * G.d.leech);
+  if (!opts.noLeech && G.d.leech > 0) G.p.hp = Math.min(G.d.maxHp, G.p.hp + dmg * G.d.leech);
   if (m.hp <= 0) killMonster(m);
 }
 
@@ -866,6 +881,50 @@ function castSkill(i) {
     case 'strafe':
       p.strafeN = 8; p.strafeT = 0;
       break;
+    case 'bonespear':
+      shoot(p.x, p.y, aim, 540, atk * 1.9, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true, color: '#e0dbcc' });
+      sfx.shoot();
+      break;
+    case 'raiseskel': {
+      const cap = Math.min(5, 2 + Math.floor(p.level / 8));
+      if (G.minions.filter(mi => mi.kind === 'skel').length >= cap) {
+        p.mp += sk.mana; p.cd[i] = 0;
+        ftext(p.x, p.y - 30, 'Your army is full (' + cap + ')', '#9adc8a', 12);
+        break;
+      }
+      const mi = makeMinion('skel');
+      G.minions.push(mi);
+      burst(mi.x, mi.y, '#cfc9b8', 12, 120);
+      spark(mi.x, mi.y, '#9adc8a', 8, 140);
+      sfx.potion();
+      break;
+    }
+    case 'curse': {
+      const cx2 = t ? t.x : p.x + Math.cos(aim) * 120;
+      const cy2 = t ? t.y : p.y + Math.sin(aim) * 120;
+      let hitAny = false;
+      for (const m of G.lvl.monsters) {
+        if (m.hp <= 0) continue;
+        if (dist(cx2, cy2, m.x, m.y) < 140 + m.r) { m.curseT = 8; m.aggro = true; hitAny = true; }
+      }
+      G.rings.push({ x: cx2, y: cy2, r: 12, max: 140, color: '#b86adf', life: 0.35 });
+      spark(cx2, cy2, '#b86adf', 12, 180);
+      if (hitAny) banner('Cursed!');
+      sfx.boss();
+      break;
+    }
+    case 'golem': {
+      for (let k = G.minions.length - 1; k >= 0; k--) {
+        if (G.minions[k].kind === 'golem') { burst(G.minions[k].x, G.minions[k].y, '#cfc9b8', 10, 100); G.minions.splice(k, 1); }
+      }
+      const g2 = makeMinion('golem');
+      G.minions.push(g2);
+      burst(g2.x, g2.y, '#cfc9b8', 18, 160);
+      spark(g2.x, g2.y, '#9adc8a', 12, 180);
+      shake(0.15);
+      sfx.boss();
+      break;
+    }
   }
   updateHUD();
 }
@@ -878,6 +937,135 @@ function shoot(x, y, ang, spd, dmg, from, o) {
     aoe: o.aoe || 0, pierce: !!o.pierce, hit: new Set(), life: 1.6,
     ele: !!o.ele, color: o.color || null,
   });
+}
+
+/* ---------------- minions & pets ---------------- */
+function makeMinion(kind) {
+  const p = G.p, lvl = p.level;
+  const mult = 1 + G.d.ene * 0.008;
+  const base = kind === 'golem'
+    ? { hp: 120 + lvl * 22, dmg: [8 + lvl * 2, 14 + lvl * 3], spd: 100, r: 17, range: 34, atkCd: 1.2 }
+    : { hp: 30 + lvl * 8, dmg: [3 + lvl, 6 + Math.round(lvl * 1.6)], spd: 150, r: 11, range: 26, atkCd: 0.9 };
+  return {
+    isMinion: true, kind,
+    x: p.x + rand(-34, 34), y: p.y + rand(-30, 30),
+    hp: Math.round(base.hp * mult), maxHp: Math.round(base.hp * mult),
+    dmg: [Math.round(base.dmg[0] * mult), Math.round(base.dmg[1] * mult)],
+    spd: base.spd, r: base.r, range: base.range, atkCd: base.atkCd,
+    atkT: rand(0, 0.4), dir: 0, swingT: 0, hurtT: 0,
+    off: { x: rand(-30, 30), y: rand(-22, 22) },
+  };
+}
+function makePet(kind) {
+  const p = G.p;
+  return { isPet: true, kind, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
+}
+function hurtMinion(mi, dmg) {
+  mi.hp -= dmg; mi.hurtT = 0.15;
+  ftext(mi.x, mi.y - mi.r - 6, '-' + Math.round(dmg), '#9aa8b8', 11);
+}
+function minionDmg(mi) {
+  let d = ri(mi.dmg[0], mi.dmg[1]);
+  return d;
+}
+
+function updateMinions(dt) {
+  const p = G.p;
+  for (let i = G.minions.length - 1; i >= 0; i--) {
+    const mi = G.minions[i];
+    if (mi.hp <= 0) {
+      burst(mi.x, mi.y, '#cfc9b8', 12, 130);
+      ftext(mi.x, mi.y - 14, mi.kind === 'golem' ? 'Golem crumbles' : 'Skeleton falls', '#9aa8b8', 11);
+      G.minions.splice(i, 1);
+      continue;
+    }
+    mi.atkT -= dt;
+    mi.swingT = Math.max(0, mi.swingT - dt);
+    mi.hurtT = Math.max(0, mi.hurtT - dt);
+    // find a monster near the master
+    let best = null, bd = 1e9;
+    for (const m of G.lvl.monsters) {
+      if (m.hp <= 0) continue;
+      if (dist(p.x, p.y, m.x, m.y) > 340) continue;   // leash to the master
+      const dd = dist(mi.x, mi.y, m.x, m.y);
+      if (dd < bd) { bd = dd; best = m; }
+    }
+    if (best) {
+      mi.dir = Math.atan2(best.y - mi.y, best.x - mi.x);
+      if (bd < best.r + mi.range) {
+        if (mi.atkT <= 0) {
+          mi.atkT = mi.atkCd; mi.swingT = 0.2;
+          hitMonster(best, minionDmg(mi), { noCrit: true, noLeech: true });
+        }
+      } else moveCircle(mi, Math.cos(mi.dir) * mi.spd * dt, Math.sin(mi.dir) * mi.spd * dt);
+    } else {
+      const fx = p.x - Math.cos(p.dir) * 40 + mi.off.x, fy = p.y - Math.sin(p.dir) * 24 + mi.off.y;
+      if (dist(mi.x, mi.y, fx, fy) > 30) {
+        const a = Math.atan2(fy - mi.y, fx - mi.x);
+        mi.dir = a;
+        moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
+      }
+    }
+    // gentle separation between minions
+    for (let j = i - 1; j >= 0; j--) {
+      const o = G.minions[j];
+      const dx = o.x - mi.x, dy = o.y - mi.y, dd = Math.hypot(dx, dy), min = o.r + mi.r;
+      if (dd > 0.01 && dd < min) {
+        const push = (min - dd) / 2;
+        moveCircle(mi, -dx / dd * push, -dy / dd * push);
+        moveCircle(o, dx / dd * push, dy / dd * push);
+      }
+    }
+  }
+}
+
+function updatePet(dt) {
+  const pet = G.pet, p = G.p;
+  if (!pet) return;
+  pet.atkT -= dt;
+  pet.swingT = Math.max(0, pet.swingT - dt);
+  const flying = pet.kind !== 'hound';
+  const spd = 210;
+  // nearest monster near the hero
+  let best = null, bd = pet.kind === 'familiar' ? 240 : 150;
+  for (const m of G.lvl.monsters) {
+    if (m.hp <= 0 || !m.aggro) continue;
+    if (dist(p.x, p.y, m.x, m.y) > 300) continue;
+    const dd = dist(pet.x, pet.y, m.x, m.y);
+    if (dd < bd) { bd = dd; best = m; }
+  }
+  if (best) {
+    pet.dir = Math.atan2(best.y - pet.y, best.x - pet.x);
+    const atkRange = pet.kind === 'familiar' ? 190 : best.r + 22;
+    if (bd < atkRange) {
+      if (pet.atkT <= 0) {
+        pet.atkT = 1.15; pet.swingT = 0.2;
+        const dmg = Math.max(1, Math.round(playerAtk() * 0.3));
+        if (pet.kind === 'familiar') {
+          shoot(pet.x, pet.y - 14, pet.dir, 420, dmg, 'p', { kind: 'fire', r: 3.5, color: '#b8a4ff' });
+        } else {
+          hitMonster(best, dmg, { noCrit: true, noLeech: true });
+        }
+        sfx.hit();
+      }
+      if (!flying) return;
+    }
+    const mv = spd * dt;
+    if (bd >= atkRange) {
+      if (flying) { pet.x += Math.cos(pet.dir) * mv; pet.y += Math.sin(pet.dir) * mv; }
+      else moveCircle(pet, Math.cos(pet.dir) * mv, Math.sin(pet.dir) * mv);
+    }
+  } else {
+    const fx = p.x - Math.cos(p.dir) * 36, fy = p.y - Math.sin(p.dir) * 20 + 12;
+    const dd = dist(pet.x, pet.y, fx, fy);
+    if (dd > 28) {
+      const a = Math.atan2(fy - pet.y, fx - pet.x);
+      pet.dir = a;
+      const mv = Math.min(spd * dt, dd);
+      if (flying) { pet.x += Math.cos(a) * mv; pet.y += Math.sin(a) * mv; }
+      else moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
+    }
+  }
 }
 
 function nearestMonster(x, y, maxD) {
@@ -910,6 +1098,8 @@ function enterLevel(dlvl, fresh) {
   G.lvl = dlvl === 0 ? genTown() : genLevel(dlvl);
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null;
@@ -975,6 +1165,7 @@ function startGame(clsId, save, slot) {
     autoSkill: !!(save && save.autoSkill), autoPotT: 0, autoSkillT: 0,
     slot: slot !== undefined ? slot : 0, ng: (save && save.ng) || 0,
     buffDmg: 0, buffArmor: 0, buffSpd: 0,
+    minions: [], pet: null,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -1032,12 +1223,14 @@ function update(dt) {
   if (G.autoSkill) {
     G.autoSkillT = Math.max(0, (G.autoSkillT || 0) - dt);
     if (G.autoSkillT <= 0) {
-      const ranges = { cleave: 110, warcry: 130, whirlwind: 115, rage: 220, fireball: 320, frostnova: 140, chain: 300, meteor: 300, multishot: 320, skewer: 320, poisoncloud: 240, strafe: 350 };
+      const ranges = { cleave: 110, warcry: 130, whirlwind: 115, rage: 220, fireball: 320, frostnova: 140, chain: 300, meteor: 300, multishot: 320, skewer: 320, poisoncloud: 240, strafe: 350, bonespear: 320, raiseskel: 300, curse: 240, golem: 300 };
       const cc = CLASSES[p.cls];
       for (let i = 0; i < 4; i++) {
         const sk = cc.skills[i];
         if (p.level < (sk.lvl || 1) || p.cd[i] > 0 || p.mp < sk.mana) continue;
         if (sk.id === 'rage' && p.rageT > 0) continue;
+        if (sk.id === 'raiseskel' && G.minions.filter(mi => mi.kind === 'skel').length >= Math.min(5, 2 + Math.floor(p.level / 8))) continue;
+        if (sk.id === 'golem' && G.minions.some(mi => mi.kind === 'golem')) continue;
         const R = ranges[sk.id] || 300;
         const tgt = (p.target && p.target.hp > 0 && dist(p.x, p.y, p.target.x, p.target.y) < R + p.target.r)
           ? p.target : nearestMonster(p.x, p.y, R);
@@ -1211,34 +1404,42 @@ function update(dt) {
     }
     if (m.stunT > 0) { m.stunT -= dt; continue; }
     m.slowT = Math.max(0, m.slowT - dt);
-    const dd = dist(m.x, m.y, p.x, p.y);
+    m.curseT = Math.max(0, (m.curseT || 0) - dt);
+    const dd = dist(m.x, m.y, p.x, p.y);   // distance to the hero (auras, novas, summons)
+    // pick a target: the hero or the nearest minion
+    let T = p, tdd = dd;
+    for (const mi of G.minions) {
+      const d2 = dist(m.x, m.y, mi.x, mi.y);
+      if (d2 < tdd) { tdd = d2; T = mi; }
+    }
     if (!m.aggro) {
-      if (dd < 265 && los(m.x, m.y, p.x, p.y)) { m.aggro = true; if (m.boss) { banner('⚔ ' + m.name + ' ⚔'); sfx.boss(); } }
+      if (tdd < 265 && los(m.x, m.y, T.x, T.y)) { m.aggro = true; if (m.boss) { banner('⚔ ' + m.name + ' ⚔'); sfx.boss(); } }
       else continue;
     }
     if (p.hp <= 0) continue;
     const mspd = m.spd * (m.slowT > 0 ? 0.42 : 1);
-    m.dir = Math.atan2(p.y - m.y, p.x - m.x);
+    m.dir = Math.atan2(T.y - m.y, T.x - m.x);
     if (m.ranged) {
-      if (dd < m.range && los(m.x, m.y, p.x, p.y)) {
+      if (tdd < m.range && los(m.x, m.y, T.x, T.y)) {
         if (m.atkT <= 0) {
           m.atkT = m.atkCd;
           shoot(m.x, m.y, m.dir + rand(-0.06, 0.06), 300, ri(m.dmg[0], m.dmg[1]), 'm', { kind: 'bone', r: 4 });
         }
-        if (dd < 120) { moveCircle(m, -Math.cos(m.dir) * mspd * 0.6 * dt, -Math.sin(m.dir) * mspd * 0.6 * dt); }
-      } else chaseStep(m, mspd, dt);
+        if (tdd < 120) { moveCircle(m, -Math.cos(m.dir) * mspd * 0.6 * dt, -Math.sin(m.dir) * mspd * 0.6 * dt); }
+      } else chaseStep(m, mspd, dt, T);
     } else {
-      if (dd < m.range + p.r) {
+      if (tdd < m.range + T.r) {
         if (m.atkT <= 0) {
           m.atkT = m.atkCd;
           const raw = ri(m.dmg[0], m.dmg[1]);
-          hurtPlayer(raw, m.dlvl);
+          if (T === p) hurtPlayer(raw, m.dlvl);
+          else hurtMinion(T, raw);
           if (m.affix === 'vampiric') {
             m.hp = Math.min(m.maxHp, m.hp + raw);
             ftext(m.x, m.y - m.r - 12, '+' + raw, '#c8281e', 11);
           }
         }
-      } else chaseStep(m, mspd, dt);
+      } else chaseStep(m, mspd, dt, T);
     }
     // champion affix auras
     if (m.affix === 'frost' && dd < 110) {
@@ -1325,6 +1526,10 @@ function update(dt) {
       if (p.hp > 0 && dist(pr.x, pr.y, p.x, p.y) < p.r + pr.r) {
         hurtPlayer(pr.dmg, G.dlvl);
         dead = true;
+      } else {
+        for (const mi of G.minions) {
+          if (dist(pr.x, pr.y, mi.x, mi.y) < mi.r + pr.r) { hurtMinion(mi, pr.dmg); dead = true; break; }
+        }
       }
     }
     if (dead) {
@@ -1333,6 +1538,8 @@ function update(dt) {
     }
   }
 
+  updateMinions(dt);
+  updatePet(dt);
   updateWorldFx(dt);
 
   /* --- fog of war (reveal near player) --- */
@@ -1349,8 +1556,8 @@ function update(dt) {
   updateHUD();
 }
 
-function chaseStep(m, mspd, dt) {
-  const p = G.p;
+function chaseStep(m, mspd, dt, T) {
+  const p = T || G.p;
   if (los(m.x, m.y, p.x, p.y)) {
     m.path = null;
     const ox = m.x, oy = m.y;
@@ -1599,10 +1806,14 @@ function render() {
   /* entities sorted by y */
   const ents = [];
   for (const m of G.lvl.monsters) if (m.hp > 0 && m.x > cam.x - VW / ZOOM && m.x < cam.x + VW / ZOOM && m.y > cam.y - VH / ZOOM && m.y < cam.y + VH / ZOOM) ents.push(m);
+  for (const mi of G.minions) ents.push(mi);
+  if (G.pet) ents.push(G.pet);
   ents.push(p);
   ents.sort((a, b) => a.y - b.y);
   for (const e of ents) {
     if (e === p) drawPlayer(p);
+    else if (e.isMinion) drawMinion(e);
+    else if (e.isPet) drawPet(e);
     else drawMonster(e);
   }
 
@@ -1627,7 +1838,7 @@ function render() {
       ctx.fillRect(-5, -1.5, 10, 3); ctx.restore();
     } else if (pr.kind === 'bolt') {
       const a = Math.atan2(pr.vy, pr.vx);
-      ctx.strokeStyle = '#9adcff'; ctx.lineWidth = 3;
+      ctx.strokeStyle = pr.color || '#9adcff'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(pr.x - Math.cos(a) * 12, pr.y - Math.sin(a) * 12); ctx.lineTo(pr.x, pr.y); ctx.stroke();
     } else { // arrow
       const a = Math.atan2(pr.vy, pr.vx);
@@ -1965,6 +2176,67 @@ function drawPlayer(p) {
     ctx.beginPath(); ctx.arc(4.8, -15, pulse, 0, 7); ctx.fill();
     ctx.fillStyle = '#e8f2ff';
     ctx.beginPath(); ctx.arc(4, -15.8, pulse * 0.4, 0, 7); ctx.fill();
+    ringDot(3, 1);
+    ctx.restore();
+
+  } else if (p.cls === 'necromancer') {
+    /* full-length grave robe */
+    const g = ctx.createLinearGradient(0, -10, 0, 11);
+    g.addColorStop(0, flash ? '#c86a5a' : '#34343e');
+    g.addColorStop(1, flash ? '#8a4a3a' : '#16161e');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-8 - stride * 1.4, 11);
+    ctx.quadraticCurveTo(-7.5, -7, 0, -10);
+    ctx.quadraticCurveTo(7.5, -7, 8 + stride * 1.4, 11);
+    ctx.quadraticCurveTo(0, 8.6, -8 - stride * 1.4, 11);
+    ctx.closePath(); ctx.fill();
+    const trimC = rarC('armor') || '#9adc8a';
+    ctx.strokeStyle = trimC; ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(-7.4 - stride * 1.4, 10);
+    ctx.quadraticCurveTo(0, 7.8, 7.4 + stride * 1.4, 10);
+    ctx.stroke();
+    /* bone belt of skulls */
+    ctx.fillStyle = '#cfc9b8';
+    for (const bx of [-3.4, 0, 3.4]) { ctx.beginPath(); ctx.arc(bx, 2.6, 1.6, 0, 7); ctx.fill(); }
+    drawAmulet();
+    /* skull pauldron */
+    ctx.fillStyle = flash ? '#e8a89a' : '#e0dbcc';
+    ctx.beginPath(); ctx.arc(-6, -8, 3.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#16161e';
+    ctx.fillRect(-7.2, -8.6, 1.3, 1.3); ctx.fillRect(-5.3, -8.6, 1.3, 1.3);
+    /* hooded pale face, glowing green eyes */
+    const hoodC = flash ? '#c86a5a' : '#24242e';
+    ctx.fillStyle = hoodC;
+    ctx.beginPath(); ctx.arc(-0.8, -14.6, 5.9, 0, 7); ctx.fill();
+    ctx.fillStyle = flash ? '#ffb0a0' : '#d8d4c8';
+    ctx.beginPath(); ctx.arc(1.4, -13.8, 3.8, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9adc8a';
+    ctx.fillRect(-0.4, -14.4, 1.7, 1.7);
+    ctx.fillRect(2.4, -14.4, 1.7, 1.7);
+    ctx.strokeStyle = hoodC; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(1, -14, 4.7, Math.PI * 0.75, Math.PI * 1.9); ctx.stroke();
+    if (eq.helm) {
+      ctx.strokeStyle = rarC('helm') || '#c9a45a'; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.arc(-0.8, -14.6, 5.2, Math.PI * 1.1, Math.PI * 1.98); ctx.stroke();
+    }
+    /* scythe */
+    ctx.save();
+    ctx.translate(6.5, -3);
+    ctx.rotate(swing * 0.6);
+    ctx.strokeStyle = skin; ctx.lineWidth = 2.8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-1, -1); ctx.lineTo(3, 1); ctx.stroke();
+    ctx.strokeStyle = '#3c3428'; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(2, 10); ctx.lineTo(5, -14); ctx.stroke();
+    const bladeC = rarC('weapon') || '#cfc9b8';
+    ctx.fillStyle = bladeC;
+    ctx.beginPath();
+    ctx.moveTo(4.4, -14.5);
+    ctx.quadraticCurveTo(12, -13.5, 15, -8);
+    ctx.quadraticCurveTo(11, -11.5, 4.8, -11.8);
+    ctx.closePath(); ctx.fill();
+    if (Math.random() < 0.12) G.parts.push({ x: p.x + 6 * face, y: p.y - 16, vx: rand(-6, 6), vy: rand(-16, -6), r: rand(1, 2), color: '#9adc8a', life: 0.4, glow: true });
     ringDot(3, 1);
     ctx.restore();
 
@@ -2320,6 +2592,13 @@ function drawMonster(m) {
     ctx.fillStyle = '#4ad46a33';
     ctx.beginPath(); ctx.arc(m.x, m.y - m.r * 0.4, m.r, 0, 7); ctx.fill();
   }
+  if (m.curseT > 0) {
+    ctx.fillStyle = '#b86adf2e';
+    ctx.beginPath(); ctx.arc(m.x, m.y - m.r * 0.4, m.r + 2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#b86adf';
+    ctx.font = '9px serif'; ctx.textAlign = 'center';
+    ctx.fillText('☠', m.x, m.y - m.r * 2.1 + Math.sin(G.time * 3) * 1.5);
+  }
   // stun stars
   if (m.stunT > 0) {
     ctx.fillStyle = '#ffe9b0';
@@ -2340,6 +2619,157 @@ function drawMonster(m) {
   if (G.p.target === m) {
     ctx.strokeStyle = '#ff8a5a'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 5 + Math.sin(G.time * 7) * 1.5, 0, 7); ctx.stroke();
+  }
+}
+
+function drawMinion(mi) {
+  const t = G.time;
+  const moving = true;
+  const stride = Math.sin(t * 9 + mi.x * 0.1);
+  const bob = Math.abs(Math.cos(t * 9 + mi.x * 0.1)) * mi.r * 0.07;
+  const face = Math.cos(mi.dir) >= 0 ? 1 : -1;
+  const W = c => mi.hurtT > 0 ? '#ffffff' : c;
+  ctx.fillStyle = '#00000060';
+  ctx.beginPath(); ctx.ellipse(mi.x, mi.y + mi.r * 0.8, mi.r * 0.9, mi.r * 0.35, 0, 0, 7); ctx.fill();
+  // loyalty ring so friendlies read at a glance
+  ctx.strokeStyle = '#9adc8a55'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.ellipse(mi.x, mi.y + mi.r * 0.8, mi.r * 1.05, mi.r * 0.4, 0, 0, 7); ctx.stroke();
+  ctx.save();
+  ctx.translate(mi.x, mi.y - bob);
+  ctx.scale(face, 1);
+  if (mi.kind === 'golem') {
+    ctx.scale(mi.r / 17, mi.r / 17);
+    ctx.strokeStyle = W('#a8a294'); ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 4, 5); ctx.lineTo(sd * 4 + stride * 3.5 * sd, 13); ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -11, 0, 8);
+    g.addColorStop(0, W('#c4beae')); g.addColorStop(1, W('#7a7466'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-9, 7);
+    ctx.quadraticCurveTo(-12, -9, 0, -11);
+    ctx.quadraticCurveTo(12, -9, 9, 7);
+    ctx.quadraticCurveTo(0, 9.5, -9, 7);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = W('#5a5448'); ctx.lineWidth = 1;   // bone plate cracks
+    ctx.beginPath(); ctx.moveTo(-4, -8); ctx.lineTo(-2, 0); ctx.lineTo(-5, 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4, -7); ctx.lineTo(5, 2); ctx.stroke();
+    ctx.strokeStyle = W('#a8a294'); ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(8, -7); ctx.lineTo(12, 1 + stride * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-8, -7); ctx.lineTo(-12, 1 - stride * 2); ctx.stroke();
+    ctx.fillStyle = W('#c4beae');
+    ctx.beginPath(); ctx.arc(0, -13.5, 4.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9adc8a';
+    ctx.fillRect(-2.6, -14.6, 2, 2); ctx.fillRect(0.8, -14.6, 2, 2);
+  } else {
+    ctx.scale(mi.r / 13, mi.r / 13);
+    ctx.strokeStyle = W('#cfc9b8'); ctx.lineWidth = 2.4;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2.6, 1); ctx.lineTo(sd * 2.6 + stride * 3.6 * sd, 9.5); ctx.stroke();
+    }
+    ctx.lineWidth = 1.9;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -10); ctx.stroke();
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(0, -8.6 + i * 2.5, 4.1 - i * 0.5, 0.15, Math.PI - 0.15); ctx.stroke();
+    }
+    ctx.lineWidth = 1.9;
+    ctx.beginPath(); ctx.moveTo(-4.5, -10); ctx.lineTo(4.5, -10); ctx.stroke();
+    // sword arm swing
+    ctx.save();
+    ctx.translate(4.5, -10); ctx.rotate(0.5 + (mi.swingT > 0 ? Math.sin((0.2 - mi.swingT) / 0.2 * Math.PI) * 1.2 : 0));
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(3, 4); ctx.stroke();
+    ctx.fillStyle = W('#8a8378');
+    ctx.beginPath(); ctx.moveTo(2.4, 3.4); ctx.lineTo(9.5, 6.5); ctx.lineTo(2.9, 5.2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // skull with necromantic green eyes
+    ctx.fillStyle = W('#e0dbcc');
+    ctx.beginPath(); ctx.arc(0, -14.5, 4.2, 0, 7); ctx.fill();
+    ctx.fillRect(-2.3, -11.6, 4.6, 2);
+    ctx.fillStyle = '#9adc8a';
+    ctx.fillRect(-2.5, -15.4, 1.9, 1.9); ctx.fillRect(0.7, -15.4, 1.9, 1.9);
+  }
+  ctx.restore();
+  // health bar when wounded
+  if (mi.hp < mi.maxHp) {
+    const w = mi.r * 2;
+    ctx.fillStyle = '#000000aa'; ctx.fillRect(mi.x - w / 2 - 1, mi.y - mi.r * 2 - 1, w + 2, 4);
+    ctx.fillStyle = '#9adc8a';
+    ctx.fillRect(mi.x - w / 2, mi.y - mi.r * 2, w * clamp(mi.hp / mi.maxHp, 0, 1), 2.5);
+  }
+}
+
+function drawPet(pet) {
+  const t = G.time;
+  const bob = Math.sin(t * 3 + 1) * 1.2;
+  const face = Math.cos(pet.dir) >= 0 ? 1 : -1;
+  if (pet.kind === 'hound') {
+    ctx.fillStyle = '#00000060';
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11, 4, 0, 0, 7); ctx.fill();
+    ctx.save();
+    ctx.translate(pet.x, pet.y);
+    ctx.scale(face, 1);
+    const trot = Math.sin(t * 10);
+    ctx.strokeStyle = '#4a3826'; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    for (const [lx, ph] of [[-6, 0], [-3, 2], [3, 1], [6, 3]]) {
+      ctx.beginPath(); ctx.moveTo(lx, 2); ctx.lineTo(lx + Math.sin(t * 10 + ph) * 2.5, 8); ctx.stroke();
+    }
+    ctx.fillStyle = '#6a5238';   // body
+    ctx.beginPath(); ctx.ellipse(0, 0 + bob * 0.3, 9.5, 5.5, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#6a5238'; ctx.lineWidth = 2.2;   // wagging tail
+    ctx.beginPath(); ctx.moveTo(-9, -2);
+    ctx.quadraticCurveTo(-13, -6 + Math.sin(t * 8) * 2, -15, -4 + Math.sin(t * 8) * 3); ctx.stroke();
+    ctx.fillStyle = '#6a5238';   // head + snout
+    ctx.beginPath(); ctx.arc(9, -4 + bob * 0.3, 4.6, 0, 7); ctx.fill();
+    ctx.fillRect(11, -4 + bob * 0.3, 5, 3.2);
+    ctx.fillStyle = '#3a2c1c';   // nose + ear
+    ctx.fillRect(15, -3.6 + bob * 0.3, 1.8, 2);
+    ctx.beginPath(); ctx.moveTo(7, -8); ctx.lineTo(9, -11.5); ctx.lineTo(10.5, -7.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillRect(9.6, -5.6 + bob * 0.3, 1.6, 1.6);
+    ctx.restore();
+  } else if (pet.kind === 'hawk') {
+    const fly = pet.y - 26 + bob * 2;
+    ctx.fillStyle = '#00000044';
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 6, 7, 2.6, 0, 0, 7); ctx.fill();
+    ctx.save();
+    ctx.translate(pet.x, fly);
+    ctx.scale(face, 1);
+    const flap = Math.sin(t * 12);
+    ctx.fillStyle = '#7a5a34';
+    for (const sd of [-1, 1]) {   // wings
+      ctx.beginPath();
+      ctx.moveTo(sd * 2, 0);
+      ctx.quadraticCurveTo(sd * 10, -4 - flap * 5, sd * 15, -1 - flap * 7);
+      ctx.quadraticCurveTo(sd * 9, 2 - flap * 2, sd * 2, 2.5);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#8a683c';   // body
+    ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 3.4, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(5, -1.4, 2.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd23a';   // beak + eye
+    ctx.beginPath(); ctx.moveTo(7.2, -1.8); ctx.lineTo(10, -0.8); ctx.lineTo(7.2, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(5, -2.4, 1.3, 1.3);
+    ctx.fillStyle = '#6a4a2c';   // tail feathers
+    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-10, -1 + bob * 0.4); ctx.lineTo(-9.5, 2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else {   // arcane familiar
+    const fy = pet.y - 18 + bob * 2;
+    ctx.fillStyle = '#00000044';
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 5, 6, 2.4, 0, 0, 7); ctx.fill();
+    const g = ctx.createRadialGradient(pet.x, fy, 0, pet.x, fy, 13);
+    g.addColorStop(0, 'rgba(184,164,255,0.55)'); g.addColorStop(1, 'rgba(184,164,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(pet.x, fy, 13, 0, 7); ctx.fill();
+    ctx.fillStyle = '#b8a4ff';
+    ctx.beginPath(); ctx.arc(pet.x, fy, 5.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#efe8ff';
+    ctx.beginPath(); ctx.arc(pet.x - 1.5, fy - 1.5, 2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2a1a4a';
+    ctx.fillRect(pet.x - 2.6, fy - 1, 1.6, 1.8); ctx.fillRect(pet.x + 1, fy - 1, 1.6, 1.8);
+    if (Math.random() < 0.25) G.parts.push({ x: pet.x + rand(-4, 4), y: fy + rand(-4, 4), vx: rand(-6, 6), vy: rand(4, 14), r: rand(1, 2), color: '#b8a4ff', life: 0.4, glow: true });
   }
 }
 
