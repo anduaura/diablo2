@@ -104,9 +104,11 @@ python3 -m http.server 8000
   permanent trophy on the main menu
 - **A secret pasture** — floor bosses sometimes drop a strange bovine
   sigil… use it in town. Moo.
-- **Gem crafting** — a full fusion ladder: three of a kind climb
-  Chipped → Gem → Flawless, then Flawless grades ascend Radiant →
-  Pristine → Celestial through a fusion picker in the inventory
+- **Fusion crafting** — three of a kind climb the ladder: gems from
+  Chipped through Flawless up to Celestial grade, Small Charms into
+  Grand into fusion-only Exalted Charms, and three Bovine Sigils into a
+  Golden Sigil whose gilded pasture is an all-champion herd — via a
+  fusion picker (or one-tap Fuse all) in the inventory
 - **Character building** — levels grant stat points for Strength, Dexterity,
   Vitality and Energy; crits, life steal, magic find
 - **Procedural ambient music** — a WebAudio drone & bells score, per world
