@@ -89,8 +89,9 @@ drop ceremony for top rarities, and a secret cow level.
 
 ## Recommendations (prioritized for a solo mobile web ARPG)
 
-> **Status update:** items 1–9 below have all been implemented. Only the
-> "later" item (10, seasonal challenge runs) remains open.
+> **Status update:** all ten items below have been implemented, including
+> the seasonal challenge runs (shipped as per-hero challenge modifiers
+> with permanent menu trophies).
 
 1. **Skill points & mini skill trees** — the biggest gap. Let levels grant
    skill points to rank up the existing 4 skills per class (damage/cost/cd

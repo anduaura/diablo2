@@ -403,6 +403,25 @@ let paused = false;        // panel open → world frozen
 let saveDirty = false;
 let hardcoreNext = false;  // menu toggle: forge the next hero as hardcore
 
+/* challenge runs: a modifier chosen at hero creation, active for that
+   hero's whole life — beating Malgoroth under one earns a trophy */
+const CHALLENGES = [
+  { id: 'gauntlet', name: "Champion's Gauntlet", icon: '👑', desc: 'half of all monsters are champions' },
+  { id: 'ascetic', name: 'Ascetic', icon: '🚱', desc: 'potions never drop and cannot be bought' },
+  { id: 'glass', name: 'Glass Cannon', icon: '💥', desc: '+50% damage, half life' },
+  { id: 'swift', name: 'Swift Death', icon: '⚡', desc: 'monsters are faster and hit harder' },
+];
+let challengeNext = null;   // menu toggle: modifier for the next forged hero
+const BADGE_KEY = 'sanctuary_badges';
+function loadBadges() { try { return JSON.parse(localStorage.getItem(BADGE_KEY)) || []; } catch (e) { return []; } }
+function addBadge(b) {
+  const badges = loadBadges();
+  if (badges.some(x => x.challenge === b.challenge)) return;   // one trophy per challenge
+  badges.push(b);
+  try { localStorage.setItem(BADGE_KEY, JSON.stringify(badges)); } catch (e) { }
+}
+const challengeOf = id => CHALLENGES.find(c => c.id === id) || null;
+
 /* graveyard: hall of fame for fallen hardcore heroes */
 const GRAVE_KEY = 'sanctuary_graveyard';
 function loadGraves() { try { return JSON.parse(localStorage.getItem(GRAVE_KEY)) || []; } catch (e) { return []; } }
@@ -418,7 +437,7 @@ function newPlayer(clsId) {
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
     skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
-    hardcore: false,
+    hardcore: false, challenge: null,
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
@@ -467,7 +486,8 @@ function derived(p) {
   const prim = { str, dex, ene }[c.primary] ?? str;
   // class passives
   m.dmgPct += 4 * passiveRank(p, 'mastery');
-  const hpMult = 1 + 0.05 * passiveRank(p, 'juggernaut');
+  if (p.challenge === 'glass') m.dmgPct += 50;   // Glass Cannon challenge
+  const hpMult = (1 + 0.05 * passiveRank(p, 'juggernaut')) * (p.challenge === 'glass' ? 0.5 : 1);
   const mpMult = 1 + 0.06 * (passiveRank(p, 'focus') + passiveRank(p, 'occult'));
   const eleMult = 1 + 0.08 * passiveRank(p, 'attune');
   const fleet = passiveRank(p, 'fleet');
@@ -572,7 +592,7 @@ function genLevel(dlvl, riftMode) {
     const n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
     for (let k = 0; k < n; k++) {
       const t = wpick();
-      const champ = Math.random() < 0.08;
+      const champ = Math.random() < (G && G.p.challenge === 'gauntlet' ? 0.5 : 0.08);
       let mx, my, tries = 0;
       do {
         mx = room.x + rand(0.8, room.w - 0.8);
@@ -784,12 +804,13 @@ const CHAMP_AFFIXES = {
 function makeMonster(t, x, y, sh, sd, sx, champ, isBoss, dlvl) {
   const hp = Math.round(t.hp * sh * (champ ? 2.2 : 1) * (isBoss ? 1 : 1));
   const affix = champ ? choice(Object.keys(CHAMP_AFFIXES)) : null;
+  const swift = G && G.p.challenge === 'swift' ? 1.25 : 1;   // Swift Death challenge
   return {
     affix, stormT: rand(1, 3),
     type: t, x, y, r: t.r * (champ ? 1.25 : 1),
     hp, maxHp: hp,
-    dmg: [Math.round(t.dmg[0] * sd * (champ ? 1.5 : 1)), Math.round(t.dmg[1] * sd * (champ ? 1.5 : 1))],
-    spd: t.spd * rand(0.9, 1.1), xp: Math.round(t.xp * sx * (champ ? 2.5 : 1)),
+    dmg: [Math.round(t.dmg[0] * sd * swift * (champ ? 1.5 : 1)), Math.round(t.dmg[1] * sd * swift * (champ ? 1.5 : 1))],
+    spd: t.spd * swift * rand(0.9, 1.1), xp: Math.round(t.xp * sx * (champ ? 2.5 : 1)),
     gold: t.gold, atkCd: t.atkCd, range: t.range, ranged: !!t.ranged,
     champ, boss: isBoss, name: champ ? CHAMP_AFFIXES[affix].name + ' ' + t.name : t.name, dlvl,
     aggro: false, atkT: rand(0, 0.5), stunT: 0, slowT: 0, hurtT: 0, hitT: 99,
@@ -1113,9 +1134,16 @@ function killMonster(m) {
 
 function showVictory() {
   const p = G.p;
+  let extra = '';
+  const ch = challengeOf(p.challenge);
+  if (ch) {
+    const isNew = !loadBadges().some(b => b.challenge === ch.id);
+    addBadge({ challenge: ch.id, cls: p.cls, level: p.level, hardcore: !!p.hardcore, t: Date.now() });
+    extra = isNew ? ' 🏆 The ' + ch.name + ' trophy is yours forever!' : '';
+  }
   $('victoryInfo').textContent =
     'Malgoroth is no more. ' + CLASSES[p.cls].name + ' of level ' + p.level +
-    (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.';
+    (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.' + extra;
   $('victoryScreen').classList.remove('hidden');
   saveGame();
 }
@@ -1134,7 +1162,8 @@ function newGamePlus() {
 function dropLoot(m) {
   const x = m.x, y = m.y, dlvl = G.dlvl;
   const scatter = () => ({ x: x + rand(-22, 22), y: y + rand(-22, 22) });
-  const rGold = m.boss ? 1 : 0.62, rPot = m.boss ? 1 : 0.16, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const rGold = m.boss ? 1 : 0.62, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const rPot = G.p.challenge === 'ascetic' ? 0 : m.boss ? 1 : 0.16;   // Ascetic: no potions, ever
   const ngb = (G.ng || 0);
   if (Math.random() < rGold) {
     const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25) * (1 + ngb * 0.6));
@@ -1541,6 +1570,7 @@ function nearestMonster(x, y, maxD) {
 function drinkPotion(kind) {
   const p = G.p;
   if (p.hp <= 0 || !G) return;
+  if (p.challenge === 'ascetic') { ftext(p.x, p.y - 30, 'The Ascetic drinks nothing', '#c9b98a', 12); return; }
   if (kind === 'hp' && p.potions.hp > 0 && p.hp < G.d.maxHp) {
     p.potions.hp--; p.hp = Math.min(G.d.maxHp, p.hp + Math.round(G.d.maxHp * 0.45) + 15);
     burst(p.x, p.y - 10, '#ff6a5a', 10, 90); sfx.potion();
@@ -1583,6 +1613,8 @@ function enterLevel(dlvl, fresh) {
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
   }
   if (G.p.hardcore) $('floorLabel').textContent += ' ☠';
+  const ch = challengeOf(G.p.challenge);
+  if (ch) $('floorLabel').textContent += ' ' + ch.icon;
   saveDirty = true; saveGame();
 }
 
@@ -1604,7 +1636,7 @@ function saveGame() {
     localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
       skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
-      hardcore: p.hardcore || false,
+      hardcore: p.hardcore || false, challenge: p.challenge || null,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn, musicOn,
       waypoints: G.waypoints, deepest: G.deepest,
@@ -1628,11 +1660,14 @@ function startGame(clsId, save, slot) {
       skillLvls: save.skillLvls || [1, 1, 1, 1],
       passives: save.passives || [0, 0],
       hardcore: !!save.hardcore,
+      challenge: save.challenge || null,
     });
     soundOn = save.soundOn !== false;
     musicOn = save.musicOn !== false;
   } else {
     p.hardcore = hardcoreNext;
+    p.challenge = challengeNext;
+    if (p.challenge === 'ascetic') p.potions = { hp: 0, mp: 0 };
   }
   G = {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
@@ -3843,8 +3878,8 @@ function renderShop() {
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">⚖ Merchant · 🪙 ${p.gold}</div>
     <div class="invactions">
-      <button class="smallbtn" data-pot="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-pot="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-pot="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-pot="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
     </div>
     ${mercHtml}
     ${rows || '<div class="derived" style="text-align:center">Sold out — return after your next descent.</div>'}
@@ -3978,8 +4013,8 @@ function renderInv() {
     <div class="ptitle">🎒 Inventory · 🪙 ${p.gold}</div>
     <div class="equipgrid">${SLOTS.map(eqSlot).join('')}</div>
     <div class="invactions">
-      <button class="smallbtn" data-buy="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-buy="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-buy="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
       <button class="smallbtn" data-fuse ${fusableGems(p.inv) ? '' : 'disabled'} title="Combine 3 matching gems into 1 of the next quality">⚗ Fuse 3 gems</button>
       ${p.bagSlots < 48
@@ -4243,8 +4278,9 @@ function refreshMenu() {
     if (!s) continue;
     const row = document.createElement('div');
     row.className = 'slotrow';
+    const chIcon = s.challenge && challengeOf(s.challenge) ? challengeOf(s.challenge).icon + ' ' : '';
     row.innerHTML = `
-      <button class="slotbtn">▶ ${s.hardcore ? '☠ ' : ''}${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
+      <button class="slotbtn">▶ ${s.hardcore ? '☠ ' : ''}${chIcon}${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
         <small>· ${s.dlvl === 0 ? 'town' : 'floor ' + s.dlvl}${s.ng ? ' · NG+' + s.ng : ''} · 🪙${s.gold}</small></button>
       <button class="slotdel" title="Delete hero">✕</button>`;
     row.querySelector('.slotbtn').addEventListener('click', () => { audioInit(); startGame(s.cls, s, i); });
@@ -4259,6 +4295,16 @@ function refreshMenu() {
   const free = firstFreeSlot();
   document.querySelectorAll('.classcard').forEach(c => c.classList.toggle('disabled', free < 0));
   $('slotsFull').classList.toggle('hidden', free >= 0);
+  // trophies earned by finished challenge runs
+  const badges = loadBadges();
+  const tr = $('trophies');
+  tr.classList.toggle('hidden', !badges.length);
+  if (badges.length) {
+    tr.innerHTML = '<div class="pick">— trophies —</div>' + badges.map(b => {
+      const ch = challengeOf(b.challenge);
+      return ch ? `<div class="graverow">🏆 ${ch.icon} ${ch.name} <small>· ${CLASSES[b.cls] ? CLASSES[b.cls].name : '?'} Lv.${b.level}${b.hardcore ? ' ☠' : ''}</small></div>` : '';
+    }).join('');
+  }
   // graveyard of fallen hardcore heroes
   const graves = loadGraves();
   const gy = $('graveyard');
@@ -4273,6 +4319,13 @@ $('hcToggle').addEventListener('click', () => {
   hardcoreNext = !hardcoreNext;
   $('hcToggle').textContent = hardcoreNext ? '☠ Hardcore: ON — death is forever' : '☠ Hardcore: OFF';
   $('hcToggle').style.color = hardcoreNext ? '#ff8a7a' : '';
+});
+$('chToggle').addEventListener('click', () => {
+  const i = CHALLENGES.findIndex(c => c.id === challengeNext);
+  const next = i + 1 < CHALLENGES.length ? CHALLENGES[i + 1] : null;   // …last one wraps to OFF
+  challengeNext = next ? next.id : null;
+  $('chToggle').textContent = next ? `🏆 ${next.icon} ${next.name} — ${next.desc}` : '🏆 Challenge: OFF';
+  $('chToggle').style.color = next ? '#e8d45a' : '';
 });
 
 /* ---------------- input ---------------- */
@@ -4442,4 +4495,5 @@ window.__sanctuary = {
   makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false),
   enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
   killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES,
+  CHALLENGES, showVictory, loadBadges,
 };

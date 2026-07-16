@@ -56,6 +56,9 @@ python3 -m http.server 8000
   him when he falls
 - **Hardcore mode** — optional permadeath; fallen heroes rest in the menu
   graveyard
+- **Challenge runs** — forge a hero under a modifier (Champion's Gauntlet,
+  Ascetic, Glass Cannon, Swift Death); slay Malgoroth under it to earn a
+  permanent trophy on the main menu
 - **A secret pasture** — floor bosses sometimes drop a strange bovine
   sigil… use it in town. Moo.
 - **Gem crafting** — fuse three matching gems into the next quality tier
