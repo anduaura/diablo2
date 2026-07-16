@@ -317,6 +317,8 @@ const MTYPES = [
   { id: 'sentinel', name: 'Laser Sentinel', hp: 80, dmg: [13, 20], spd: 70, r: 13, xp: 75, gold: [18, 36], atkCd: 1.5, range: 260, ranged: true, minL: 1, wOnly: 11, w: 5, color: '#4affd4' },
   { id: 'warbot', name: 'Siege Automaton', hp: 175, dmg: [17, 26], spd: 58, r: 20, xp: 110, gold: [24, 48], atkCd: 1.6, range: 46, minL: 1, wOnly: 11, w: 3, color: '#5a6472' },
 ];
+/* the gilded imp never fights — it flees dripping coins and escapes if not slain */
+const TIMP_TYPE = { id: 'timp', name: 'Gilded Imp', hp: 60, dmg: [0, 0], spd: 148, r: 11, xp: 45, gold: [30, 60], atkCd: 9, range: 0, minL: 1, w: 0, flee: true, color: '#ffd23a' };
 /* hell bovines only graze in the secret pasture — never in the dungeon pool */
 const COW_TYPE = { id: 'cow', name: 'Hell Bovine', hp: 42, dmg: [6, 11], spd: 108, r: 14, xp: 22, gold: [8, 18], atkCd: 1.0, range: 34, minL: 1, w: 0, color: '#e8e4da' };
 const COW_KING = { id: 'cowking', name: 'THE COW KING', hp: 320, dmg: [14, 22], spd: 84, r: 24, xp: 260, gold: [150, 280], atkCd: 1.1, range: 52, minL: 1, w: 0, color: '#e8e4da' };
@@ -773,6 +775,12 @@ function genLevel(dlvl, riftMode) {
       monsters.push(makeMonster(t, mx * TILE, my * TILE, scaleHp, scaleDmg, scaleXp, champ, false, dlvl));
     }
   }
+  // a gilded imp sometimes scurries in the dark, stuffed with treasure
+  if (!riftMode && G && Math.random() < 0.1) {
+    const room = rooms[ri(1, rooms.length - 1)];
+    if (!(isBossFloor && room === exit))
+      monsters.push(makeMonster(TIMP_TYPE, room.cx * TILE, room.cy * TILE, scaleHp, scaleDmg, scaleXp, false, false, dlvl));
+  }
   let boss = null;
   if (isBossFloor) {
     let bt;
@@ -812,8 +820,31 @@ function genLevel(dlvl, riftMode) {
     }
   }
 
+  // world wonders: each realm's signature interactable (see WONDER_INFO)
+  const wonders = [];
+  if (!riftMode) {
+    const wrooms = rooms.filter(r => r !== r0 && r !== exit);
+    if (wIdx === 9) {   // Nullvoid: a linked pair of void tears
+      if (wrooms.length >= 2 && Math.random() < 0.8) {
+        const ra = wrooms[0], rb = wrooms[wrooms.length - 1];
+        wonders.push({ x: ra.cx * TILE + TILE / 2, y: ra.cy * TILE + TILE / 2, w: 9, used: false, t: 0, twin: 1 });
+        wonders.push({ x: rb.cx * TILE + TILE / 2, y: rb.cy * TILE + TILE / 2, w: 9, used: false, t: 0, twin: 0 });
+      }
+    } else {
+      const maxW = wIdx === 5 ? 3 : 2;   // spore pods come in chains
+      for (const room of wrooms) {
+        if (wonders.length >= maxW) break;
+        if (Math.random() < (wIdx === 5 ? 0.3 : 0.22)) {
+          const wx = ri(room.x + 1, room.x + room.w - 2), wy = ri(room.y + 1, room.y + room.h - 2);
+          if (map[wy][wx] === T_FLOOR)
+            wonders.push({ x: wx * TILE + TILE / 2, y: wy * TILE + TILE / 2, w: wIdx, used: false, t: 0 });
+        }
+      }
+    }
+  }
+
   return {
-    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles,
+    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders,
     props, propSet, questNpc, satchel,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor || !!riftMode,
@@ -1098,6 +1129,8 @@ const ELDER_LINES = [
   'They say the deepest gate leads back to the beginning, only crueler. NG+, the scholars call it.',
   'Stranded wanderers camp on the first floor of every realm. Help them — they pay better than the merchant.',
   'Past the void the world turns strange: isles adrift in open sky, and above them a bastion of chrome where the machines still march.',
+  'Every realm hides its own wonder — fae rings, singing crystals, graves best left alone. Touch what glitters, but keep a potion ready.',
+  'If you spy a little golden thief, drop everything and give chase. Its sack holds a season\'s plunder — and it knows the way out.',
 ];
 
 /* ---------------- shared town stash ---------------- */
@@ -1429,6 +1462,206 @@ function openChest(ch) {
   banner('Treasure!');
 }
 
+/* ---------------- world wonders ----------------
+   Each realm hides its signature interactable — a touch of risk, reward
+   or tactics so no two worlds farm the same:
+   0 fae ring · 1 frozen adventurer · 2 lava geyser · 3 restless grave ·
+   4 giant clam · 5 spore pod · 6 buried cache · 7 resonant crystal ·
+   8 garden heart · 9 void tear pair · 10 zephyr shrine · 11 dormant turret */
+const WONDER_NAMES = ['Fae Ring', 'Frozen Adventurer', 'Lava Geyser', 'Restless Grave',
+  'Giant Clam', 'Spore Pod', 'Buried Cache', 'Resonant Crystal',
+  'Heart of the Garden', 'Void Tear', 'Zephyr Shrine', 'Dormant Turret'];
+
+function wonderAmbush(x, y, n) {
+  const dlvl = G.dlvl, eff = effDepth(dlvl), ngm = 1 + (G.ng || 0) * 0.8;
+  const sh = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
+  const sd = (1 + 0.22 * (eff - 1)) * ngm, sx = (1 + 0.3 * (eff - 1)) * ngm;
+  const pool = MTYPES.filter(t => t.minL <= dlvl && !t.flee && (t.wOnly === undefined || t.wOnly === worldOf(dlvl)));
+  for (let k = 0; k < n; k++) {
+    const mm = makeMonster(choice(pool), x + rand(-52, 52), y + rand(-40, 40), sh, sd, sx, false, false, dlvl);
+    mm.aggro = true;
+    G.lvl.monsters.push(mm);
+    burst(mm.x, mm.y, '#3a3a3a', 8, 120);
+  }
+  shake(0.12); sfx.boss();
+}
+
+function wonderTreasure(x, y, items, gems) {
+  const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8), ngb = G.ng || 0;
+  G.drops.push({ kind: 'gold', amt: Math.round(ri(25, 60) * (1 + G.dlvl * 0.3) * (1 + ngb * 0.6)), x: x + rand(-16, 16), y: y + 24 });
+  for (let k = 0; k < items; k++)
+    G.drops.push({ kind: 'item', item: makeItem(choice(SLOTS), ilvl, Math.random() < 0.3 ? 'rare' : null), x: x + rand(-26, 26), y: y + rand(14, 34) });
+  if (Math.random() < gems) G.drops.push({ kind: 'item', item: makeGem(ilvl), x, y: y + 38 });
+  burst(x, y - 6, '#e8c14d', 14, 150);
+  spark(x, y - 6, '#ffe9b0', 10, 180);
+  sfx.gold();
+}
+
+function triggerWonder(wo) {
+  const p = G.p;
+  wo.used = true;
+  switch (wo.w) {
+    case 0:   // fae ring: a blessing — unless the fae feel playful
+      if (Math.random() < 0.25) {
+        banner('Fae mischief! The ring was a trap!');
+        wonderAmbush(wo.x, wo.y, 3);
+      } else {
+        G.buffSpd = 25;
+        p.hp = Math.min(G.d.maxHp, p.hp + Math.round(G.d.maxHp * 0.2));
+        banner('🧚 The fae bless your stride — +25% speed!');
+        spark(wo.x, wo.y - 8, '#c86a8a', 18, 200); sfx.level();
+      }
+      break;
+    case 1:   // frozen adventurer: thaw a past hero… or what took them
+      burst(wo.x, wo.y - 10, '#cfe8f8', 18, 170);
+      if (Math.random() < 0.35) {
+        banner('The ice held more than a corpse!');
+        wonderAmbush(wo.x, wo.y, 2);
+      } else {
+        banner('⛏ A fallen hero\'s pack, freed from the ice.');
+        wonderTreasure(wo.x, wo.y, ri(1, 2), 0.4);
+      }
+      break;
+    case 3:   // restless grave: grave goods or grave mistake
+      burst(wo.x, wo.y, '#38303c', 14, 130);
+      if (Math.random() < 0.45) {
+        banner('The grave was not empty!');
+        wonderAmbush(wo.x, wo.y, 3);
+      } else {
+        banner('⚰ Grave goods, unclaimed for centuries.');
+        wonderTreasure(wo.x, wo.y, ri(1, 2), 0.5);
+      }
+      break;
+    case 4:   // giant clam: a pearl of great price
+      banner('🦪 The great clam yawns open…');
+      if (Math.random() < 0.15) wonderAmbush(wo.x, wo.y, 2);
+      else wonderTreasure(wo.x, wo.y, 1, 0.8);
+      break;
+    case 5: {   // spore pod: a poison chain reaction
+      const dmg = m2 => Math.max(8, Math.round(m2.maxHp * (m2.boss ? 0.06 : 0.3)));
+      for (const m2 of G.lvl.monsters)
+        if (m2.hp > 0 && dist(wo.x, wo.y, m2.x, m2.y) < 130 + m2.r)
+          hitMonster(m2, dmg(m2), { noCrit: true, noLeech: true, slow: 1 });
+      burst(wo.x, wo.y - 6, '#6adfb8', 22, 180);
+      G.rings.push({ x: wo.x, y: wo.y - 4, r: 10, max: 130, color: '#6adfb8', life: 0.35 });
+      sfx.fire();
+      // detonation leaps to nearby pods
+      for (const other of G.lvl.wonders)
+        if (other !== wo && !other.used && other.w === 5 && dist(wo.x, wo.y, other.x, other.y) < 190)
+          triggerWonder(other);
+      break;
+    }
+    case 7: {   // resonant crystal: a lightning discharge
+      let struck = 0;
+      for (const m2 of G.lvl.monsters)
+        if (m2.hp > 0 && dist(wo.x, wo.y, m2.x, m2.y) < 180 + m2.r) {
+          hitMonster(m2, Math.max(10, Math.round(m2.maxHp * (m2.boss ? 0.07 : 0.35))), { noCrit: true, noLeech: true, stun: 0.8 });
+          spark(m2.x, m2.y - m2.r, '#ffd23a', 6, 200);
+          struck++;
+        }
+      banner(struck ? '💎 The crystal sings — lightning arcs out!' : '💎 The crystal sings into the silence…');
+      spark(wo.x, wo.y - 14, '#c28aff', 24, 260);
+      G.rings.push({ x: wo.x, y: wo.y - 8, r: 12, max: 180, color: '#ffd23a', life: 0.3 });
+      shake(0.15); sfx.fire();
+      break;
+    }
+    case 8:   // heart of the garden: stolen life, returned
+      p.hp = Math.min(G.d.maxHp, p.hp + Math.round(G.d.maxHp * 0.4));
+      p.mp = Math.min(G.d.maxMp, p.mp + Math.round(G.d.maxMp * 0.4));
+      banner('🫀 The garden\'s heart bursts — stolen life returns to you!');
+      burst(wo.x, wo.y - 8, '#ff5a6a', 22, 190);
+      burst(p.x, p.y - 10, '#ff8a7a', 12, 120);
+      sfx.potion();
+      break;
+    case 9: {   // void tear: step through to its twin
+      const twin = G.lvl.wonders[wo.twin];
+      if (twin) {
+        twin.used = true;
+        spark(wo.x, wo.y - 10, '#8a9aff', 16, 220);
+        p.x = twin.x; p.y = twin.y + 30;
+        p.target = null; p.path = null; p.moveTo = null;
+        spark(twin.x, twin.y - 10, '#8a9aff', 20, 240);
+        G.rings.push({ x: twin.x, y: twin.y - 8, r: 6, max: 46, color: '#8a9aff', life: 0.35 });
+        banner('🌀 The void folds — you step across the floor.');
+        sfx.stairs();
+      }
+      break;
+    }
+    case 10: {   // zephyr shrine: the wind fights beside you
+      G.buffSpd = 25;
+      for (const m2 of G.lvl.monsters)
+        if (m2.hp > 0 && dist(wo.x, wo.y, m2.x, m2.y) < 210 + m2.r)
+          hitMonster(m2, Math.max(6, Math.round(m2.maxHp * (m2.boss ? 0.03 : 0.12))), { noCrit: true, noLeech: true, kb: 70, slow: 1.2 });
+      banner('🌬 The zephyr answers — foes scatter, your steps quicken!');
+      G.rings.push({ x: wo.x, y: wo.y - 8, r: 14, max: 210, color: '#bfe8ff', life: 0.4 });
+      spark(wo.x, wo.y - 12, '#f6f9fd', 20, 260);
+      sfx.level();
+      break;
+    }
+    case 11:   // dormant turret: hack it to your side
+      wo.on = 25; wo.zapT = 0;
+      banner('🤖 Turret hacked — it fights for you!');
+      spark(wo.x, wo.y - 16, '#4affd4', 16, 200);
+      sfx.level();
+      break;
+  }
+  updateHUD(); saveDirty = true;
+}
+
+function updateWonders(dt) {
+  const p = G.p, ws = G.lvl.wonders || [];
+  for (const wo of ws) {
+    if (wo.w === 2) {   // lava geyser: an eternal, telegraphed cycle
+      wo.t += dt;
+      const ph = wo.t % 6;
+      if (ph < 4.6) wo.blew = false;
+      else if (!wo.blew) {
+        wo.blew = true;
+        spark(wo.x, wo.y - 10, '#ff8a3a', 22, 280);
+        G.rings.push({ x: wo.x, y: wo.y - 4, r: 10, max: 78, color: '#ff8a3a', life: 0.3 });
+        shake(0.1); sfx.fire();
+        for (const m2 of G.lvl.monsters)
+          if (m2.hp > 0 && dist(wo.x, wo.y, m2.x, m2.y) < 74 + m2.r)
+            hitMonster(m2, Math.max(10, Math.round(m2.maxHp * (m2.boss ? 0.07 : 0.35))), { noCrit: true, noLeech: true });
+        if (p.hp > 0 && dist(wo.x, wo.y, p.x, p.y) < 74)
+          hurtPlayer(Math.round(G.d.maxHp * 0.22), G.dlvl);
+      }
+      continue;
+    }
+    if (wo.w === 11 && wo.on > 0) {   // hacked turret zaps the nearest foe
+      wo.on -= dt;
+      wo.zapT -= dt;
+      if (wo.zapT <= 0) {
+        const tgt = nearestMonster(wo.x, wo.y, 270);
+        if (tgt && los(wo.x, wo.y, tgt.x, tgt.y)) {
+          wo.zapT = 0.7;
+          wo.zap = { x: tgt.x, y: tgt.y - tgt.r * 0.5, t: 0.12 };
+          hitMonster(tgt, Math.max(6, Math.round(tgt.maxHp * (tgt.boss ? 0.02 : 0.12))), { noCrit: true, noLeech: true });
+          spark(tgt.x, tgt.y - tgt.r, '#4affd4', 4, 160);
+        } else wo.zapT = 0.25;
+      }
+      if (wo.zap) { wo.zap.t -= dt; if (wo.zap.t <= 0) wo.zap = null; }
+      if (wo.on <= 0) { wo.on = 0; wo.zap = null; }
+      continue;
+    }
+    if (wo.used) continue;
+    const d2 = dist(p.x, p.y, wo.x, wo.y);
+    if (wo.w === 6) {   // buried cache: hold your ground and dig
+      if (d2 < 48) {
+        wo.t += dt;
+        if (Math.random() < dt * 9) burst(wo.x + rand(-12, 12), wo.y + rand(-4, 8), '#74603a', 1, 70);
+        if (wo.t >= 2.2) {
+          wo.used = true;
+          banner('⛏ A buried cache of the old caravans!');
+          wonderTreasure(wo.x, wo.y, 2, 0.5);
+        }
+      } else wo.t = Math.max(0, wo.t - dt * 2);
+      continue;
+    }
+    if (d2 < 40 && p.hp > 0) triggerWonder(wo);
+  }
+}
+
 function killMonster(m) {
   burst(m.x, m.y, m.type.color, 16, 160);
   burst(m.x, m.y, '#3a3a3a', 8, 80);
@@ -1439,7 +1672,24 @@ function killMonster(m) {
   p.xp += m.xp;
   ftext(m.x, m.y - 26, '+' + m.xp + ' xp', '#b8a4e8', 12);
   grantLevelUps();
-  dropLoot(m);
+  if (m.type.flee) {   // the gilded imp's hoard bursts open
+    const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8), ngb = G.ng || 0;
+    for (let k = 0; k < 5; k++)
+      G.drops.push({ kind: 'gold', amt: Math.round(ri(15, 35) * (1 + G.dlvl * 0.3) * (1 + ngb * 0.6)), x: m.x + rand(-42, 42), y: m.y + rand(-30, 30) });
+    for (let k = 0; k < 3; k++) {
+      const r3 = Math.random();
+      G.drops.push({
+        kind: 'item',
+        item: makeItem(choice(SLOTS), ilvl, r3 < 0.08 ? 'exotic' : r3 < 0.3 ? 'unique' : r3 < 0.55 ? 'set' : 'rare'),
+        x: m.x + rand(-40, 40), y: m.y + rand(-20, 36),
+      });
+    }
+    if (Math.random() < 0.5) G.drops.push({ kind: 'item', item: makeGem(ilvl), x: m.x, y: m.y + 30 });
+    spark(m.x, m.y, '#ffd23a', 28, 300);
+    G.rings.push({ x: m.x, y: m.y, r: 8, max: 60, color: '#ffd23a', life: 0.35 });
+    banner('💰 The Gilded Imp bursts into treasure!');
+    sfx.epic();
+  } else dropLoot(m);
   if (m.affix === 'fire') {   // fire-enchanted champions explode on death
     for (let k = 0; k < 8; k++) shoot(m.x, m.y, k / 8 * Math.PI * 2, 260, Math.round(m.dmg[1] * 0.9), 'm', { kind: 'fireball', r: 5 });
     G.rings.push({ x: m.x, y: m.y, r: 6, max: 62, color: '#ff8a3a', life: 0.25 });
@@ -2288,6 +2538,7 @@ function update(dt) {
     if (!s.used && dist(p.x, p.y, s.x, s.y) < 36) { s.used = true; activateShrine(s); }
   }
   tryOpenChests(p.x, p.y, 40);
+  updateWonders(dt);
 
   // the lost quest satchel is picked up by walking over it
   const sq = G.lvl.satchel;
@@ -2520,6 +2771,34 @@ function update(dt) {
     for (const mi of G.minions) {
       const d2 = dist(m.x, m.y, mi.x, mi.y);
       if (d2 < tdd) { tdd = d2; T = mi; }
+    }
+    // the gilded imp never fights: it bolts, dripping coins, and escapes
+    if (m.type.flee) {
+      if (!m.aggro) {
+        if (dd < 320 && los(m.x, m.y, p.x, p.y)) {
+          m.aggro = true; m.fleeT = 11;
+          banner('💰 A Gilded Imp — catch it before it escapes!');
+          sfx.gold();
+        }
+        continue;
+      }
+      m.fleeT -= dt;
+      m.dripT = (m.dripT || 0) - dt;
+      if (m.dripT <= 0) {   // a trail of dropped coins marks the chase
+        m.dripT = 1.5;
+        G.drops.push({ kind: 'gold', amt: Math.round(ri(4, 9) * (1 + G.dlvl * 0.25) * (1 + (G.ng || 0) * 0.6)), x: m.x + rand(-8, 8), y: m.y + rand(-8, 8) });
+        spark(m.x, m.y - 8, '#ffd23a', 3, 130);
+      }
+      const away = Math.atan2(m.y - p.y, m.x - p.x) + Math.sin(G.time * 2.6 + m.x * 0.013) * 0.7;
+      m.dir = away;
+      moveCircle(m, Math.cos(away) * m.spd * dt, Math.sin(away) * m.spd * dt);
+      if (m.fleeT <= 0) {   // gone through a pocket portal
+        m.hp = 0;
+        spark(m.x, m.y - 10, '#b86adf', 20, 240);
+        G.rings.push({ x: m.x, y: m.y - 8, r: 6, max: 42, color: '#b86adf', life: 0.3 });
+        banner('The Gilded Imp escapes through a portal…');
+      }
+      continue;
     }
     if (!m.aggro) {
       if (tdd < 265 && los(m.x, m.y, T.x, T.y)) { m.aggro = true; if (m.boss) { banner('⚔ ' + m.name + ' ⚔'); sfx.boss(); } }
@@ -3712,6 +3991,7 @@ function render() {
 
   /* shrines & chests */
   for (const s of G.lvl.shrines || []) drawShrine(s);
+  for (const wo of G.lvl.wonders || []) drawWonder(wo);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
   /* world gates: the town's row of realm doors + the boss floor's exit */
@@ -3901,6 +4181,7 @@ function drawLights() {
       hole(dr.x, dr.y - 20, 70, 0.6);
   }
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
+  for (const wo of G.lvl.wonders || []) if (!wo.used || wo.w === 2 || wo.on > 0) hole(wo.x, wo.y - 10, 75, 0.7);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
@@ -4630,6 +4911,43 @@ function drawMonster(m) {
     for (const [sx, sy] of [[-8, -13], [-1, -15], [6, -13]]) {
       ctx.beginPath(); ctx.moveTo(sx - 2, sy + 2); ctx.lineTo(sx, sy - 5); ctx.lineTo(sx + 2.4, sy + 2); ctx.closePath(); ctx.fill();
     }
+  } else if (t.id === 'timp') {
+    /* -------- gilded imp: a golden thief hauling its sack -------- */
+    ctx.scale(rr / 11, rr / 11);
+    ctx.strokeStyle = W('#c89a2e'); ctx.lineWidth = 2;   // whipping tail
+    ctx.beginPath();
+    ctx.moveTo(-3, 3);
+    ctx.quadraticCurveTo(-9, 2 + Math.sin(time * 8 + ph) * 2, -12, -3 + Math.sin(time * 8 + ph) * 3);
+    ctx.stroke();
+    ctx.strokeStyle = W('#a87e20'); ctx.lineWidth = 2.4;   // sprinting legs
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2, 4); ctx.lineTo(sd * 2 + Math.sin(time * 12 + ph) * 4 * sd, 9.5); ctx.stroke();
+    }
+    ctx.fillStyle = W('#e8c14d');   // gleaming body
+    ctx.beginPath();
+    ctx.moveTo(-5, 4);
+    ctx.quadraticCurveTo(-6, -4, 0, -5.5);
+    ctx.quadraticCurveTo(6, -4, 5, 4);
+    ctx.quadraticCurveTo(0, 6, -5, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#8a6a3a');   // bulging loot sack over the shoulder
+    ctx.beginPath(); ctx.ellipse(-6, -8, 5.5, 6.5, -0.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#5a4426'); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-3, -3.4); ctx.lineTo(-1, -1); ctx.stroke();   // tied neck
+    ctx.fillStyle = '#ffd23a';   // coins spilling from the sack
+    ctx.fillRect(-9, -12.5, 2, 2); ctx.fillRect(-4.5, -13.5, 1.7, 1.7);
+    ctx.fillStyle = W('#e8c14d');   // head
+    ctx.beginPath(); ctx.arc(2, -8.5, 4, 0, 7); ctx.fill();
+    ctx.beginPath();   // pointed ear
+    ctx.moveTo(-1.4, -9.5); ctx.lineTo(-5, -11.5); ctx.lineTo(-1.6, -7.2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2a1a08';   // wide panicked eyes
+    ctx.fillRect(0.6, -10, 1.8, 1.8); ctx.fillRect(3.6, -10, 1.8, 1.8);
+    ctx.strokeStyle = '#2a1a08'; ctx.lineWidth = 1;   // worried mouth
+    ctx.beginPath(); ctx.arc(2.6, -5.6, 1.6, Math.PI + 0.4, -0.4); ctx.stroke();
+    ctx.fillStyle = hexA('#ffd23a', 0.6 + Math.sin(time * 6) * 0.3);   // golden shimmer
+    ctx.beginPath(); ctx.arc(0, -14 + Math.sin(time * 4) * 1.5, 1.4, 0, 7); ctx.fill();
+
   } else if (t.id === 'harpy') {
     /* -------- storm harpy: winged shrieker riding the gale -------- */
     ctx.scale(rr / 13, rr / 13);
@@ -5370,6 +5688,221 @@ function drawExit(px, py, locked, wrld) {
   if (locked) {
     ctx.strokeStyle = '#ff5a3a88'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(cx, cy, 19, 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawWonder(wo) {
+  const t = G.time, x = wo.x, y = wo.y;
+  ctx.save();
+  if (wo.w !== 2 && wo.used && wo.w !== 11) {   // spent wonders fade to a remnant
+    ctx.globalAlpha = 0.45;
+  }
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(x, y + 6, 14, 5, 0, 0, 7); ctx.fill();
+  switch (wo.w) {
+    case 0: {   // fae ring: a circle of tiny mushrooms
+      for (let k = 0; k < 8; k++) {
+        const a = k / 8 * Math.PI * 2;
+        const mx = x + Math.cos(a) * 15, my = y + Math.sin(a) * 9;
+        ctx.fillStyle = '#e8e4da';
+        ctx.fillRect(mx - 1, my - 3, 2, 3.4);
+        ctx.fillStyle = k % 2 ? '#c86a8a' : '#d8b84a';
+        ctx.beginPath(); ctx.ellipse(mx, my - 3.4, 3, 1.8, 0, Math.PI, 0); ctx.fill();
+      }
+      if (!wo.used) {
+        ctx.fillStyle = hexA('#c86a8a', 0.5 + Math.sin(t * 3) * 0.3);
+        ctx.beginPath(); ctx.arc(x + Math.cos(t * 1.6) * 8, y - 8 + Math.sin(t * 2.2) * 4, 1.6, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(x - Math.cos(t * 1.3) * 9, y - 12 + Math.sin(t * 1.8) * 4, 1.3, 0, 7); ctx.fill();
+      }
+      break;
+    }
+    case 1: {   // frozen adventurer: a hero locked in blue ice
+      const g = ctx.createLinearGradient(x - 10, y - 26, x + 10, y + 6);
+      g.addColorStop(0, hexA('#b8d8ee', 0.9)); g.addColorStop(1, hexA('#6f9cc0', 0.9));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x - 11, y + 6); ctx.lineTo(x - 8, y - 20); ctx.lineTo(x, y - 27);
+      ctx.lineTo(x + 9, y - 19); ctx.lineTo(x + 11, y + 6);
+      ctx.closePath(); ctx.fill();
+      if (!wo.used) {   // the poor soul inside
+        ctx.fillStyle = '#4a5568';
+        ctx.beginPath(); ctx.arc(x, y - 16, 3.6, 0, 7); ctx.fill();
+        ctx.fillRect(x - 4, y - 13, 8, 12);
+        ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x + 4, y - 10); ctx.lineTo(x + 8, y - 16); ctx.stroke();   // reaching arm
+      }
+      ctx.strokeStyle = '#e8f4ffcc'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 2, y - 22); ctx.stroke();
+      break;
+    }
+    case 2: {   // lava geyser: rumbles, then blows
+      const ph = wo.t % 6, warm = ph > 3.4;
+      ctx.fillStyle = '#0c0604';
+      ctx.beginPath(); ctx.ellipse(x, y, 15, 9, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA('#ff6a2a', warm ? 0.8 : 0.35); ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.ellipse(x, y, 14, 8.4, 0, 0, 7); ctx.stroke();
+      ctx.fillStyle = hexA('#ff9a4a', warm ? 0.5 + (ph - 3.4) * 0.4 : 0.2);
+      ctx.beginPath(); ctx.ellipse(x, y, 7, 4, 0, 0, 7); ctx.fill();
+      if (warm && Math.random() < 0.3) {   // pre-eruption sputter
+        G.parts.push({ x: x + rand(-6, 6), y: y - 2, vx: rand(-20, 20), vy: rand(-90, -40), r: rand(1, 2.2), color: '#ff8a3a', life: 0.5, glow: true });
+      }
+      if (ph >= 4.6 && ph < 5.1) {   // the column of fire
+        ctx.fillStyle = hexA('#ff8a3a', 0.85);
+        ctx.beginPath(); ctx.ellipse(x, y - 26, 7 + Math.sin(t * 30) * 2, 26, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = hexA('#ffd27a', 0.9);
+        ctx.beginPath(); ctx.ellipse(x, y - 22, 3.4, 18, 0, 0, 7); ctx.fill();
+      }
+      break;
+    }
+    case 3: {   // restless grave: a mound that just moved
+      ctx.fillStyle = '#2e2834';
+      ctx.beginPath(); ctx.ellipse(x, y, 14, 8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#6a6472';   // crooked marker
+      ctx.save();
+      ctx.translate(x - 8, y - 6); ctx.rotate(-0.22);
+      ctx.fillRect(-2, -14, 4, 16); ctx.fillRect(-6, -10, 12, 3.4);
+      ctx.restore();
+      if (!wo.used) {   // a hand? no. surely not.
+        const push = Math.max(0, Math.sin(t * 1.8 + x));
+        ctx.fillStyle = '#b8ab8f';
+        ctx.fillRect(x + 5, y - 2 - push * 4, 2.4, 3 + push * 4);
+        if (push > 0.85 && Math.random() < 0.1) burst(x + 6, y, '#38303c', 2, 40);
+      }
+      break;
+    }
+    case 4: {   // giant clam: pearl-light leaking from the shell
+      const open = wo.used ? 0.7 : 0.15 + Math.sin(t * 1.4) * 0.08;
+      ctx.fillStyle = '#3f7a70';
+      ctx.beginPath(); ctx.ellipse(x, y + 2, 15, 7, 0, 0, Math.PI); ctx.fill();
+      ctx.fillStyle = '#5a9a8a';
+      ctx.save();
+      ctx.translate(x, y + 1); ctx.rotate(-open);
+      ctx.beginPath(); ctx.ellipse(0, 0, 15, 7, 0, Math.PI, 0); ctx.fill();
+      ctx.strokeStyle = '#2e5a50'; ctx.lineWidth = 1;
+      for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(k * 5, -1); ctx.lineTo(k * 6.4, -6.4); ctx.stroke(); }
+      ctx.restore();
+      if (!wo.used) {
+        ctx.fillStyle = hexA('#ffe9d8', 0.6 + Math.sin(t * 2.6) * 0.3);
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
+      }
+      break;
+    }
+    case 5: {   // spore pod: a swollen, glowing bulb
+      const swell = wo.used ? 0 : Math.sin(t * 2.2 + x) * 1.4;
+      ctx.fillStyle = wo.used ? '#3a4a42' : '#4a6a5a';
+      ctx.beginPath(); ctx.ellipse(x, y - 8, 10 + swell, 12 + swell, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#324a40'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(x - 4, y - 18); ctx.quadraticCurveTo(x, y - 8, x - 2, y + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 5, y - 17); ctx.quadraticCurveTo(x + 2, y - 8, x + 4, y + 1); ctx.stroke();
+      if (!wo.used) {
+        ctx.fillStyle = hexA('#6adfb8', 0.55 + Math.sin(t * 3) * 0.25);
+        ctx.beginPath(); ctx.arc(x, y - 9, 3.6 + swell * 0.5, 0, 7); ctx.fill();
+      }
+      break;
+    }
+    case 6: {   // buried cache: a suspicious mound with a jutting handle
+      ctx.fillStyle = '#6a5834';
+      ctx.beginPath(); ctx.ellipse(x, y, 15, 8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#5a4a2c';
+      ctx.beginPath(); ctx.ellipse(x + 3, y + 1, 8, 4, 0, 0, 7); ctx.fill();
+      if (!wo.used) {
+        ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 2.4;   // a chest handle in the sand
+        ctx.beginPath(); ctx.arc(x - 3, y - 4, 4.4, Math.PI, 0); ctx.stroke();
+        ctx.fillStyle = hexA('#ffe9b0', 0.4 + Math.sin(t * 2.4) * 0.25);
+        ctx.fillRect(x - 4 + Math.sin(t * 3) * 3, y - 9, 1.6, 1.6);
+        if (wo.t > 0) {   // dig progress arc
+          ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 2.6;
+          ctx.beginPath(); ctx.arc(x, y - 20, 9, -Math.PI / 2, -Math.PI / 2 + (wo.t / 2.2) * Math.PI * 2); ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 7: {   // resonant crystal: a humming amethyst monolith
+      const hum = wo.used ? 0.15 : 0.5 + Math.sin(t * 4) * 0.3;
+      ctx.fillStyle = hexA('#c28aff', 0.5 + hum * 0.4);
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y + 4); ctx.lineTo(x - 3, y - 24); ctx.lineTo(x + 2, y - 28);
+      ctx.lineTo(x + 6, y - 20); ctx.lineTo(x + 8, y + 4);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = hexA('#f0e2ff', hum);
+      ctx.fillRect(x - 1, y - 24, 2, 14);
+      if (!wo.used) {
+        ctx.strokeStyle = hexA('#ffd23a', hum * 0.8); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, y - 10, 13 + Math.sin(t * 4) * 2, 0, 7); ctx.stroke();
+      }
+      break;
+    }
+    case 8: {   // heart of the garden: a great beating organ
+      const beat = wo.used ? 0 : Math.max(0, Math.sin(t * 3.2)) * 2.2;
+      ctx.fillStyle = wo.used ? '#4a2228' : '#8a2432';
+      ctx.beginPath(); ctx.ellipse(x, y - 8, 11 + beat, 13 + beat, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#3c1418'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x - 5, y - 20); ctx.quadraticCurveTo(x - 1, y - 8, x - 4, y + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 6, y - 18); ctx.quadraticCurveTo(x + 2, y - 8, x + 5, y + 2); ctx.stroke();
+      if (!wo.used) {
+        ctx.fillStyle = hexA('#ff8a9a', 0.4 + beat * 0.2);
+        ctx.beginPath(); ctx.arc(x, y - 9, 3.6 + beat, 0, 7); ctx.fill();
+      }
+      break;
+    }
+    case 9: {   // void tear: a slit of starlight in the air
+      const w2 = wo.used ? 2 : 5 + Math.sin(t * 2) * 1.5;
+      ctx.fillStyle = '#000006';
+      ctx.beginPath(); ctx.ellipse(x, y - 14, w2, 16, 0.3, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA('#8a9aff', wo.used ? 0.25 : 0.8); ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.ellipse(x, y - 14, w2 + 1, 17, 0.3, 0, 7); ctx.stroke();
+      if (!wo.used) {
+        ctx.fillStyle = '#c8d2ff';
+        ctx.fillRect(x + Math.sin(t * 2.8) * 3, y - 20, 1.6, 1.6);
+        ctx.fillRect(x - 2, y - 8 + Math.sin(t * 3.3) * 4, 1.3, 1.3);
+      }
+      break;
+    }
+    case 10: {   // zephyr shrine: a marble bowl of swirling wind
+      ctx.fillStyle = '#dde4ee';
+      ctx.fillRect(x - 3, y - 10, 6, 12);
+      ctx.fillStyle = '#f6f9fd';
+      ctx.beginPath(); ctx.ellipse(x, y - 12, 11, 4, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillRect(x - 11, y - 13, 22, 2);
+      if (!wo.used) {
+        ctx.strokeStyle = hexA('#bfe8ff', 0.7); ctx.lineWidth = 1.6;
+        for (let k = 0; k < 2; k++) {
+          ctx.beginPath(); ctx.arc(x, y - 17, 6 + k * 4, t * (2 + k), t * (2 + k) + 3.6); ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 11: {   // dormant turret: a stubby cannon on a tripod
+      ctx.strokeStyle = '#343b46'; ctx.lineWidth = 2.6;   // tripod
+      ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x - 8, y + 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 8, y + 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 6); ctx.stroke();
+      const g = ctx.createLinearGradient(x - 7, 0, x + 7, 0);
+      g.addColorStop(0, '#3a424e'); g.addColorStop(0.5, '#6a7482'); g.addColorStop(1, '#3a424e');
+      ctx.fillStyle = g;   // swivel head
+      ctx.beginPath(); ctx.arc(x, y - 13, 6.5, 0, 7); ctx.fill();
+      const aim = wo.zap ? Math.atan2(wo.zap.y - (y - 13), wo.zap.x - x) : Math.sin(t * 0.8) * 0.6;
+      ctx.save();
+      ctx.translate(x, y - 13); ctx.rotate(aim);
+      ctx.fillStyle = '#262c34';
+      ctx.fillRect(0, -2, 11, 4);
+      ctx.restore();
+      const lit = wo.on > 0;
+      ctx.fillStyle = lit ? '#4affd4' : (Math.sin(t * 1.4) > 0.7 ? '#1a5a4c' : '#12252a');
+      ctx.beginPath(); ctx.arc(x, y - 13, 2.2, 0, 7); ctx.fill();
+      if (wo.zap) {   // the zap beam
+        ctx.strokeStyle = hexA('#4affd4', 0.85); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(aim) * 11, y - 13 + Math.sin(aim) * 11);
+        ctx.lineTo(wo.zap.x, wo.zap.y); ctx.stroke();
+      }
+      if (lit) {   // countdown ring
+        ctx.strokeStyle = hexA('#4affd4', 0.5); ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(x, y - 13, 10, -Math.PI / 2, -Math.PI / 2 + (wo.on / 25) * Math.PI * 2); ctx.stroke();
+      }
+      break;
+    }
   }
   ctx.restore();
 }

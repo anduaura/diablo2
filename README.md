@@ -57,6 +57,14 @@ python3 -m http.server 8000
 - **Side quests** — a stranded wanderer camps on the first floor of every
   realm with a themed favour to ask (cull the local menace, gather gems,
   recover a lost satchel) and pays in gold and rare gear
+- **World wonders** — every realm hides its own interactable: fae rings
+  that bless (or trick) you, thawing adventurers, erupting lava geysers
+  you can lure monsters into, restless graves, giant clams, chain-bursting
+  spore pods, buried caches you dig up, lightning-discharging crystals,
+  healing garden hearts, void tears that teleport you across the floor,
+  wind shrines that scatter foes, and hackable turrets that fight for you
+- **The Gilded Imp** — a fleeing golden thief that drips coins as it runs;
+  slay it before it portals away and its hoard bursts open
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
