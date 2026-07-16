@@ -498,7 +498,7 @@ function recalc() { G.d = derived(G.p); G.p.hp = Math.min(G.p.hp, G.d.maxHp); G.
 const xpNext = lvl => Math.round(80 * Math.pow(lvl, 1.6));
 
 /* ---------------- dungeon generation ---------------- */
-function genLevel(dlvl) {
+function genLevel(dlvl, riftMode) {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
   const rooms = [];
   for (let i = 0; i < 60 && rooms.length < 11; i++) {
@@ -536,7 +536,7 @@ function genLevel(dlvl) {
 
   // waypoint room on designated floors
   let wp = null;
-  if (WP_FLOORS.includes(dlvl)) {
+  if (WP_FLOORS.includes(dlvl) && !riftMode) {
     const wpRoom = rooms.find(r => r !== r0 && r !== exit) || r0;
     const wx = wpRoom.cx + 1 < wpRoom.x + wpRoom.w ? wpRoom.cx + 1 : wpRoom.cx - 1;
     if (map[wpRoom.cy][wx] === T_FLOOR) {
@@ -554,7 +554,7 @@ function genLevel(dlvl) {
 
   // monsters
   const monsters = [];
-  const isBossFloor = dlvl % 5 === 0;
+  const isBossFloor = dlvl % 5 === 0 && !riftMode;
   const pool = MTYPES.filter(t => t.minL <= dlvl);
   const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
   const scaleHp = (1 + 0.4 * (dlvl - 1) + 0.05 * (dlvl - 1) * (dlvl - 1)) * ngm;
@@ -569,7 +569,7 @@ function genLevel(dlvl) {
   for (let i = 1; i < rooms.length; i++) {
     const room = rooms[i];
     if (isBossFloor && room === exit) continue;         // boss room kept clear for the boss
-    const n = Math.min(7, ri(2, 3) + Math.floor(dlvl / 3));
+    const n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
     for (let k = 0; k < n; k++) {
       const t = wpick();
       const champ = Math.random() < 0.08;
@@ -612,11 +612,75 @@ function genLevel(dlvl) {
   return {
     map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles,
     seen: new Uint8Array(MAP_W * MAP_H),
-    locked: isBossFloor,
+    locked: isBossFloor || !!riftMode,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
     exitTile: { x: exit.cx, y: exit.cy },
   };
 }
+
+/* -------- rifts: timed one-floor challenges opened from the town obelisk -- */
+const RIFT_TIME = 150;   // seconds on the clock
+const RIFT_GUARDIAN = { id: 'riftguardian', name: 'RIFT GUARDIAN', hp: 280, dmg: [13, 21], spd: 82, r: 26, xp: 220, gold: [120, 220], atkCd: 1.0, range: 56, minL: 1, w: 0, color: '#b86adf' };
+const riftDepth = tier => 3 + tier * 2;
+function enterRift(tier) {
+  G.cowLevel = false;
+  const depth = riftDepth(tier);
+  G.dlvl = depth;                        // drives monster & loot scaling
+  G.rift = { tier, t: RIFT_TIME, elapsed: 0, kills: 0, need: 0, guardian: false, done: false };
+  G.lvl = genLevel(depth, true);
+  G.rift.need = Math.min(30, Math.max(10, Math.floor(G.lvl.monsters.length * 0.75)));
+  G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
+  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const p = G.p;
+  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  G.world = worldOf(depth);
+  $('floorLabel').textContent = '🌀 Rift · Tier ' + tier + (p.hardcore ? ' ☠' : '');
+  banner('RIFT TIER ' + tier + ' — slay ' + G.rift.need + ' to summon the Guardian!');
+  sfx.boss();
+}
+function spawnRiftGuardian() {
+  const ex = G.lvl.exitTile;
+  const guard = makeMonster(RIFT_GUARDIAN,
+    ex.x * TILE + TILE / 2, ex.y * TILE - TILE,
+    (1 + 0.4 * (G.dlvl - 1) + 0.05 * (G.dlvl - 1) * (G.dlvl - 1)),
+    (1 + 0.22 * (G.dlvl - 1)),
+    (1 + 0.3 * (G.dlvl - 1)),
+    false, true, G.dlvl);
+  guard.aggro = true;
+  G.lvl.monsters.push(guard);
+  G.lvl.boss = guard;
+  G.rift.guardian = true;
+  banner('⚔ THE RIFT GUARDIAN EMERGES ⚔');
+  shake(0.3); sfx.boss();
+}
+function riftComplete(m) {
+  const r = G.rift;
+  r.done = true;
+  const took = Math.max(1, Math.round(r.elapsed));
+  G.riftBest = G.riftBest || {};
+  if (!G.riftBest[r.tier] || took < G.riftBest[r.tier]) G.riftBest[r.tier] = took;
+  let msg = 'Rift conquered in ' + fmtTime(took) + '!';
+  if (r.tier >= (G.maxRiftTier || 1)) { G.maxRiftTier = r.tier + 1; msg += '  Tier ' + (r.tier + 1) + ' unlocked!'; }
+  banner(msg);
+  // loot shower on top of the guardian's own drops
+  const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8);
+  for (let i = 0; i < 2; i++) {
+    const rr = Math.random();
+    G.drops.push({
+      kind: 'item',
+      item: makeItem(choice(SLOTS), ilvl, rr < 0.12 ? 'exotic' : rr < 0.3 ? 'unique' : rr < 0.5 ? 'set' : 'rare'),
+      x: m.x + rand(-30, 30), y: m.y + rand(-20, 30),
+    });
+  }
+  G.drops.push({ kind: 'item', item: makeGem(ilvl), x: m.x + rand(-24, 24), y: m.y + 30 });
+  G.drops.push({ kind: 'gold', amt: Math.round(120 * (1 + G.dlvl * 0.3)), x: m.x, y: m.y + 40 });
+  sfx.level(); saveDirty = true;
+}
+const fmtTime = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 
 /* -------- the secret cow level: one huge pasture, many angry bovines ----- */
 function genCowLevel(depth) {
@@ -700,6 +764,7 @@ function genTown() {
     exitTile: { x: R.x + R.w - 2, y: R.cy },
     vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
+    obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
     shopStock,
   };
 }
@@ -1029,6 +1094,14 @@ function killMonster(m) {
     sfx.fire();
   }
   if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
+  if (G.rift && !G.rift.done) {
+    if (m.type.id === 'riftguardian') {
+      riftComplete(m);
+    } else {
+      G.rift.kills++;
+      if (!G.rift.guardian && G.rift.kills >= G.rift.need) spawnRiftGuardian();
+    }
+  }
   if (m.boss) {
     G.lvl.locked = false;
     banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
@@ -1481,6 +1554,7 @@ function drinkPotion(kind) {
 /* ---------------- level flow ---------------- */
 function enterLevel(dlvl, fresh) {
   G.cowLevel = false;
+  G.rift = null;
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
   G.lvl = dlvl === 0 ? genTown() : genLevel(dlvl);
@@ -1537,6 +1611,7 @@ function saveGame() {
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
+      maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1572,6 +1647,8 @@ function startGame(clsId, save, slot) {
     autoSell: save && save.autoSell !== undefined ? save.autoSell : 1,
     portalFloor: (save && save.portalFloor) || 0,
     merc: (save && save.merc) || null,
+    maxRiftTier: (save && save.maxRiftTier) || 1,
+    riftBest: (save && save.riftBest) || {},
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -1608,6 +1685,17 @@ function update(dt) {
   G.buffDmg = Math.max(0, (G.buffDmg || 0) - dt);
   G.buffArmor = Math.max(0, (G.buffArmor || 0) - dt);
   G.buffSpd = Math.max(0, (G.buffSpd || 0) - dt);
+
+  // rift clock
+  if (G.rift && !G.rift.done) {
+    G.rift.t -= dt; G.rift.elapsed += dt;
+    if (G.rift.t <= 0) {
+      enterLevel(0, false);
+      banner('The rift collapses — too slow!');
+      sfx.die();
+      return;
+    }
+  }
 
   // shrines & treasure chests
   for (const s of G.lvl.shrines || []) {
@@ -1768,7 +1856,7 @@ function update(dt) {
       p.moveTo = null; p.path = null;
       moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
     } else {
-      enterLevel(G.cowLevel ? 0 : G.dlvl + 1, false);
+      enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
       return;
     }
   }
@@ -2306,9 +2394,10 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
-  /* town vendor & stash trunk */
+  /* town vendor, stash trunk & rift obelisk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
+  if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
 
   /* entities sorted by y */
   const ents = [];
@@ -2425,6 +2514,20 @@ function render() {
   /* darkness + lights */
   drawLights();
 
+  /* rift clock (screen space) */
+  if (G.rift && !G.rift.done) {
+    const r = G.rift;
+    const low = r.t < 20;
+    ctx.font = 'bold 15px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = '⏳ ' + fmtTime(Math.ceil(r.t)) + '  ·  ' +
+      (r.guardian ? 'SLAY THE GUARDIAN' : r.kills + ' / ' + r.need);
+    ctx.fillStyle = '#000000b0';
+    const lw = ctx.measureText(label).width;
+    ctx.fillRect(VW / 2 - lw / 2 - 10, 33, lw + 20, 22);
+    ctx.fillStyle = low && Math.floor(G.time * 2) % 2 ? '#ff5a3a' : '#e8d9a8';
+    ctx.fillText(label, VW / 2, 44);
+  }
+
   /* boss bar (screen space) */
   const boss = G.lvl.boss;
   if (boss && boss.hp > 0 && boss.aggro) {
@@ -2463,6 +2566,7 @@ function drawLights() {
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
+  if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -3476,6 +3580,39 @@ function drawTrunk(s) {
   ctx.fillText('🧳 Trunk', s.x, s.y - 26);
 }
 
+function drawObelisk(o) {
+  const t = G.time;
+  const pulse = 0.5 + Math.sin(t * 2.2) * 0.25;
+  ctx.fillStyle = '#00000060';
+  ctx.beginPath(); ctx.ellipse(o.x, o.y + 8, 14, 5, 0, 0, 7); ctx.fill();
+  // violet halo
+  const g = ctx.createRadialGradient(o.x, o.y - 18, 0, o.x, o.y - 18, 32);
+  g.addColorStop(0, hexA('#b86adf', 0.3 * pulse + 0.1));
+  g.addColorStop(1, hexA('#b86adf', 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(o.x, o.y - 18, 32, 0, 7); ctx.fill();
+  // the monolith
+  const mg = ctx.createLinearGradient(o.x - 8, 0, o.x + 8, 0);
+  mg.addColorStop(0, '#241a30'); mg.addColorStop(0.5, '#4a3a5e'); mg.addColorStop(1, '#1a1224');
+  ctx.fillStyle = mg;
+  ctx.beginPath();
+  ctx.moveTo(o.x - 9, o.y + 8);
+  ctx.lineTo(o.x - 6, o.y - 34);
+  ctx.lineTo(o.x, o.y - 42);
+  ctx.lineTo(o.x + 6, o.y - 34);
+  ctx.lineTo(o.x + 9, o.y + 8);
+  ctx.closePath(); ctx.fill();
+  // glowing runes
+  ctx.fillStyle = hexA('#d9a8ff', 0.5 + pulse * 0.5);
+  for (const [rx, ry] of [[0, -32], [-2, -22], [2, -13], [-1, -4]]) {
+    ctx.fillRect(o.x + rx - 1.5, o.y + ry, 3, 5);
+  }
+  if (Math.random() < 0.15) G.parts.push({ x: o.x + rand(-6, 6), y: o.y - rand(0, 34), vx: rand(-4, 4), vy: rand(-18, -8), r: rand(1, 2), color: '#b86adf', life: 0.5, glow: true });
+  ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🌀 Rift Obelisk', o.x, o.y - 52);
+}
+
 function drawVendor(v) {
   const bob = Math.sin(G.time * 2) * 0.8;
   ctx.fillStyle = '#00000066';
@@ -3577,10 +3714,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3594,6 +3731,7 @@ function togglePanel(id) {
     if (id === 'wpPanel') renderWp();
     if (id === 'shopPanel') renderShop();
     if (id === 'stashPanel') renderStash();
+    if (id === 'riftPanel') renderRift();
     paused = true;
   }
 }
@@ -3639,6 +3777,29 @@ function renderStash() {
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
     saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
+}
+
+function renderRift() {
+  const max = G.maxRiftTier || 1;
+  const best = G.riftBest || {};
+  const rows = [];
+  for (let t = 1; t <= max; t++) {
+    rows.push(`<button class="smallbtn" data-rift="${t}">🌀 Tier ${t} <small>· foes lvl ${riftDepth(t)}${best[t] ? ' · best ' + fmtTime(best[t]) : ''}</small></button>`);
+  }
+  $('riftPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🌀 Rift Obelisk</div>
+    <div class="invactions" style="flex-direction:column">${rows.join('')}</div>
+    <div class="derived" style="text-align:center">
+      A rift is a single timed floor: slay enough denizens to summon the
+      Rift Guardian, then fell it before ${fmtTime(RIFT_TIME)} runs out.<br>
+      Conquer your highest tier to unlock the next.
+    </div>`;
+  $('riftPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('riftPanel').querySelectorAll('[data-rift]').forEach(b => b.addEventListener('click', () => {
+    closePanels();
+    enterRift(+b.dataset.rift);
+  }));
 }
 
 function renderWp() {
@@ -4160,6 +4321,12 @@ cvs.addEventListener('pointerup', e => {
   if (G.lvl.stash && dist(w.x, w.y, G.lvl.stash.x, G.lvl.stash.y) < 44) {
     if (dist(p.x, p.y, G.lvl.stash.x, G.lvl.stash.y) < 95) togglePanel('stashPanel');
     else setMoveTarget(G.lvl.stash.x, G.lvl.stash.y + 34);
+    return;
+  }
+  // rift obelisk?
+  if (G.lvl.obelisk && dist(w.x, w.y, G.lvl.obelisk.x, G.lvl.obelisk.y - 16) < 48) {
+    if (dist(p.x, p.y, G.lvl.obelisk.x, G.lvl.obelisk.y) < 95) togglePanel('riftPanel');
+    else setMoveTarget(G.lvl.obelisk.x, G.lvl.obelisk.y + 34);
     return;
   }
   // drop?
