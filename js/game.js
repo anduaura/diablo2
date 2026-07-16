@@ -195,8 +195,38 @@ const CLASSES = {
       { id: 'golem', name: 'Bone Golem', icon: '🗿', mana: 25, cd: 10, lvl: 12, desc: 'Summon a hulking golem to tank for you' }],
   },
 };
-/* companion pets — the necromancer's companions are his minions */
-const PETS = { warrior: 'hound', sorceress: 'familiar', huntress: 'hawk', necromancer: null };
+/* companion pets: six species from humble hound to DRAGON. Each pet also
+   rolls a rarity grade (like items) that scales its random aura buffs and
+   combat power. Only one travels with you; the rest wait at the stable. */
+const PET_SPECIES = [
+  { id: 'hound', name: 'Hound', icon: '🐕', price: 300, dmgMult: 0.3, kind: 'melee' },
+  { id: 'wolf', name: 'Dire Wolf', icon: '🐺', price: 1200, dmgMult: 0.45, kind: 'melee' },
+  { id: 'hawk', name: 'Hawk', icon: '🦅', price: 2500, dmgMult: 0.55, kind: 'fly' },
+  { id: 'tiger', name: 'Tiger', icon: '🐯', price: 5000, dmgMult: 0.65, kind: 'melee' },
+  { id: 'drake', name: 'Ember Drake', icon: '🐉', price: 12000, dmgMult: 0.8, kind: 'rangedfly' },
+  { id: 'dragon', name: 'Dragon', icon: '🐲', price: 30000, dmgMult: 1.1, kind: 'dragon' },
+];
+const PET_RARITIES = ['common', 'magic', 'rare', 'unique', 'exotic'];
+const STARTER_PET = { warrior: 0, sorceress: 1, huntress: 2, necromancer: -1 };
+function rollPetRarity() {
+  const r = Math.random();
+  return r < 0.05 ? 'exotic' : r < 0.15 ? 'unique' : r < 0.4 ? 'rare' : r < 0.75 ? 'magic' : 'common';
+}
+function makePetData(spIdx, rarity) {
+  const sp = PET_SPECIES[spIdx];
+  const rIdx = PET_RARITIES.indexOf(rarity);
+  const nMods = [1, ri(1, 2), ri(2, 3), 3, 4][rIdx];
+  const mult = [0.7, 1, 1.3, 1.7, 2.2][rIdx];
+  const ilvl = 2 + spIdx * 4;   // exotic species roll bigger buffs
+  const mods = {}, used = new Set();
+  for (let i = 0; i < nMods; i++) {
+    const a = choice(AFFIXES);
+    if (used.has(a.stat)) continue;
+    used.add(a.stat);
+    mods[a.stat] = (mods[a.stat] || 0) + Math.max(1, Math.round(a.roll(ilvl) * mult));
+  }
+  return { sp: spIdx, rarity, mods, price: Math.round(sp.price * (1 + rIdx * 0.6)) };
+}
 
 /* class passives: two per class, up to 5 ranks each, bought with skill points */
 const SKILL_MAX = 10, PASSIVE_MAX = 5;
@@ -267,15 +297,23 @@ const GEMS = {
   emerald: { name: 'Emerald', icon: '🟢', color: '#4ad46a', stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s` },
   skull: { name: 'Skull', icon: '💀', color: '#cfc9b8', stat: 'leech', txt: v => `${v}% Life Steal` },
 };
-function gemItem(k, q, ilvl) {
-  const v = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
+function gemItem(k, q, ilvl, forceRarity) {
+  const rarity = forceRarity || (() => {
+    const r = Math.random();
+    return r < 0.03 ? 'exotic' : r < 0.1 ? 'unique' : r < 0.25 ? 'rare' : r < 0.55 ? 'magic' : 'common';
+  })();
+  const rIdx = ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(rarity);
+  const base = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
+  let v = Math.max(1, Math.round(base * [1, 1.4, 1.9, 2.6, 3.5][rIdx]));
+  if (k === 'skull') v = Math.min(v, 15);   // life steal stays sane
   return {
-    slot: 'gem', g: k, q, v, icon: GEMS[k].icon, rarity: 'magic', mods: {},
-    name: ['Chipped ', '', 'Flawless '][q] + GEMS[k].name, base: 'gem', lvl: ilvl,
+    slot: 'gem', g: k, q, v, icon: GEMS[k].icon, rarity, mods: {},
+    name: ['Chipped ', '', 'Flawless '][q] + ['', '', 'Radiant ', 'Pristine ', 'Celestial '][rIdx] + GEMS[k].name,
+    base: 'gem', lvl: ilvl,
   };
 }
-function makeGem(ilvl) {
-  return gemItem(choice(Object.keys(GEMS)), ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2, ilvl);
+function makeGem(ilvl, forceRarity) {
+  return gemItem(choice(Object.keys(GEMS)), ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2, ilvl, forceRarity);
 }
 /* quality tier of a gem; older saves lack .q so fall back to the name */
 function gemQ(it) {
@@ -433,7 +471,9 @@ function addGrave(g) {
 
 function newPlayer(clsId) {
   const c = CLASSES[clsId];
+  const starter = STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : [];
   return {
+    pets: starter, activePet: starter.length ? 0 : -1,
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
     skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
@@ -467,6 +507,9 @@ function derived(p) {
     if (it.slot !== 'charm') continue;
     for (const k in it.mods) m[k] = (m[k] || 0) + it.mods[k];
   }
+  // active companion's aura buffs the hero
+  const actPet = p.pets && p.pets[p.activePet];
+  if (actPet) for (const k in actPet.mods) m[k] = (m[k] || 0) + actPet.mods[k];
   // set bonuses: each threshold up to the worn count applies
   const setCount = {};
   for (const s of SLOTS) {
@@ -653,7 +696,8 @@ function enterRift(tier) {
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
   if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
-  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const actPet2 = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet2 ? spawnPet(actPet2) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
@@ -751,7 +795,8 @@ function enterCowLevel() {
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
   if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
-  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const actPet2 = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet2 ? spawnPet(actPet2) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
@@ -785,6 +830,8 @@ function genTown() {
     vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
+    stable: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + 8) * TILE + TILE / 2 },
+    petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     shopStock,
   };
 }
@@ -903,6 +950,7 @@ function makeItem(slot, ilvl, forceRarity) {
     };
     if (slot === 'weapon') it.dmg = [2 + ilvl * 2, 5 + ilvl * 3];
     else if (slot !== 'ring' && slot !== 'amulet') it.armor = 3 + Math.round(ilvl * 2.5);
+    if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
     return it;
   }
   if (rarity === 'unique') {
@@ -911,7 +959,10 @@ function makeItem(slot, ilvl, forceRarity) {
       const u = choice(pool);
       const it = { slot, base: u.name, name: u.name, icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot], rarity: 'unique', lvl: ilvl, mods: { ...u.mods } };
       if (slot === 'weapon') { it.dmg = [3 + ilvl * 2, 6 + ilvl * 3]; it.sockets = 1; it.gems = []; }
-      else if (slot !== 'ring' && slot !== 'amulet') it.armor = 4 + ilvl * 3;
+      else if (slot !== 'ring' && slot !== 'amulet') {
+        it.armor = 4 + ilvl * 3;
+        if (Math.random() < 0.2) { it.sockets = 1; it.gems = []; }
+      }
       return it;
     }
     rarity = 'rare';
@@ -1388,6 +1439,116 @@ function shoot(x, y, ang, spd, dmg, from, o) {
   });
 }
 
+/* ---------------- loot collection (hero, pets & minions) ---------------- */
+function autoSocketSwap(it) {
+  // a picked-up gem replaces the weakest embedded gem of the SAME type,
+  // so runewords stay intact while their gems improve
+  if (!G.autoEquip || !it.g) return null;
+  const p = G.p;
+  let host = null, gi = -1, low = it.v;
+  for (const s of SLOTS) {
+    const eq2 = p.equip[s];
+    if (!eq2 || !eq2.gems) continue;
+    for (let k2 = 0; k2 < eq2.gems.length; k2++) {
+      if (eq2.gems[k2].g === it.g && eq2.gems[k2].v < low) { low = eq2.gems[k2].v; host = eq2; gi = k2; }
+    }
+  }
+  if (!host) return null;
+  const old = host.gems[gi];
+  host.gems[gi] = { g: it.g, v: it.v };
+  recalc();
+  return old;
+}
+
+function collectDropsAt(x, y) {
+  const p = G.p;
+  for (let i = G.drops.length - 1; i >= 0; i--) {
+    const dr = G.drops[i];
+    const dd = dist(x, y, dr.x, dr.y);
+    if (dr.kind === 'gold' && dd < 34) {
+      p.gold += dr.amt; ftext(dr.x, dr.y - 12, '+' + dr.amt + ' gold', '#e8c14d', 12);
+      G.drops.splice(i, 1); sfx.gold(); updateHUD(); saveDirty = true;
+    } else if ((dr.kind === 'hpPot' || dr.kind === 'mpPot') && dd < 34) {
+      p.potions[dr.kind === 'hpPot' ? 'hp' : 'mp']++;
+      ftext(dr.x, dr.y - 12, dr.kind === 'hpPot' ? 'Health Potion' : 'Mana Potion', dr.kind === 'hpPot' ? '#ff8a7a' : '#8fb3ff', 12);
+      G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
+    } else if (dr.kind === 'item' && dd < 30) {
+      const it = dr.item;
+      const swappedGem = it.g ? autoSocketSwap(it) : null;
+      if (swappedGem) {
+        // weaker gem comes back out into the bag (or onto the floor)
+        const oldItem = { slot: 'gem', g: swappedGem.g, v: swappedGem.v, icon: GEMS[swappedGem.g].icon, rarity: 'common', mods: {}, name: GEMS[swappedGem.g].name, base: 'gem', lvl: it.lvl };
+        if (p.inv.length < p.bagSlots) p.inv.push(oldItem);
+        else G.drops.push({ kind: 'item', item: oldItem, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
+        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' socketed!', GEMS[it.g].color, 13);
+        spark(p.x, p.y - 10, GEMS[it.g].color, 8, 140);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
+      } else if (G.autoEquip && !it.g && SLOTS.includes(it.slot) && itemScore(it) > itemScore(p.equip[it.slot])) {
+        // auto-equip upgrades; old piece goes to the bag (or the floor if full)
+        const old = p.equip[it.slot];
+        p.equip[it.slot] = it;
+        if (old) {
+          if (p.inv.length < p.bagSlots) p.inv.push(old);
+          else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
+        }
+        recalc();
+        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
+        spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
+      } else if (G.autoSell > 0 && !it.g && it.slot !== 'charm' && !(it.sockets >= 2) &&
+        (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
+        // auto-sell junk straight to gold (2-socket runeword bases are kept)
+        const gold = sellPrice(it);
+        p.gold += gold;
+        ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
+        G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
+      } else if (p.inv.length >= p.bagSlots) {
+        if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
+      } else {
+        p.inv.push(it);
+        ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
+        if (it.slot === 'charm') recalc();
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
+      }
+      if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
+    }
+  }
+}
+function tryOpenChests(x, y, r) {
+  for (const ch of G.lvl.chests || []) {
+    if (!ch.opened && dist(x, y, ch.x, ch.y) < r) { ch.opened = true; openChest(ch); }
+  }
+}
+function findFetchTarget(x, y) {
+  // nearest drop or unopened chest, leashed to the hero's surroundings
+  const p = G.p;
+  let best = null, bd = 1e9;
+  for (const dr of G.drops) {
+    if (dr.kind === 'item' && p.inv.length >= p.bagSlots) continue;   // don't hover over unpickable items
+    if (dist(p.x, p.y, dr.x, dr.y) > 280) continue;
+    const d = dist(x, y, dr.x, dr.y);
+    if (d < bd) { bd = d; best = dr; }
+  }
+  for (const ch of G.lvl.chests || []) {
+    if (ch.opened) continue;
+    if (dist(p.x, p.y, ch.x, ch.y) > 280) continue;
+    const d = dist(x, y, ch.x, ch.y);
+    if (d < bd) { bd = d; best = ch; }
+  }
+  return best;
+}
+function blinkToMaster(e, flying) {
+  // helpers that fall out of sight teleport back to the hero
+  const p = G.p;
+  if (dist(e.x, e.y, p.x, p.y) < 460) return false;
+  burst(e.x, e.y, '#9adcff', 6, 90);
+  e.x = p.x + rand(-36, 36);
+  e.y = p.y + rand(-26, 26);
+  if (!flying && !circleFree(e.x, e.y, e.r || 10)) { e.x = p.x; e.y = p.y; }
+  spark(e.x, e.y, '#9adcff', 8, 140);
+  return true;
+}
+
 /* ---------------- minions & pets ---------------- */
 function makeMinion(kind) {
   const p = G.p, lvl = p.level;
@@ -1438,9 +1599,9 @@ function refreshMercEntity() {
   mi.dmg = st.dmg;
 }
 
-function makePet(kind) {
+function spawnPet(data) {
   const p = G.p;
-  return { isPet: true, kind, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
+  return { isPet: true, kind: PET_SPECIES[data.sp].id, data, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
 }
 function hurtMinion(mi, dmg) {
   mi.hp -= dmg; mi.hurtT = 0.15;
@@ -1488,6 +1649,17 @@ function updateMinions(dt) {
         }
       } else moveCircle(mi, Math.cos(mi.dir) * mi.spd * dt, Math.sin(mi.dir) * mi.spd * dt);
     } else {
+      if (blinkToMaster(mi, false)) continue;
+      // idle skeletons haul loot and pry open chests
+      const fetch = findFetchTarget(mi.x, mi.y);
+      if (fetch) {
+        const a = Math.atan2(fetch.y - mi.y, fetch.x - mi.x);
+        mi.dir = a;
+        moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
+        collectDropsAt(mi.x, mi.y);
+        tryOpenChests(mi.x, mi.y, 32);
+        continue;
+      }
       const fx = p.x - Math.cos(p.dir) * 40 + mi.off.x, fy = p.y - Math.sin(p.dir) * 24 + mi.off.y;
       if (dist(mi.x, mi.y, fx, fy) > 30) {
         const a = Math.atan2(fy - mi.y, fx - mi.x);
@@ -1511,12 +1683,15 @@ function updateMinions(dt) {
 function updatePet(dt) {
   const pet = G.pet, p = G.p;
   if (!pet) return;
+  const def = PET_SPECIES[pet.data.sp];
+  const rIdx = PET_RARITIES.indexOf(pet.data.rarity);
   pet.atkT -= dt;
   pet.swingT = Math.max(0, pet.swingT - dt);
-  const flying = pet.kind !== 'hound';
-  const spd = 210;
+  const flying = def.kind !== 'melee';
+  const isRanged = def.kind === 'ranged' || def.kind === 'rangedfly' || def.kind === 'dragon';
+  const spd = 210 + rIdx * 12;
   // nearest monster near the hero
-  let best = null, bd = pet.kind === 'familiar' ? 240 : 150;
+  let best = null, bd = isRanged ? 240 : 150;
   for (const m of G.lvl.monsters) {
     if (m.hp <= 0 || !m.aggro) continue;
     if (dist(p.x, p.y, m.x, m.y) > 300) continue;
@@ -1525,17 +1700,24 @@ function updatePet(dt) {
   }
   if (best) {
     pet.dir = Math.atan2(best.y - pet.y, best.x - pet.x);
-    const atkRange = pet.kind === 'familiar' ? 190 : best.r + 22;
+    const atkRange = isRanged ? 190 : best.r + 22;
     if (bd < atkRange) {
       if (pet.atkT <= 0) {
         pet.atkT = 1.15; pet.swingT = 0.2;
-        const dmg = Math.max(1, Math.round(playerAtk() * 0.3));
-        if (pet.kind === 'familiar') {
+        const dmg = Math.max(1, Math.round(playerAtk() * def.dmgMult * (1 + 0.15 * rIdx)));
+        if (def.kind === 'dragon') {
+          shoot(pet.x, pet.y - 22, pet.dir, 380, dmg, 'p', { kind: 'fireball', r: 5, aoe: 48 });
+          sfx.fire();
+        } else if (def.kind === 'rangedfly') {
+          shoot(pet.x, pet.y - 18, pet.dir, 430, dmg, 'p', { kind: 'fire', r: 3.5, color: '#ff9a4a' });
+          sfx.shoot();
+        } else if (def.kind === 'ranged') {
           shoot(pet.x, pet.y - 14, pet.dir, 420, dmg, 'p', { kind: 'fire', r: 3.5, color: '#b8a4ff' });
+          sfx.shoot();
         } else {
           hitMonster(best, dmg, { noCrit: true, noLeech: true });
+          sfx.hit();
         }
-        sfx.hit();
       }
       if (!flying) return;
     }
@@ -1545,6 +1727,20 @@ function updatePet(dt) {
       else moveCircle(pet, Math.cos(pet.dir) * mv, Math.sin(pet.dir) * mv);
     }
   } else {
+    if (blinkToMaster(pet, flying)) return;
+    // no enemies: fetch loot and crack open chests for the master
+    const fetch = findFetchTarget(pet.x, pet.y);
+    if (fetch) {
+      const a = Math.atan2(fetch.y - pet.y, fetch.x - pet.x);
+      pet.dir = a;
+      const dd2 = dist(pet.x, pet.y, fetch.x, fetch.y);
+      const mv = Math.min(spd * dt, dd2);
+      if (flying) { pet.x += Math.cos(a) * mv; pet.y += Math.sin(a) * mv; }
+      else moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
+      collectDropsAt(pet.x, pet.y);
+      tryOpenChests(pet.x, pet.y, 32);
+      return;
+    }
     const fx = p.x - Math.cos(p.dir) * 36, fy = p.y - Math.sin(p.dir) * 20 + 12;
     const dd = dist(pet.x, pet.y, fx, fy);
     if (dd > 28) {
@@ -1585,6 +1781,7 @@ function drinkPotion(kind) {
 function enterLevel(dlvl, fresh) {
   G.cowLevel = false;
   G.rift = null;
+  if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
   G.lvl = dlvl === 0 ? genTown() : genLevel(dlvl);
@@ -1592,7 +1789,8 @@ function enterLevel(dlvl, fresh) {
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
   if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
-  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const actPet = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet ? spawnPet(actPet) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null;
@@ -1644,6 +1842,7 @@ function saveGame() {
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
       maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
+      pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1661,6 +1860,9 @@ function startGame(clsId, save, slot) {
       passives: save.passives || [0, 0],
       hardcore: !!save.hardcore,
       challenge: save.challenge || null,
+      pets: save.pets || (STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : []),
+      activePet: save.pets ? (save.activePet !== undefined ? save.activePet : -1)
+        : (STARTER_PET[clsId] >= 0 ? 0 : -1),
     });
     soundOn = save.soundOn !== false;
     musicOn = save.musicOn !== false;
@@ -1684,6 +1886,7 @@ function startGame(clsId, save, slot) {
     merc: (save && save.merc) || null,
     maxRiftTier: (save && save.maxRiftTier) || 1,
     riftBest: (save && save.riftBest) || {},
+    anchor: null, offPortal: true,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -1736,9 +1939,7 @@ function update(dt) {
   for (const s of G.lvl.shrines || []) {
     if (!s.used && dist(p.x, p.y, s.x, s.y) < 36) { s.used = true; activateShrine(s); }
   }
-  for (const ch of G.lvl.chests || []) {
-    if (!ch.opened && dist(p.x, p.y, ch.x, ch.y) < 40) { ch.opened = true; openChest(ch); }
-  }
+  tryOpenChests(p.x, p.y, 40);
 
   // auto-potion: drink when life falls under the chosen threshold
   G.autoPotT = Math.max(0, (G.autoPotT || 0) - dt);
@@ -1870,6 +2071,26 @@ function update(dt) {
     }
   }
 
+  /* --- portals --- */
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) {
+    if (dist(p.x, p.y, G.lvl.portal.x, G.lvl.portal.y) < 26) { returnThroughPortal(); return; }
+  }
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) {
+    const dp = dist(p.x, p.y, G.anchor.x, G.anchor.y);
+    if (dp > 44) G.offPortal = true;
+    else if (dp < 24 && G.offPortal) {
+      // step back into your own portal → to town (same anchor kept)
+      G.offPortal = false;
+      spark(p.x, p.y, '#5ab0ff', 18, 200);
+      sfx.stairs();
+      const keep = G.anchor;
+      enterLevel(0, false);
+      G.anchor = keep;
+      G.lvl.portal = { x: p.x + 54, y: p.y };
+      return;
+    }
+  }
+
   /* --- stairs & waypoints --- */
   const ptx = Math.floor(p.x / TILE), pty = Math.floor(p.y / TILE);
   const curTile = tileAt(ptx, pty);
@@ -1890,11 +2111,16 @@ function update(dt) {
       if (!G.lockMsgT || G.time - G.lockMsgT > 3) { banner('The stairs are sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!'); G.lockMsgT = G.time; }
       p.moveTo = null; p.path = null;
       moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
+    } else if (G.stairsHold) {
+      // chose to stay: ease the hero off the stairs
+      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
+    } else if (G.drops.length > 0) {
+      togglePanel('stairsPanel');
     } else {
       enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
       return;
     }
-  }
+  } else G.stairsHold = false;
 
   /* --- drop ceremony: fanfare when high-rarity loot hits the ground --- */
   for (const dr of G.drops) {
@@ -1908,49 +2134,8 @@ function update(dt) {
     if (rr2 === 'rare') sfx.rare(); else sfx.epic();
   }
 
-  /* --- pickups --- */
-  for (let i = G.drops.length - 1; i >= 0; i--) {
-    const dr = G.drops[i];
-    const dd = dist(p.x, p.y, dr.x, dr.y);
-    if (dr.kind === 'gold' && dd < 34) {
-      p.gold += dr.amt; ftext(dr.x, dr.y - 12, '+' + dr.amt + ' gold', '#e8c14d', 12);
-      G.drops.splice(i, 1); sfx.gold(); updateHUD(); saveDirty = true;
-    } else if ((dr.kind === 'hpPot' || dr.kind === 'mpPot') && dd < 34) {
-      p.potions[dr.kind === 'hpPot' ? 'hp' : 'mp']++;
-      ftext(dr.x, dr.y - 12, dr.kind === 'hpPot' ? 'Health Potion' : 'Mana Potion', dr.kind === 'hpPot' ? '#ff8a7a' : '#8fb3ff', 12);
-      G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
-    } else if (dr.kind === 'item' && dd < 30) {
-      const it = dr.item;
-      if (G.autoEquip && !it.g && SLOTS.includes(it.slot) && itemScore(it) > itemScore(p.equip[it.slot])) {
-        // auto-equip upgrades; old piece goes to the bag (or the floor if full)
-        const old = p.equip[it.slot];
-        p.equip[it.slot] = it;
-        if (old) {
-          if (p.inv.length < p.bagSlots) p.inv.push(old);
-          else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
-        }
-        recalc();
-        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
-        spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
-        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
-      } else if (G.autoSell > 0 && !it.g && it.slot !== 'charm' && !(it.sockets >= 2) &&
-        (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
-        // auto-sell junk straight to gold (2-socket runeword bases are kept)
-        const gold = sellPrice(it);
-        p.gold += gold;
-        ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
-        G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
-      } else if (p.inv.length >= p.bagSlots) {
-        if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
-      } else {
-        p.inv.push(it);
-        ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
-        if (it.slot === 'charm') recalc();
-        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
-      }
-      if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
-    }
-  }
+  /* --- pickups (the hero, pets and minions all use the same logic) --- */
+  collectDropsAt(p.x, p.y);
 
   /* --- monsters --- */
   const ms = G.lvl.monsters;
@@ -2429,10 +2614,15 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
-  /* town vendor, stash trunk & rift obelisk */
+  /* town vendor, stash trunk, stable & rift obelisk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
+  if (G.lvl.stable) drawStable(G.lvl.stable);
   if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
+
+  /* portals: town-side return + dungeon-side anchor */
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) drawPortal(G.anchor.x, G.anchor.y);
 
   /* entities sorted by y */
   const ents = [];
@@ -2602,6 +2792,9 @@ function drawLights() {
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
+  if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
+  if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
+  if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) hole(G.anchor.x, G.anchor.y - 6, 90, 0.85);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -3469,31 +3662,97 @@ function drawPet(pet) {
   const t = G.time;
   const bob = Math.sin(t * 3 + 1) * 1.2;
   const face = Math.cos(pet.dir) >= 0 ? 1 : -1;
-  if (pet.kind === 'hound') {
+  // rare+ companions glow with their grade's color
+  const rIdx = pet.data ? PET_RARITIES.indexOf(pet.data.rarity) : 0;
+  if (rIdx >= 2) {
+    ctx.strokeStyle = hexA(rarityColor(pet.data.rarity), 0.35 + Math.sin(t * 3) * 0.12);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 15, 5.5, 0, 0, 7); ctx.stroke();
+  }
+  if (pet.kind === 'hound' || pet.kind === 'wolf' || pet.kind === 'tiger') {
+    const wolf = pet.kind === 'wolf', tiger = pet.kind === 'tiger';
+    const cBody = tiger ? '#d8863a' : wolf ? '#78828e' : '#6a5238';
+    const cDark = tiger ? '#2c1c10' : wolf ? '#4e5762' : '#3a2c1c';
+    const cLeg = tiger ? '#b8702e' : wolf ? '#565f6a' : '#4a3826';
+    const s = tiger ? 1.32 : wolf ? 1.18 : 1;
     ctx.fillStyle = '#00000060';
-    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11, 4, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11 * s, 4 * s, 0, 0, 7); ctx.fill();
     ctx.save();
     ctx.translate(pet.x, pet.y);
-    ctx.scale(face, 1);
-    const trot = Math.sin(t * 10);
-    ctx.strokeStyle = '#4a3826'; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    ctx.scale(face * s, s);
+    ctx.strokeStyle = cLeg; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
     for (const [lx, ph] of [[-6, 0], [-3, 2], [3, 1], [6, 3]]) {
       ctx.beginPath(); ctx.moveTo(lx, 2); ctx.lineTo(lx + Math.sin(t * 10 + ph) * 2.5, 8); ctx.stroke();
     }
-    ctx.fillStyle = '#6a5238';   // body
+    ctx.fillStyle = cBody;   // body
     ctx.beginPath(); ctx.ellipse(0, 0 + bob * 0.3, 9.5, 5.5, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#6a5238'; ctx.lineWidth = 2.2;   // wagging tail
+    ctx.strokeStyle = cBody; ctx.lineWidth = wolf ? 3 : 2.2;   // tail
     ctx.beginPath(); ctx.moveTo(-9, -2);
     ctx.quadraticCurveTo(-13, -6 + Math.sin(t * 8) * 2, -15, -4 + Math.sin(t * 8) * 3); ctx.stroke();
-    ctx.fillStyle = '#6a5238';   // head + snout
+    ctx.fillStyle = cBody;   // head + snout
     ctx.beginPath(); ctx.arc(9, -4 + bob * 0.3, 4.6, 0, 7); ctx.fill();
     ctx.fillRect(11, -4 + bob * 0.3, 5, 3.2);
-    ctx.fillStyle = '#3a2c1c';   // nose + ear
+    ctx.fillStyle = cDark;   // nose + ear
     ctx.fillRect(15, -3.6 + bob * 0.3, 1.8, 2);
     ctx.beginPath(); ctx.moveTo(7, -8); ctx.lineTo(9, -11.5); ctx.lineTo(10.5, -7.6); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#ffd76a';
+    if (wolf) { ctx.beginPath(); ctx.moveTo(4.5, -8.4); ctx.lineTo(6, -11.8); ctx.lineTo(7.8, -7.9); ctx.closePath(); ctx.fill(); }
+    if (tiger) {   // stripes + pale muzzle
+      ctx.strokeStyle = cDark; ctx.lineWidth = 1.6;
+      for (const sx2 of [-5, -1.5, 2]) {
+        ctx.beginPath(); ctx.moveTo(sx2, -4.5 + bob * 0.3); ctx.lineTo(sx2 + 1, 3 + bob * 0.3); ctx.stroke();
+      }
+      ctx.fillStyle = '#e8d9c0';
+      ctx.fillRect(11, -2.2 + bob * 0.3, 4.5, 1.6);
+    }
+    ctx.fillStyle = tiger ? '#ffe14d' : wolf ? '#9adcff' : '#ffd76a';
     ctx.fillRect(9.6, -5.6 + bob * 0.3, 1.6, 1.6);
     ctx.restore();
+  } else if (pet.kind === 'drake' || pet.kind === 'dragon') {
+    const drg = pet.kind === 'dragon';
+    const s = drg ? 1.45 : 1;
+    const fy = pet.y - (drg ? 34 : 24) + bob * 2;
+    ctx.fillStyle = '#00000044';
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 6, 10 * s, 3.5 * s, 0, 0, 7); ctx.fill();
+    ctx.save();
+    ctx.translate(pet.x, fy);
+    ctx.scale(face * s, s);
+    const flap = Math.sin(t * (drg ? 8 : 11));
+    const cBody = drg ? '#a32430' : '#c86a30', cWing = drg ? '#701420' : '#8a4520', cBelly = drg ? '#e8c05a' : '#e8a05a';
+    for (const sd of [-1, 1]) {   // membrane wings
+      ctx.fillStyle = cWing;
+      ctx.beginPath();
+      ctx.moveTo(sd * 2, -1);
+      ctx.quadraticCurveTo(sd * 9, -8 - flap * 6, sd * 17, -4 - flap * 9);
+      ctx.lineTo(sd * 12, -1 - flap * 4);
+      ctx.lineTo(sd * 15, 1 - flap * 5);
+      ctx.lineTo(sd * 8, 1.5 - flap * 2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.strokeStyle = cBody; ctx.lineWidth = 3;   // tail with arrow tip
+    ctx.beginPath(); ctx.moveTo(-6, 1);
+    ctx.quadraticCurveTo(-12, 3 + Math.sin(t * 5) * 2, -16, 1 + Math.sin(t * 5) * 3); ctx.stroke();
+    ctx.fillStyle = cBody;
+    ctx.beginPath();
+    ctx.moveTo(-15, 1 + Math.sin(t * 5) * 3); ctx.lineTo(-19, -1 + Math.sin(t * 5) * 3); ctx.lineTo(-18, 4 + Math.sin(t * 5) * 3);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = cBody;   // body
+    ctx.beginPath(); ctx.ellipse(0, 0, 7.5, 5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cBelly;
+    ctx.beginPath(); ctx.ellipse(1, 2, 5, 2.6, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cBody;   // neck + head + snout
+    ctx.beginPath(); ctx.ellipse(7.5, -4, 3.4, 2.8, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10.5, -6.5, 3.4, 0, 7); ctx.fill();
+    ctx.fillRect(12, -7, 5, 2.8);
+    ctx.strokeStyle = cBelly; ctx.lineWidth = 1.4;   // horns
+    ctx.beginPath(); ctx.moveTo(9.5, -9.5); ctx.lineTo(8, -12.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11.5, -9.5); ctx.lineTo(11, -13); ctx.stroke();
+    ctx.fillStyle = drg ? '#ffe14d' : '#ffd76a';
+    ctx.fillRect(10, -7.6, 1.7, 1.7);
+    ctx.restore();
+    // smoke & sparks from the dragon's snout
+    if (drg && Math.random() < 0.18) {
+      G.parts.push({ x: pet.x + 16 * face, y: fy - 8, vx: face * rand(8, 20), vy: rand(-14, -4), r: rand(1.5, 2.6), color: Math.random() < 0.6 ? '#ff8a3a' : '#ffd27a', life: rand(0.3, 0.55), glow: true });
+    }
   } else if (pet.kind === 'hawk') {
     const fly = pet.y - 26 + bob * 2;
     ctx.fillStyle = '#00000044';
@@ -3584,6 +3843,59 @@ function drawChest(ch) {
     ctx.fillStyle = '#ffd76a';
     ctx.fillRect(ch.x - 1.5, ch.y - 4, 3, 4);
   }
+}
+
+function drawStable(st) {
+  const t = G.time;
+  // straw floor patch
+  ctx.fillStyle = '#8a7a3c44';
+  ctx.beginPath(); ctx.ellipse(st.x, st.y + 4, 42, 20, 0, 0, 7); ctx.fill();
+  // fence: posts + rails on three sides
+  ctx.strokeStyle = '#6a4a2c'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  const posts = [[-44, -18], [-44, 14], [0, -22], [44, -18], [44, 14]];
+  for (const [dx, dy] of posts) {
+    ctx.beginPath(); ctx.moveTo(st.x + dx, st.y + dy); ctx.lineTo(st.x + dx, st.y + dy - 14); ctx.stroke();
+  }
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(st.x - 44, st.y - 26); ctx.lineTo(st.x, st.y - 30); ctx.lineTo(st.x + 44, st.y - 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(st.x - 44, st.y + 6); ctx.lineTo(st.x - 44, st.y - 24); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(st.x + 44, st.y + 6); ctx.lineTo(st.x + 44, st.y - 24); ctx.stroke();
+  // idle companions wait in the pen
+  const p = G.p;
+  let k = 0;
+  for (let i = 0; i < p.pets.length && k < 3; i++) {
+    if (i === p.activePet) continue;
+    const pet = p.pets[i];
+    drawPet({
+      isPet: true, kind: PET_SPECIES[pet.sp].id, data: pet,
+      x: st.x - 24 + k * 26, y: st.y - 4 + (k % 2) * 10,
+      dir: k % 2 ? Math.PI : 0, atkT: 0, swingT: 0,
+    });
+    k++;
+  }
+  ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🐾 Stable', st.x, st.y - 42);
+}
+
+function drawPortal(x, y) {
+  const t = G.time;
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(x, y + 16, 14, 5, 0, 0, 7); ctx.fill();
+  const g = ctx.createRadialGradient(x, y - 6, 2, x, y - 6, 22);
+  g.addColorStop(0, 'rgba(154,220,255,0.7)');
+  g.addColorStop(0.6, 'rgba(90,176,255,0.35)');
+  g.addColorStop(1, 'rgba(90,176,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 16, 22, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#5ab0ff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 12, 18, Math.sin(t * 1.5) * 0.15, 0, 7); ctx.stroke();
+  ctx.strokeStyle = '#bfe8ff'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.ellipse(x, y - 6, 7 + Math.sin(t * 3) * 1.5, 12 + Math.cos(t * 2.4) * 2, -Math.sin(t * 1.5) * 0.2, 0, 7); ctx.stroke();
+  if (Math.random() < 0.3) G.parts.push({ x: x + rand(-8, 8), y: y - 6 + rand(-14, 14), vx: rand(-8, 8), vy: rand(-18, -6), r: rand(1, 2), color: '#9adcff', life: rand(0.3, 0.6), glow: true });
+  ctx.font = '10px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#9adcff';
+  ctx.fillText('portal', x, y - 34);
 }
 
 function drawTrunk(s) {
@@ -3749,10 +4061,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3767,8 +4079,100 @@ function togglePanel(id) {
     if (id === 'shopPanel') renderShop();
     if (id === 'stashPanel') renderStash();
     if (id === 'riftPanel') renderRift();
+    if (id === 'stablePanel') renderStable();
+    if (id === 'stairsPanel') renderStairs();
     paused = true;
   }
+}
+
+function renderStairs() {
+  const items = G.drops.filter(d => d.kind === 'item').length;
+  const gold = G.drops.filter(d => d.kind === 'gold').length;
+  const pots = G.drops.length - items - gold;
+  const bits = [];
+  if (items) bits.push(items + ' item' + (items > 1 ? 's' : ''));
+  if (gold) bits.push(gold + ' gold pile' + (gold > 1 ? 's' : ''));
+  if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
+  const leaving = G.cowLevel || G.rift;   // these stairs lead back to town
+  $('stairsPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">${leaving ? '🌀 Return to town?' : '⬇ Descend?'}</div>
+    <div class="derived" style="text-align:center; font-size:14px">
+      Still lying on this floor:<br><b style="color:#e8c14d">${bits.join(' · ')}</b><br>
+      Loot left behind is lost forever.
+    </div>
+    <div class="invactions" style="margin-top:12px">
+      <button class="smallbtn" data-stay>↩ Stay & collect</button>
+      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : '⬇ Descend anyway'}</button>
+    </div>`;
+  const stay = () => {
+    G.stairsHold = true;
+    G.p.moveTo = null; G.p.path = null;
+    closePanels();
+  };
+  $('stairsPanel').querySelector('[data-close]').addEventListener('click', stay);
+  $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
+  $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
+    closePanels();
+    enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
+  });
+}
+
+function renderStable() {
+  const p = G.p;
+  const modTxt = pet => Object.keys(pet.mods).map(k => { const a = AFFIXES.find(a => a.stat === k); return a ? a.txt(pet.mods[k]) : ''; }).filter(Boolean).join(' · ') || 'no blessings';
+  const own = p.pets.map((pet, i) => `
+    <div class="shoprow">
+      <span class="sicon2">${PET_SPECIES[pet.sp].icon}</span>
+      <span class="snm"><span class="rc-${pet.rarity}">${PET_SPECIES[pet.sp].name}</span>${i === p.activePet ? ' <span style="color:#7adf6a">● with you</span>' : ''}<br><small>${modTxt(pet)}</small></span>
+      ${i === p.activePet ? '' : `<button class="smallbtn" data-summon="${i}">Take</button>`}
+      <button class="smallbtn" data-sellpet="${i}" title="Sell">${Math.round(pet.price / 3)}g</button>
+    </div>`).join('');
+  const stock = (G.lvl.petStock || []).map((pet, i) => pet ? `
+    <div class="shoprow">
+      <span class="sicon2">${PET_SPECIES[pet.sp].icon}</span>
+      <span class="snm"><span class="rc-${pet.rarity}">${PET_SPECIES[pet.sp].name}</span><br><small>${modTxt(pet)}</small></span>
+      <button class="smallbtn" data-buypet="${i}" ${p.gold < pet.price || p.pets.length >= 8 ? 'disabled' : ''}>${pet.price}g</button>
+    </div>` : '').join('');
+  $('stablePanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🐾 Stable · 🪙 ${p.gold}</div>
+    <div class="ptitle" style="font-size:14px; border:none; margin:0; padding:0">Your companions · ${p.pets.length}/8</div>
+    ${own || '<div class="derived" style="text-align:center">No companions yet.</div>'}
+    <div class="ptitle" style="font-size:14px; border:none; margin:8px 0 0; padding:0">For sale (fresh per visit)</div>
+    ${stock || '<div class="derived" style="text-align:center">Sold out.</div>'}
+    <div class="derived" style="text-align:center">Only one companion travels with you — the rest wait here.<br>Grander beasts carry grander blessings.</div>`;
+  $('stablePanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('stablePanel').querySelectorAll('[data-summon]').forEach(b => b.addEventListener('click', () => {
+    p.activePet = +b.dataset.summon;
+    recalc();
+    G.pet = spawnPet(p.pets[p.activePet]);
+    banner(PET_SPECIES[p.pets[p.activePet].sp].name + ' joins you!');
+    sfx.pickup(); saveDirty = true; renderStable(); updateHUD();
+  }));
+  $('stablePanel').querySelectorAll('[data-sellpet]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.sellpet;
+    if (!confirm('Sell your ' + PET_SPECIES[p.pets[i].sp].name + ' for ' + Math.round(p.pets[i].price / 3) + ' gold?')) return;
+    p.gold += Math.round(p.pets[i].price / 3);
+    p.pets.splice(i, 1);
+    if (p.activePet === i) { p.activePet = -1; G.pet = null; }
+    else if (p.activePet > i) p.activePet--;
+    recalc(); sfx.gold(); saveDirty = true; renderStable(); updateHUD();
+  }));
+  $('stablePanel').querySelectorAll('[data-buypet]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.buypet, pet = G.lvl.petStock[i];
+    if (!pet || p.gold < pet.price || p.pets.length >= 8) return;
+    p.gold -= pet.price;
+    p.pets.push(pet);
+    G.lvl.petStock[i] = null;
+    if (p.activePet < 0) {
+      p.activePet = p.pets.length - 1;
+      G.pet = spawnPet(pet);
+    }
+    recalc();
+    banner(PET_SPECIES[pet.sp].name + ' purchased!');
+    sfx.level(); saveDirty = true; renderStable(); updateHUD();
+  }));
 }
 
 function renderStash() {
@@ -3841,8 +4245,10 @@ function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
     : WORLDS[worldOf(d)].name + ' · Floor ' + d;
-  const ret = G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
-    ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '';
+  const ret = G.anchor && G.anchor.dlvl !== G.dlvl
+    ? `<button class="smallbtn" data-portal-return style="border-color:#5ab0ff">🌀 Return through portal — Floor ${G.anchor.dlvl}</button>`
+    : (G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
+      ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '');
   $('wpPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🌀 Waypoint</div>
@@ -3857,6 +4263,8 @@ function renderWp() {
     closePanels();
     if (d !== G.dlvl) enterLevel(d, false);
   }));
+  const prBtn = $('wpPanel').querySelector('[data-portal-return]');
+  if (prBtn) prBtn.addEventListener('click', () => { closePanels(); returnThroughPortal(); });
 }
 
 function renderShop() {
@@ -3954,6 +4362,9 @@ function renderChar() {
       ${(d.fire + d.cold + d.light + d.poison) > 0
         ? 'Elemental: <b>' + [d.fire ? '🔥' + d.fire : '', d.cold ? '❄️' + d.cold : '', d.light ? '⚡' + d.light : '', d.poison ? '☠️' + d.poison : ''].filter(Boolean).join(' ') + '</b><br>'
         : ''}
+      ${p.pets && p.pets[p.activePet]
+        ? `Companion: <b class="rc-${p.pets[p.activePet].rarity}">${PET_SPECIES[p.pets[p.activePet].sp].icon} ${PET_SPECIES[p.pets[p.activePet].sp].name}</b><br>`
+        : ''}
       Experience: <b>${p.xp} / ${xpNext(p.level)}</b> · Deaths: <b>${p.deaths}</b>
     </div>`;
   $('charPanel').querySelectorAll('[data-stat]').forEach(b => b.addEventListener('click', () => {
@@ -3986,6 +4397,11 @@ function renderChar() {
 }
 
 const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
+const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
+// bulk-sellable: never gems, charms, sigils, or anything with sockets (gem hosts)
+const sellListUpTo = (p, tier) =>
+  p.inv.filter(i => !i.g && !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' &&
+    RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
 
 function sockBadge(it) {
   if (!it || !it.sockets) return '';
@@ -4021,6 +4437,15 @@ function renderInv() {
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
     </div>
+    <div class="invactions" style="margin-top:-4px">
+      ${['common', 'magic', 'rare', 'exotic'].map(tier => {
+        const list = sellListUpTo(p, tier);
+        const total = list.reduce((s, i) => s + sellPrice(i), 0);
+        const label = tier === 'common' ? 'commons' : tier === 'exotic' ? 'everything' : '≤ ' + tier;
+        return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
+      }).join('')}
+    </div>
+    <div class="derived" style="text-align:center; margin:2px 0 8px">Selling skips gems, charms, sigils and socketed items.</div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {
@@ -4036,6 +4461,18 @@ function renderInv() {
     p.gold -= potCost; p.potions[b.dataset.buy]++;
     sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
   }));
+  $('invPanel').querySelectorAll('[data-sellup]').forEach(b => b.addEventListener('click', () => {
+    const tier = b.dataset.sellup;
+    const list = sellListUpTo(p, tier);
+    if (!list.length) return;
+    const total = list.reduce((s, i) => s + sellPrice(i), 0);
+    const label = tier === 'exotic' ? 'every rarity' : 'rarities up to ' + tier;
+    if (!confirm('Sell ' + list.length + ' items (' + label + ') for ' + total + ' gold?\nGems and socketed items always stay.')) return;
+    p.inv = p.inv.filter(i => !list.includes(i));
+    p.gold += total;
+    ftext(p.x, p.y - 30, '+' + total + 'g', '#e8c14d', 14);
+    sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
+  }));
   const bagBtn = $('invPanel').querySelector('[data-bag]');
   if (bagBtn) bagBtn.addEventListener('click', () => {
     const cost = BAG_COSTS[(p.bagSlots - 24) / 6];
@@ -4049,7 +4486,11 @@ function renderInv() {
     const idx = fusableGems(p.inv);
     if (!idx) return;
     const src = p.inv[idx[0]];
-    const fused = gemItem(src.g, gemQ(src) + 1, src.lvl);
+    // the fused gem keeps the best rarity grade among the three
+    const order = ['common', 'magic', 'rare', 'unique', 'exotic'];
+    const bestRarity = idx.reduce((best, i) =>
+      order.indexOf(p.inv[i].rarity) > order.indexOf(best) ? p.inv[i].rarity : best, 'common');
+    const fused = gemItem(src.g, gemQ(src) + 1, src.lvl, bestRarity);
     for (let k = idx.length - 1; k >= 0; k--) p.inv.splice(idx[k], 1);
     p.inv.push(fused);
     banner('⚗ ' + fused.name + ' — gems fused!');
@@ -4102,10 +4543,13 @@ function showItemPopup(it, ref, equipped) {
     ? '<br>' + it.gems.map(g => `<span style="color:${GEMS[g.g].color}">◆ ${GEMS[g.g].txt(g.v)}</span>`).join('<br>')
     : '';
   const sockHtml = it.sockets
-    ? '<div class="isock">' + Array.from({ length: it.sockets }, (_, i) => {
-      const g = it.gems && it.gems[i];
-      return g ? `<span style="color:${GEMS[g.g].color}">◆</span>` : '<span style="color:#5a4c34">◇</span>';
-    }).join(' ') + '</div>'
+    ? '<div class="isock">' + Array.from({ length: it.sockets }, (_, i2) => {
+      const g = it.gems && it.gems[i2];
+      return g
+        ? `<button class="sockbtn" data-unsock="${i2}" style="color:${GEMS[g.g].color}" title="Remove gem">◆</button>`
+        : '<span class="sockbtn" style="color:#5a4c34">◇</span>';
+    }).join('') + '</div>' +
+    (it.gems && it.gems.length ? '<div class="ibase">tap a filled socket to pry its gem out</div>' : '')
     : '';
   const gemTargets = it.g ? SLOTS.filter(s => {
     const e2 = p.equip[s];
@@ -4128,7 +4572,7 @@ function showItemPopup(it, ref, equipped) {
     return `<div class="setinfo"><b style="color:#4adf6a">◈ ${def.name}</b> · ${worn}/${Object.keys(def.pieces).length} worn<br>${lines.join('<br>')}</div>`;
   })() : '';
   pop.innerHTML = `
-    <div class="iname rc-${it.rarity}" ${it.g ? `style="color:${GEMS[it.g].color}"` : ''}>${it.icon} ${it.name}</div>
+    <div class="iname rc-${it.rarity}">${it.icon} ${it.name}</div>
     <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
     ${rwHtml}
     ${setHtml}
@@ -4150,6 +4594,20 @@ function showItemPopup(it, ref, equipped) {
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
   pop.classList.remove('hidden');
+  pop.querySelectorAll('[data-unsock]').forEach(b => b.addEventListener('click', () => {
+    const gi = +b.dataset.unsock;
+    const g = it.gems && it.gems[gi];
+    if (!g) return;
+    if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Bag is full!', '#ff8a7a', 13); return; }
+    it.gems.splice(gi, 1);
+    p.inv.push({ slot: 'gem', g: g.g, v: g.v, icon: GEMS[g.g].icon, rarity: 'magic', mods: {}, name: GEMS[g.g].name, base: 'gem', lvl: it.lvl });
+    recalc(); sfx.pickup();
+    ftext(p.x, p.y - 30, GEMS[g.g].name + ' pried out', GEMS[g.g].color, 13);
+    saveDirty = true;
+    pop.classList.add('hidden');
+    renderInv(); updateHUD();
+    showItemPopup(it, ref, equipped);   // reopen with the freed socket
+  }));
   pop.querySelectorAll('[data-embed]').forEach(b => b.addEventListener('click', () => {
     const target = p.equip[b.dataset.embed];
     if (!target || !target.sockets) return;
@@ -4382,6 +4840,12 @@ cvs.addEventListener('pointerup', e => {
     else setMoveTarget(G.lvl.obelisk.x, G.lvl.obelisk.y + 34);
     return;
   }
+  // stable?
+  if (G.lvl.stable && dist(w.x, w.y, G.lvl.stable.x, G.lvl.stable.y) < 55) {
+    if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
+    else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
+    return;
+  }
   // drop?
   for (const dr of G.drops) {
     if (dist(w.x, w.y, dr.x, dr.y) < 32) { setMoveTarget(dr.x, dr.y); return; }
@@ -4428,13 +4892,44 @@ $('btnChar').addEventListener('click', () => togglePanel('charPanel'));
 $('btnPortal').addEventListener('click', () => {
   if (!G || paused || G.p.hp <= 0) return;
   audioInit();
-  if (G.dlvl === 0) { banner('You are already in town'); return; }
+  if (G.dlvl === 0) {
+    if (G.anchor) returnThroughPortal();
+    else banner('You are already in town');
+    return;
+  }
+  // anchor the portal to this exact spot; the whole floor is preserved
   G.portalFloor = G.dlvl;
+  G.anchor = { dlvl: G.dlvl, x: G.p.x, y: G.p.y, lvl: G.lvl, drops: G.drops, world: G.world };
   spark(G.p.x, G.p.y, '#5ab0ff', 24, 220);
   sfx.stairs();
   enterLevel(0, false);
-  banner('Town portal — return via the waypoint');
+  G.lvl.portal = { x: G.p.x + 54, y: G.p.y };
+  G.offPortal = true;
+  banner('Town portal opened — step back through when ready');
 });
+
+function returnThroughPortal() {
+  const a = G.anchor;
+  if (!a) return;
+  G.dlvl = a.dlvl;
+  G.world = a.world;
+  G.lvl = a.lvl;
+  G.drops = a.drops;
+  G.projs = []; G.parts = []; G.texts = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = [];
+  G.minions = [];
+  const act = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = act ? spawnPet(act) : null;
+  G.p.x = a.x; G.p.y = a.y;
+  G.p.target = null; G.p.path = null; G.p.moveTo = null;
+  G.onWp = false; G.offPortal = false;   // must step away before the portal triggers again
+  const wname = WORLDS[G.world].name;
+  $('floorLabel').textContent = wname + ' · ' + a.dlvl + (G.ng ? ' · NG+' + G.ng : '');
+  banner('Back through the portal — ' + wname + ' ' + a.dlvl);
+  spark(G.p.x, G.p.y, '#5ab0ff', 18, 200);
+  sfx.stairs();
+  saveDirty = true;
+}
 $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
 $('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
 $('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
