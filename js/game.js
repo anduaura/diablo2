@@ -21,12 +21,28 @@ const thash = (x, y) => {
 /* ---------------- constants ---------------- */
 const TILE = 44, MAP_W = 52, MAP_H = 52;
 const T_WALL = 0, T_FLOOR = 1, T_UP = 2, T_DOWN = 3, T_WP = 4;
-const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+const isWpFloor = dlvl => dlvl % 5 === 1;   // a waypoint every five floors
 const AUTO_TARGET_R = 180;   // idle heroes lock onto monsters inside this radius
 const SAVE_KEY = 'sanctuary_save_v1';
 
 const BOSS_NAMES = ['Gharok the Flayed', 'Mistress Vex', 'Korlath, Tomb Warden',
   'The Hollow King', 'Balegrim the Devourer', 'Ashmaw the Eternal'];
+
+/* the world tyrants: one dragonkind per realm, waiting on its floor 25.
+   ele picks the breath element; final tyrants end an act with a victory */
+const ELE_COLORS = { fire: '#ff8a3a', cold: '#7ac8ff', light: '#ffd23a', poison: '#4ad46a' };
+const DRAGONS = [
+  { name: 'THORNWING, THE VERDANT WYRM', body: '#3f6a2e', belly: '#d8b84a', ele: 'poison' },
+  { name: 'ISAFROST, WYRM OF THE WHITE WASTE', body: '#7fb0d0', belly: '#e8f2fa', ele: 'cold' },
+  { name: 'CINDERMAW, THE CALDERA DRAKE', body: '#8a2c1a', belly: '#ffb03a', ele: 'fire' },
+  { name: 'OSSUARY, THE BONE DRAGON', body: '#b8ab8f', belly: '#e0dbcc', ele: 'poison' },
+  { name: 'MALGOROTH, LORD OF THE ABYSS', body: '#7a0c20', belly: '#4ad4c8', ele: 'cold', final: true },
+  { name: 'MYCELIOR, THE SPOREWYRM', body: '#4a6a5a', belly: '#6adfb8', ele: 'poison' },
+  { name: 'SIMOOM, THE SAND WYRM', body: '#74603a', belly: '#e8c05a', ele: 'light' },
+  { name: 'PRISMATRIX, THE CRYSTAL WYRM', body: '#4a3a6e', belly: '#c28aff', ele: 'light' },
+  { name: 'HAEMOVORE, THE GARDEN TYRANT', body: '#5a1e2a', belly: '#ff5a6a', ele: 'fire' },
+  { name: 'NULLSCALE, DEVOURER OF STARS', body: '#14141e', belly: '#8a9aff', ele: 'light', final: true },
+];
 
 /* five themed worlds, one per 5-floor arc (cycling after floor 25).
    pal: f = floor variants, w = wall, wt = wall highlight, m = mortar,
@@ -54,15 +70,21 @@ const WORLDS = [
     pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
 ];
 // worlds no longer cycle: past the last arc the deepest world holds forever
-const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 5), WORLDS.length - 1);
-/* world sections: world w spans floors 5w+1..5w+5; slaying its floor-5w+5
-   boss conquers it and unlocks the next world's gate in town */
-const WORLD_START = w => w * 5 + 1;
+const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 25), WORLDS.length - 1);
+/* world sections: each realm is 25 floors deep. Mini-bosses seal the
+   stairs every 5th floor; the realm's dragon tyrant waits on floor 25,
+   and slaying it conquers the world and opens the next gate in town */
+const WORLD_START = w => w * 25 + 1;
+const worldFloor = dlvl => dlvl - 25 * worldOf(dlvl);   // 1..25 within the realm
+/* monster scaling depth: within-world floors count in full, but each
+   completed realm only adds 15 — keeps ten 25-floor worlds climbable */
+const effDepth = dlvl => dlvl <= 0 ? 0 : worldOf(dlvl) * 15 + worldFloor(dlvl);
 const gateUnlocked = w => w === 0 || (G.conquered || []).includes(w - 1);
-/* pre-gate saves: any boss floor you descended past was conquered */
+/* re-derive conquests from depth: you must at least have reached a
+   realm's 25th floor for its tyrant to be dead */
 function inferConquered(deepest) {
   const c = [];
-  for (let w = 0; w < WORLDS.length; w++) if (deepest > 5 * (w + 1)) c.push(w);
+  for (let w = 0; w < WORLDS.length; w++) if (deepest > 25 * (w + 1)) c.push(w);
   return c;
 }
 
@@ -620,7 +642,7 @@ function genLevel(dlvl, riftMode) {
 
   // waypoint room on designated floors
   let wp = null;
-  if (WP_FLOORS.includes(dlvl) && !riftMode) {
+  if (isWpFloor(dlvl) && !riftMode) {
     const wpRoom = rooms.find(r => r !== r0 && r !== exit) || r0;
     const wx = wpRoom.cx + 1 < wpRoom.x + wpRoom.w ? wpRoom.cx + 1 : wpRoom.cx - 1;
     if (map[wpRoom.cy][wx] === T_FLOOR) {
@@ -678,12 +700,15 @@ function genLevel(dlvl, riftMode) {
 
   // monsters
   const monsters = [];
-  const isBossFloor = dlvl % 5 === 0 && !riftMode;
+  const wf = worldFloor(dlvl);
+  const isDragonFloor = wf === 25 && !riftMode;             // the realm's tyrant
+  const isBossFloor = (wf % 5 === 0 && !riftMode) || isDragonFloor;   // mini-bosses every 5th
   const pool = MTYPES.filter(t => t.minL <= dlvl);
   const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
-  const scaleHp = (1 + 0.4 * (dlvl - 1) + 0.05 * (dlvl - 1) * (dlvl - 1)) * ngm;
-  const scaleDmg = (1 + 0.22 * (dlvl - 1)) * ngm;
-  const scaleXp = (1 + 0.3 * (dlvl - 1)) * ngm;
+  const eff = effDepth(dlvl);
+  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
   const wpick = () => {
     let tot = 0; for (const t of pool) tot += t.w;
     let r = Math.random() * tot;
@@ -708,12 +733,24 @@ function genLevel(dlvl, riftMode) {
   }
   let boss = null;
   if (isBossFloor) {
-    const isFinal = dlvl === 25;
-    const bt = isFinal
-      ? { id: 'boss', name: 'MALGOROTH, LORD OF THE ABYSS', hp: 700, dmg: [18, 28], spd: 88, r: 34, xp: 800, gold: [300, 500], atkCd: 1.0, range: 64, w: 0, minL: 1, color: '#7a0c20' }
-      : { id: 'boss', name: choice(BOSS_NAMES), hp: 240, dmg: [12, 20], spd: 78, r: 26, xp: 160, gold: [60, 120], atkCd: 1.1, range: 52, w: 0, minL: 1, color: '#a01818' };
+    let bt;
+    if (isDragonFloor) {
+      // the realm's dragon tyrant
+      const dr = DRAGONS[wIdx];
+      bt = {
+        id: 'dragon', name: dr.name, hp: 620, dmg: [16, 26], spd: 90, r: 30,
+        xp: 520, gold: [220, 420], atkCd: 1.1, range: 72, w: 0, minL: 1,
+        color: dr.body,
+      };
+    } else {
+      bt = { id: 'boss', name: choice(BOSS_NAMES), hp: 240, dmg: [12, 20], spd: 78, r: 26, xp: 160, gold: [60, 120], atkCd: 1.1, range: 52, w: 0, minL: 1, color: '#a01818' };
+    }
     boss = makeMonster(bt, exit.cx * TILE + TILE / 2, exit.cy * TILE - TILE, scaleHp, scaleDmg, scaleXp, false, true, dlvl);
-    if (isFinal) { boss.final = true; boss.summonT = 6; boss.novaT = 2; }
+    if (isDragonFloor) {
+      boss.dragon = wIdx;
+      boss.breathT = 3;
+      if (DRAGONS[wIdx].final) { boss.final = true; boss.summonT = 6; boss.novaT = 2; }
+    }
     monsters.push(boss);
   }
 
@@ -746,7 +783,7 @@ function genLevel(dlvl, riftMode) {
 /* -------- rifts: timed one-floor challenges opened from the town obelisk -- */
 const RIFT_TIME = 150;   // seconds on the clock
 const RIFT_GUARDIAN = { id: 'riftguardian', name: 'RIFT GUARDIAN', hp: 280, dmg: [13, 21], spd: 82, r: 26, xp: 220, gold: [120, 220], atkCd: 1.0, range: 56, minL: 1, w: 0, color: '#b86adf' };
-const riftDepth = tier => 3 + tier * 2;
+const riftDepth = tier => 3 + tier * 6;
 function enterRift(tier) {
   G.cowLevel = false;
   const depth = riftDepth(tier);
@@ -772,9 +809,9 @@ function spawnRiftGuardian() {
   const ex = G.lvl.exitTile;
   const guard = makeMonster(RIFT_GUARDIAN,
     ex.x * TILE + TILE / 2, ex.y * TILE - TILE,
-    (1 + 0.4 * (G.dlvl - 1) + 0.05 * (G.dlvl - 1) * (G.dlvl - 1)),
-    (1 + 0.22 * (G.dlvl - 1)),
-    (1 + 0.3 * (G.dlvl - 1)),
+    (1 + 0.4 * (effDepth(G.dlvl) - 1) + 0.05 * (effDepth(G.dlvl) - 1) * (effDepth(G.dlvl) - 1)),
+    (1 + 0.22 * (effDepth(G.dlvl) - 1)),
+    (1 + 0.3 * (effDepth(G.dlvl) - 1)),
     false, true, G.dlvl);
   guard.aggro = true;
   G.lvl.monsters.push(guard);
@@ -837,9 +874,10 @@ function genCowLevel(depth) {
   for (let i = 0; i < 14; i++) torches.push({ x: ri(R.x + 1, R.x + R.w - 2) * TILE + TILE / 2, y: ri(R.y + 1, R.y + R.h - 2) * TILE + TILE * 0.9 });
   // the herd
   const ngm = 1 + (G && G.ng || 0) * 0.8;
-  const scaleHp = (1 + 0.4 * (depth - 1) + 0.05 * (depth - 1) * (depth - 1)) * ngm;
-  const scaleDmg = (1 + 0.22 * (depth - 1)) * ngm;
-  const scaleXp = (1 + 0.3 * (depth - 1)) * ngm;
+  const eff = effDepth(depth);
+  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
   const monsters = [];
   for (let i = 0; i < 52; i++) {
     let mx, my, tries = 0;
@@ -1237,6 +1275,11 @@ function spark(x, y, color, n, spd) {   // additive glowing embers
   }
 }
 function shake(a) { G.shakeT = Math.max(G.shakeT || 0, a); }
+function shadeMix(hex, f) {   // darken a #rrggbb by factor f (0..1)
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round((n >> 16 & 255) * f), g = Math.round((n >> 8 & 255) * f), b = Math.round((n & 255) * f);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
 function hexA(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')';
@@ -1377,7 +1420,7 @@ function killMonster(m) {
     banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
     sfx.boss();
     // conquering a world's boss opens the next world's gate in town
-    if (m.type.id === 'boss' && !G.rift && !G.cowLevel && G.dlvl % 5 === 0) {
+    if (m.type.id === 'dragon' && !G.rift && !G.cowLevel && worldFloor(G.dlvl) === 25) {
       const w = worldOf(G.dlvl);
       G.conquered = G.conquered || [];
       if (!G.conquered.includes(w)) {
@@ -1387,12 +1430,12 @@ function killMonster(m) {
         }
       }
     }
-    if (m.final) showVictory();
+    if (m.final) showVictory(m.name);
   }
   saveDirty = true;
 }
 
-function showVictory() {
+function showVictory(bossName) {
   const p = G.p;
   let extra = '';
   const ch = challengeOf(p.challenge);
@@ -1401,8 +1444,9 @@ function showVictory() {
     addBadge({ challenge: ch.id, cls: p.cls, level: p.level, hardcore: !!p.hardcore, t: Date.now() });
     extra = isNew ? ' 🏆 The ' + ch.name + ' trophy is yours forever!' : '';
   }
+  const slain = (bossName || 'Malgoroth').split(',')[0];
   $('victoryInfo').textContent =
-    'Malgoroth is no more. ' + CLASSES[p.cls].name + ' of level ' + p.level +
+    slain.charAt(0) + slain.slice(1).toLowerCase() + ' is no more. ' + CLASSES[p.cls].name + ' of level ' + p.level +
     (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.' + extra;
   $('victoryScreen').classList.remove('hidden');
   saveGame();
@@ -2042,9 +2086,12 @@ function enterLevel(dlvl, fresh) {
   } else {
     G.world = worldOf(dlvl);
     const tierName = WORLDS[G.world].name;
-    $('floorLabel').textContent = tierName + ' · ' + dlvl + (G.ng ? ' · NG+' + G.ng : '');
-    banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
-    if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
+    const wf = worldFloor(dlvl);
+    $('floorLabel').textContent = tierName + ' · ' + wf + '/25' + (G.ng ? ' · NG+' + G.ng : '');
+    banner(wf === 25 ? tierName + '  ⚠ THE TYRANT OF THIS REALM AWAITS ⚠'
+      : wf % 5 === 0 ? tierName + ' — ' + wf + '/25  ⚠ a great evil stirs…'
+        : tierName + ' — Floor ' + wf + '/25');
+    if (wf % 5 === 0) sfx.boss(); else sfx.stairs();
     if (G.blessPending) {   // Amara's blessing kicks in past the gate
       G.buffDmg = G.buffArmor = G.blessPending;
       G.blessPending = 0;
@@ -2130,7 +2177,12 @@ function startGame(clsId, save, slot) {
     merc: (save && save.merc) || null,
     maxRiftTier: (save && save.maxRiftTier) || 1,
     riftBest: (save && save.riftBest) || {},
-    conquered: save ? (save.conquered || inferConquered(save.deepest || 1)) : [],
+    // worlds grew from 5 to 25 floors: keep only conquests the hero's
+    // depth can still justify, and re-infer the rest
+    conquered: save ? Array.from(new Set([
+      ...(save.conquered || []).filter(w => (save.deepest || 1) >= 25 * (w + 1)),
+      ...inferConquered(save.deepest || 1),
+    ])) : [],
     blessPending: (save && save.blessPending) || 0,
     quests: (save && save.quests) || {},
     anchor: null, offPortal: true,
@@ -2486,6 +2538,20 @@ function update(dt) {
         G.rings.push({ x: m.x, y: m.y, r: 12, max: 90, color: '#ff5a3a', life: 0.3 });
         spark(m.x, m.y, '#ff7a3a', 14, 220);
         shake(0.2);
+        sfx.fire();
+      }
+    }
+    // dragon breath: a fan of elemental bolts aimed at the hero
+    if (m.dragon !== undefined && m.hp > 0) {
+      m.breathT -= dt;
+      if (m.breathT <= 0 && dd < 380 && los(m.x, m.y, p.x, p.y)) {
+        m.breathT = 4.2;
+        const eleC = ELE_COLORS[DRAGONS[m.dragon].ele];
+        const aim = Math.atan2(p.y - m.y, p.x - m.x);
+        for (let k = -3; k <= 3; k++)
+          shoot(m.x, m.y - m.r * 0.4, aim + k * 0.13, 300, Math.round(m.dmg[0] * 0.75), 'm', { kind: 'fire', r: 5, color: eleC });
+        spark(m.x + Math.cos(aim) * m.r, m.y - m.r * 0.4 + Math.sin(aim) * m.r, eleC, 12, 240);
+        shake(0.12);
         sfx.fire();
       }
     }
@@ -3211,7 +3277,7 @@ function render() {
   const y1 = Math.min(MAP_H - 1, Math.ceil((cam.y + VH / 2 / ZOOM) / TILE) + 1);
   const wrld = WORLDS[G.world || 0], pal = wrld.pal;
   // boss floors replace the plain stairs with the next world's gate
-  const bossGate = G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel;
+  const bossGate = G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
     if (t === T_WALL) {
@@ -3644,7 +3710,7 @@ function drawLights() {
     else if (pr.w === 2) hole(pr.x, pr.y - 15, 50, 0.4);
     else if (pr.w === 8) hole(pr.x, pr.y - 12, 45, 0.3);
   }
-  if (G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel)
+  if (G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel)
     hole(G.lvl.exitTile.x * TILE + TILE / 2, G.lvl.exitTile.y * TILE, 110, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
@@ -4278,6 +4344,87 @@ function drawMonster(m) {
     ctx.closePath(); ctx.fill();
     ctx.restore();
 
+  } else if (t.id === 'dragon') {
+    /* -------- the realm tyrant: a great winged wyrm -------- */
+    const dr = DRAGONS[m.dragon || 0];
+    const eleC = ELE_COLORS[dr.ele];
+    ctx.scale(rr / 30, rr / 30);
+    const flap = Math.sin(time * 4 + ph);
+    // tail sweeping behind
+    ctx.strokeStyle = W(dr.body); ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-10, 4);
+    ctx.quadraticCurveTo(-26, 8 + Math.sin(time * 2 + ph) * 4, -34, -2 + Math.sin(time * 2.4 + ph) * 5);
+    ctx.stroke();
+    ctx.fillStyle = W(dr.belly);   // tail spade
+    ctx.beginPath();
+    ctx.moveTo(-33, -8 + Math.sin(time * 2.4 + ph) * 5);
+    ctx.lineTo(-40, -2 + Math.sin(time * 2.4 + ph) * 5);
+    ctx.lineTo(-31, 2 + Math.sin(time * 2.4 + ph) * 5);
+    ctx.closePath(); ctx.fill();
+    // far wing
+    ctx.fillStyle = W(shadeMix(dr.body, 0.7));
+    ctx.beginPath();
+    ctx.moveTo(-2, -12);
+    ctx.quadraticCurveTo(-18, -30 - flap * 8, -34, -24 - flap * 12);
+    ctx.quadraticCurveTo(-20, -14 - flap * 3, -4, -6);
+    ctx.closePath(); ctx.fill();
+    // haunches & body
+    const g = ctx.createLinearGradient(0, -16, 0, 12);
+    g.addColorStop(0, W(dr.body)); g.addColorStop(1, W(shadeMix(dr.body, 0.55)));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-16, 8);
+    ctx.quadraticCurveTo(-20, -12, -2, -15);
+    ctx.quadraticCurveTo(16, -12, 14, 6);
+    ctx.quadraticCurveTo(0, 13, -16, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#00000088'; ctx.lineWidth = 1.6; ctx.stroke();   // keep the wyrm readable on same-hue ground
+    // belly plates
+    ctx.strokeStyle = W(dr.belly); ctx.lineWidth = 2.2;
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath(); ctx.arc(-1, -2 + i * 3.6, 10 - i * 1.4, 0.5, Math.PI - 0.5); ctx.stroke();
+    }
+    // legs
+    ctx.strokeStyle = W(shadeMix(dr.body, 0.6)); ctx.lineWidth = 5.5;
+    ctx.beginPath(); ctx.moveTo(-10, 6); ctx.lineTo(-12 + stride * 3, 15); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(8, 6); ctx.lineTo(10 - stride * 3, 15); ctx.stroke();
+    // near wing
+    ctx.fillStyle = W(dr.body);
+    ctx.beginPath();
+    ctx.moveTo(2, -13);
+    ctx.quadraticCurveTo(18, -34 - flap * 10, 36, -26 - flap * 14);
+    ctx.quadraticCurveTo(22, -12 - flap * 4, 6, -5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = W(dr.belly); ctx.lineWidth = 1.2;   // wing fingers
+    for (const [fx2, fy2] of [[30, -25 - flap * 12], [24, -28 - flap * 11], [17, -30 - flap * 10]]) {
+      ctx.beginPath(); ctx.moveTo(4, -10); ctx.lineTo(fx2, fy2); ctx.stroke();
+    }
+    // neck & horned head
+    ctx.strokeStyle = W(dr.body); ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(10, -8); ctx.quadraticCurveTo(18, -16, 20, -24); ctx.stroke();
+    ctx.fillStyle = W(dr.body);
+    ctx.beginPath(); ctx.ellipse(24, -27, 9, 6, 0.3, 0, 7); ctx.fill();
+    ctx.fillStyle = W(dr.belly);   // snout
+    ctx.beginPath(); ctx.ellipse(31, -25.5, 4.5, 3, 0.3, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8e4da');  // horns
+    ctx.beginPath(); ctx.moveTo(20, -32); ctx.quadraticCurveTo(14, -40, 12, -44); ctx.quadraticCurveTo(18, -40, 22, -34); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(25, -33); ctx.quadraticCurveTo(23, -40, 24, -44); ctx.quadraticCurveTo(27, -39, 27, -33); ctx.closePath(); ctx.fill();
+    // burning eye + breath glow at the maw
+    const eg = ctx.createRadialGradient(24, -28, 0, 24, -28, 10);
+    eg.addColorStop(0, hexA(eleC, 0.45)); eg.addColorStop(1, hexA(eleC, 0));
+    ctx.fillStyle = eg;
+    ctx.beginPath(); ctx.arc(24, -28, 10, 0, 7); ctx.fill();
+    ctx.fillStyle = eleC;
+    ctx.fillRect(22, -29.5, 2.6, 2.6);
+    const mawGlow = 0.4 + Math.max(0, Math.sin(time * 2.5 + ph)) * 0.5;
+    ctx.fillStyle = hexA(eleC, mawGlow);
+    ctx.beginPath(); ctx.arc(33.5, -24.5, 2.4, 0, 7); ctx.fill();
+    // back spines
+    ctx.fillStyle = W(dr.belly);
+    for (const [sx, sy] of [[-8, -13], [-1, -15], [6, -13]]) {
+      ctx.beginPath(); ctx.moveTo(sx - 2, sy + 2); ctx.lineTo(sx, sy - 5); ctx.lineTo(sx + 2.4, sy + 2); ctx.closePath(); ctx.fill();
+    }
   } else {
     /* -------- hell brute / boss demon -------- */
     ctx.scale(rr / 20, rr / 20);
@@ -5910,7 +6057,7 @@ function renderWp() {
       ${ret}
       ${dests.map(d => `<button class="smallbtn" data-wp="${d}" ${d === G.dlvl ? 'disabled' : ''}>${nameOf(d)}${d === G.dlvl ? ' (here)' : ''}</button>`).join('')}
     </div>
-    <div class="derived" style="text-align:center">Waypoints awaken on floors ${WP_FLOORS.slice(0, 5).join(', ')}…<br>Step on one to bind it forever.</div>`;
+    <div class="derived" style="text-align:center">A waypoint awakens every five floors (1, 6, 11…).<br>Step on one to bind it forever.</div>`;
   $('wpPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('wpPanel').querySelectorAll('[data-wp]').forEach(b => b.addEventListener('click', () => {
     const d = +b.dataset.wp;
