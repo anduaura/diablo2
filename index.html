@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0705">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Sanctuary — a Diablo II–style web ARPG</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<canvas id="minimap"></canvas>
+
+<!-- top bar -->
+<div id="topbar" class="hidden">
+  <div id="floorLabel">Bone Crypts · 1</div>
+  <div id="goldLabel">🪙 0</div>
+  <div class="topbtns">
+    <button id="btnChar" class="iconbtn" title="Character (C)">🧍<span id="charBadge" class="badge hidden">+</span></button>
+    <button id="btnInv"  class="iconbtn" title="Inventory (I)">🎒</button>
+    <button id="btnMenu" class="iconbtn" title="Menu (Esc)">☰</button>
+  </div>
+</div>
+
+<div id="banner" class="hidden"></div>
+
+<!-- bottom HUD -->
+<div id="hud" class="hidden">
+  <div class="globe hp"><div class="gfill" id="hpFill"></div><div class="gshine"></div><span class="gtext" id="hpText"></span></div>
+  <div id="hudmid">
+    <div id="xpbar"><div id="xpFill"></div></div>
+    <div id="skillrow">
+      <button class="skillbtn potion" id="btnHpPot"><span class="sicon">🧪</span><span class="count" id="hpPotCount">0</span></button>
+      <button class="skillbtn" id="btnSkill1"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
+      <button class="skillbtn" id="btnSkill2"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
+      <button class="skillbtn potion" id="btnMpPot"><span class="sicon">🔮</span><span class="count" id="mpPotCount">0</span></button>
+    </div>
+  </div>
+  <div class="globe mp"><div class="gfill" id="mpFill"></div><div class="gshine"></div><span class="gtext" id="mpText"></span></div>
+</div>
+
+<!-- main menu / class select -->
+<div id="menuScreen" class="screen">
+  <h1 class="gtitle">⚔ SANCTUARY ⚔</h1>
+  <p class="gsub">a Diablo II–inspired action RPG for your browser</p>
+  <button id="btnContinue" class="bigbtn hidden">▶ Continue</button>
+  <p class="pick">— choose your hero —</p>
+  <div id="classCards"></div>
+  <p class="hint">Tap to move & attack · hold to run · buttons cast skills</p>
+</div>
+
+<!-- death screen -->
+<div id="deathScreen" class="screen hidden">
+  <h1 class="gtitle red">YOU HAVE DIED</h1>
+  <p id="deathInfo" class="gsub"></p>
+  <button id="btnRespawn" class="bigbtn">Rise Again</button>
+</div>
+
+<!-- panels (contents built by JS) -->
+<div id="charPanel" class="panel hidden"></div>
+<div id="invPanel" class="panel hidden"></div>
+<div id="pausePanel" class="panel hidden"></div>
+<div id="itemPopup" class="hidden"></div>
+
+<script src="js/game.js"></script>
+</body>
+</html>

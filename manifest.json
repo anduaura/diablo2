@@ -1,0 +1,13 @@
+{
+  "name": "Sanctuary — a Diablo II-style web ARPG",
+  "short_name": "Sanctuary",
+  "description": "A dark, gothic hack-and-slash action RPG playable in your browser.",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#070404",
+  "theme_color": "#0a0705",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
