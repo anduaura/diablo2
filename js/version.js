@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.7.0';
+const SANCTUARY_VERSION = '1.8.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.8.0', date: '2026-07-16', title: 'The Bestiary',
+    notes: [
+      'A 📖 Bestiary on the main menu tracks all 30 species across every hero — tamed beasts show their best grade, the rest stay as silhouettes with a hint of where they live',
+    ],
+  },
   {
     v: '1.7.0', date: '2026-07-16', title: 'Fuse all',
     notes: [

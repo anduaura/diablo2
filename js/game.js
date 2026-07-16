@@ -1339,6 +1339,22 @@ const ELDER_LINES = [
 ];
 
 /* ---------------- shared town stash ---------------- */
+/* ---------------- bestiary ----------------
+   A shared, permanent record of every species ever tamed (any hero,
+   any slot) and the best rarity grade it was caught at. */
+const BESTIARY_KEY = 'sanctuary_bestiary';
+function loadBestiary() { try { return JSON.parse(localStorage.getItem(BESTIARY_KEY)) || {}; } catch (e) { return {}; } }
+function recordBestiary(pd) {
+  try {
+    const b = loadBestiary();
+    const rIdx = PET_RARITIES.indexOf(pd.rarity);
+    if (b[pd.sp] === undefined || b[pd.sp] < rIdx) {
+      b[pd.sp] = rIdx;
+      localStorage.setItem(BESTIARY_KEY, JSON.stringify(b));
+    }
+  } catch (e) { }
+}
+
 const STASH_KEY = 'sanctuary_stash';
 const STASH_MAX = 48;
 function loadStash() { try { return JSON.parse(localStorage.getItem(STASH_KEY)) || []; } catch (e) { return []; } }
@@ -1930,6 +1946,7 @@ function killMonster(m) {
     const p2 = G.p, data = m.wild.data;
     p2.pets = p2.pets || [];
     p2.pets.push(data);
+    recordBestiary(data);
     p2.xp += Math.round(m.xp * 0.6);
     ftext(m.x, m.y - 26, '+' + Math.round(m.xp * 0.6) + ' xp', '#b8a4e8', 12);
     grantLevelUps();
@@ -2775,6 +2792,7 @@ function startGame(clsId, save, slot) {
     p.challenge = challengeNext;
     if (p.challenge === 'ascetic') p.potions = { hp: 0, mp: 0 };
   }
+  for (const pd of p.pets || []) recordBestiary(pd);   // back-fill the bestiary
   G = {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
     beams: [], meteors: [], clouds: [], time: 0, mmT: 0, world: 0, shakeT: 0, onWp: false,
@@ -7473,6 +7491,7 @@ function renderStable() {
     if (!pet || p.gold < pet.price || p.pets.length >= 8) return;
     p.gold -= pet.price;
     p.pets.push(pet);
+    recordBestiary(pet);
     G.lvl.petStock[i] = null;
     if (p.activePet < 0) {
       p.activePet = p.pets.length - 1;
@@ -8250,6 +8269,41 @@ function refreshMenu() {
        <small>fell on floor ${g.dlvl}${g.ng ? ' · NG+' + g.ng : ''}</small></div>`).join('');
   }
 }
+/* ---- bestiary: the collection of every beast ever tamed ---- */
+function renderBestiary() {
+  const b = loadBestiary();
+  const groups = [
+    { title: 'Companions', hint: 'sold at the stable · roam the wild', idx: [0, 1, 2, 3, 4, 5] },
+    { title: 'Realm Beasts', hint: 'egg-born, one per realm', idx: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17] },
+    { title: 'Tyrant Whelps', hint: 'from the rarest eggs of the tyrants themselves', idx: [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] },
+  ];
+  const tamed = Object.keys(b).length;
+  const card = i => {
+    const sp = PET_SPECIES[i];
+    const got = b[i] !== undefined;
+    const grade = got ? PET_RARITIES[b[i]] : null;
+    const home = sp.world !== undefined ? WORLDS[sp.world].name : null;
+    return `
+      <div class="bst-card ${got ? '' : 'bst-unknown'}">
+        <span class="bst-icon">${sp.icon}</span>
+        <span class="bst-name">${got ? sp.name : '???'}</span>
+        <span class="bst-sub">${got
+          ? `<span class="rc-${grade}">${grade}</span>`
+          : sp.whelp ? 'tyrant egg · ' + home : sp.eggOnly ? 'egg · ' + home : 'stable · wilds'}</span>
+      </div>`;
+  };
+  $('bestiaryPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">📖 Bestiary — ${tamed}/${PET_SPECIES.length} tamed</div>
+    <div class="derived" style="text-align:center">Every beast any of your heroes has ever tamed, and the best grade caught.</div>
+    ${groups.map(g => `
+      <div class="bst-group"><b>${g.title}</b> <small>· ${g.hint}</small></div>
+      <div class="bst-grid">${g.idx.map(card).join('')}</div>`).join('')}`;
+  $('bestiaryPanel').classList.remove('hidden');
+  $('bestiaryPanel').querySelector('[data-close]').addEventListener('click', () => $('bestiaryPanel').classList.add('hidden'));
+}
+$('btnBestiary').addEventListener('click', renderBestiary);
+
 $('hcToggle').addEventListener('click', () => {
   hardcoreNext = !hardcoreNext;
   $('hcToggle').textContent = hardcoreNext ? '☠ Hardcore: ON — death is forever' : '☠ Hardcore: OFF';

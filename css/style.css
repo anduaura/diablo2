@@ -327,3 +327,20 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 }
 @keyframes toastIn { from { opacity:0; transform:translate(-50%, 16px); } to { opacity:1; transform:translate(-50%, 0); } }
 #changelogPanel { z-index:35; }   /* readable over the z-30 menu screen */
+
+/* ---- bestiary ---- */
+#bestiaryPanel { z-index:35; }
+.bst-group { color:#e0d0a0; font-size:14px; margin:12px 2px 6px; }
+.bst-group small { color:#65573d; font-size:11px; }
+.bst-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+.bst-card {
+  background:#170f06; border:1px solid #57431f; border-radius:9px;
+  padding:8px 4px; display:flex; flex-direction:column; align-items:center; gap:2px;
+  min-height:72px; justify-content:center;
+}
+.bst-icon { font-size:24px; line-height:1; }
+.bst-name { color:#d8c89a; font-size:10.5px; text-align:center; line-height:1.2; }
+.bst-sub { font-size:9.5px; color:#65573d; text-align:center; line-height:1.2; }
+.bst-unknown { opacity:.75; }
+.bst-unknown .bst-icon { filter:grayscale(1) brightness(.32); }
+.bst-unknown .bst-name { color:#4a4034; letter-spacing:2px; }
