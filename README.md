@@ -86,6 +86,9 @@ python3 -m http.server 8000
   in real time — rarer eggs from rarer foes brood longer and hide
   fiercer beasts — then crack open a private lair where the beast must
   be bested to be tamed
+- **A Bestiary** — the main menu tracks all 30 species across every hero:
+  tamed beasts show the best grade caught, the rest wait as silhouettes
+  with a hint of where they live
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
