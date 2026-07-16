@@ -75,6 +75,10 @@ python3 -m http.server 8000
   only there, from Thornwing's Verdant Edge to the Omega Core
 - **Secret vaults** — some floors hide a treasure chamber behind a
   cracked, faintly glowing wall; linger beside it and it crumbles open
+- **Wild beasts** — pets prowl their home realms (hounds in the meadow,
+  wolves in the tundra, drakes in the caldera, dragons in the highest
+  realms); subdue one in battle and it joins your stable, rarity and
+  buffs intact
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land

@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.4.0';
+const SANCTUARY_VERSION = '1.5.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.5.0', date: '2026-07-16', title: 'Wild beasts',
+    notes: [
+      'Wild pets now prowl their home realms — hounds in the meadows, wolves in the tundra, drakes in the caldera, dragons above the void',
+      'Subdue one in battle and it joins your stable, rarity and buffs intact — gotta tame them all',
+    ],
+  },
   {
     v: '1.4.0', date: '2026-07-16', title: 'Relics & hidden vaults',
     notes: [
