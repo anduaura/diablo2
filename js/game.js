@@ -1519,28 +1519,29 @@ function tryOpenChests(x, y, r) {
     if (!ch.opened && dist(x, y, ch.x, ch.y) < r) { ch.opened = true; openChest(ch); }
   }
 }
-function findFetchTarget(x, y) {
-  // nearest drop or unopened chest, leashed to the hero's surroundings
+function findFetchTarget(x, y, needLos) {
+  // nearest drop or unopened chest, leashed to the hero's surroundings;
+  // ground-bound helpers only chase what they can actually walk at
   const p = G.p;
   let best = null, bd = 1e9;
   for (const dr of G.drops) {
     if (dr.kind === 'item' && p.inv.length >= p.bagSlots) continue;   // don't hover over unpickable items
     if (dist(p.x, p.y, dr.x, dr.y) > 280) continue;
     const d = dist(x, y, dr.x, dr.y);
-    if (d < bd) { bd = d; best = dr; }
+    if (d < bd && (!needLos || los(x, y, dr.x, dr.y))) { bd = d; best = dr; }
   }
   for (const ch of G.lvl.chests || []) {
     if (ch.opened) continue;
     if (dist(p.x, p.y, ch.x, ch.y) > 280) continue;
     const d = dist(x, y, ch.x, ch.y);
-    if (d < bd) { bd = d; best = ch; }
+    if (d < bd && (!needLos || los(x, y, ch.x, ch.y))) { bd = d; best = ch; }
   }
   return best;
 }
-function blinkToMaster(e, flying) {
-  // helpers that fall out of sight teleport back to the hero
+function blinkToMaster(e, flying, force) {
+  // helpers that fall out of sight (or get wedged on walls) teleport back
   const p = G.p;
-  if (dist(e.x, e.y, p.x, p.y) < 460) return false;
+  if (!force && dist(e.x, e.y, p.x, p.y) < 460) return false;
   burst(e.x, e.y, '#9adcff', 6, 90);
   e.x = p.x + rand(-36, 36);
   e.y = p.y + rand(-26, 26);
@@ -1632,30 +1633,43 @@ function updateMinions(dt) {
     mi.atkT -= dt;
     mi.swingT = Math.max(0, mi.swingT - dt);
     mi.hurtT = Math.max(0, mi.hurtT - dt);
-    // find a monster near the master
+    // wedged against a wall for too long → blink to the master
+    if ((mi.stuckT || 0) > 0.8) {
+      mi.stuckT = 0;
+      blinkToMaster(mi, false, true);
+      continue;
+    }
+    // tracked movement: pushing into a wall accumulates stuck-time
+    const track = a => {
+      const ox = mi.x, oy = mi.y;
+      moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
+      mi.stuckT = dist(ox, oy, mi.x, mi.y) < mi.spd * dt * 0.25 ? (mi.stuckT || 0) + dt : 0;
+    };
+    // find a monster near the master — only ones this minion can see
     let best = null, bd = 1e9;
     for (const m of G.lvl.monsters) {
       if (m.hp <= 0) continue;
       if (dist(p.x, p.y, m.x, m.y) > 340) continue;   // leash to the master
       const dd = dist(mi.x, mi.y, m.x, m.y);
-      if (dd < bd) { bd = dd; best = m; }
+      if (dd < bd && los(mi.x, mi.y, m.x, m.y)) { bd = dd; best = m; }
     }
     if (best) {
       mi.dir = Math.atan2(best.y - mi.y, best.x - mi.x);
       if (bd < best.r + mi.range) {
+        mi.stuckT = 0;
         if (mi.atkT <= 0) {
           mi.atkT = mi.atkCd; mi.swingT = 0.2;
           hitMonster(best, minionDmg(mi), { noCrit: true, noLeech: true });
         }
-      } else moveCircle(mi, Math.cos(mi.dir) * mi.spd * dt, Math.sin(mi.dir) * mi.spd * dt);
+      } else track(mi.dir);
     } else {
       if (blinkToMaster(mi, false)) continue;
       // idle skeletons haul loot and pry open chests
-      const fetch = findFetchTarget(mi.x, mi.y);
+      const fetch = findFetchTarget(mi.x, mi.y, true);
       if (fetch) {
         const a = Math.atan2(fetch.y - mi.y, fetch.x - mi.x);
         mi.dir = a;
-        moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
+        track(a);
         collectDropsAt(mi.x, mi.y);
         tryOpenChests(mi.x, mi.y, 32);
         continue;
@@ -1664,8 +1678,8 @@ function updateMinions(dt) {
       if (dist(mi.x, mi.y, fx, fy) > 30) {
         const a = Math.atan2(fy - mi.y, fx - mi.x);
         mi.dir = a;
-        moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
-      }
+        track(a);
+      } else mi.stuckT = 0;
     }
     // gentle separation between minions
     for (let j = i - 1; j >= 0; j--) {
@@ -1690,13 +1704,24 @@ function updatePet(dt) {
   const flying = def.kind !== 'melee';
   const isRanged = def.kind === 'ranged' || def.kind === 'rangedfly' || def.kind === 'dragon';
   const spd = 210 + rIdx * 12;
-  // nearest monster near the hero
+  // wedged ground pets blink back to the hero
+  if (!flying && (pet.stuckT || 0) > 0.8) {
+    pet.stuckT = 0;
+    blinkToMaster(pet, false, true);
+    return;
+  }
+  const groundMove = (a, mv) => {
+    const ox = pet.x, oy = pet.y;
+    moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
+    pet.stuckT = dist(ox, oy, pet.x, pet.y) < mv * 0.25 ? (pet.stuckT || 0) + dt : 0;
+  };
+  // nearest monster near the hero (ground pets only chase what they can see)
   let best = null, bd = isRanged ? 240 : 150;
   for (const m of G.lvl.monsters) {
     if (m.hp <= 0 || !m.aggro) continue;
     if (dist(p.x, p.y, m.x, m.y) > 300) continue;
     const dd = dist(pet.x, pet.y, m.x, m.y);
-    if (dd < bd) { bd = dd; best = m; }
+    if (dd < bd && (flying || los(pet.x, pet.y, m.x, m.y))) { bd = dd; best = m; }
   }
   if (best) {
     pet.dir = Math.atan2(best.y - pet.y, best.x - pet.x);
@@ -1724,19 +1749,19 @@ function updatePet(dt) {
     const mv = spd * dt;
     if (bd >= atkRange) {
       if (flying) { pet.x += Math.cos(pet.dir) * mv; pet.y += Math.sin(pet.dir) * mv; }
-      else moveCircle(pet, Math.cos(pet.dir) * mv, Math.sin(pet.dir) * mv);
-    }
+      else groundMove(pet.dir, mv);
+    } else pet.stuckT = 0;
   } else {
     if (blinkToMaster(pet, flying)) return;
     // no enemies: fetch loot and crack open chests for the master
-    const fetch = findFetchTarget(pet.x, pet.y);
+    const fetch = findFetchTarget(pet.x, pet.y, !flying);
     if (fetch) {
       const a = Math.atan2(fetch.y - pet.y, fetch.x - pet.x);
       pet.dir = a;
       const dd2 = dist(pet.x, pet.y, fetch.x, fetch.y);
       const mv = Math.min(spd * dt, dd2);
       if (flying) { pet.x += Math.cos(a) * mv; pet.y += Math.sin(a) * mv; }
-      else moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
+      else groundMove(a, mv);
       collectDropsAt(pet.x, pet.y);
       tryOpenChests(pet.x, pet.y, 32);
       return;
@@ -1748,8 +1773,8 @@ function updatePet(dt) {
       pet.dir = a;
       const mv = Math.min(spd * dt, dd);
       if (flying) { pet.x += Math.cos(a) * mv; pet.y += Math.sin(a) * mv; }
-      else moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
-    }
+      else groundMove(a, mv);
+    } else pet.stuckT = 0;
   }
 }
 
