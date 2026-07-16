@@ -1213,10 +1213,11 @@ function render() {
 
   /* rings */
   for (const r of G.rings) {
-    const t = 1 - r.life / 0.4;
-    ctx.strokeStyle = r.color; ctx.globalAlpha = Math.max(0, r.life * 2.4);
+    if (r.life0 === undefined) r.life0 = r.life;   // scale expansion to each ring's own duration
+    const t = clamp(1 - r.life / r.life0, 0, 1);
+    ctx.strokeStyle = r.color; ctx.globalAlpha = clamp(r.life * 2.4, 0, 1);
     ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(r.x, r.y, r.r + (r.max - r.r) * Math.min(1, t * 1.6), 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r.x, r.y, Math.max(0.5, r.r + (r.max - r.r) * Math.min(1, t * 1.6)), 0, 7); ctx.stroke();
     ctx.globalAlpha = 1;
   }
 
@@ -2241,11 +2242,15 @@ $('btnRespawn').addEventListener('click', () => {
 /* ---------------- main loop ---------------- */
 let lastT = performance.now();
 function frame(now) {
+  requestAnimationFrame(frame);   // schedule first so one bad frame can never freeze the game
   const dt = clamp((now - lastT) / 1000, 0, 0.05);
   lastT = now;
-  if (G && !paused && !anyPanelOpen()) update(dt);
-  render();
-  requestAnimationFrame(frame);
+  try {
+    if (G && !paused && !anyPanelOpen()) update(dt);
+    render();
+  } catch (err) {
+    console.error(err);
+  }
 }
 requestAnimationFrame(frame);
 
