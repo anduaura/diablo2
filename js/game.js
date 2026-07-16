@@ -33,9 +33,9 @@ const BOSS_NAMES = ['Gharok the Flayed', 'Mistress Vex', 'Korlath, Tomb Warden',
    acc = accent · deco picks the floor decoration set · flame = torch color */
 const WORLDS = [
   { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a',
-    pal: { f: ['#39482b', '#3f4e31', '#354427'], w: '#2c3a22', wt: '#3c4c30', m: '#141c0e', acc: '#d8b84a' } },
+    pal: { f: ['#3d5a2e', '#446234', '#37522a'], w: '#4c5a3e', wt: '#66755a', m: '#242e1a', acc: '#d8b84a' } },
   { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff',
-    pal: { f: ['#6f7988', '#77818f', '#67717f'], w: '#4a5462', wt: '#5e6876', m: '#2a323e', acc: '#bfe8ff' } },
+    pal: { f: ['#aebdca', '#b6c5d2', '#a6b5c2'], w: '#6f9cc0', wt: '#b8d8ee', m: '#2f5a78', acc: '#bfe8ff' } },
   { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a',
     pal: { f: ['#2c2422', '#302826', '#282020'], w: '#221a18', wt: '#322624', m: '#100a08', acc: '#ff6a2a' } },
   { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a',
@@ -55,6 +55,16 @@ const WORLDS = [
 ];
 // worlds no longer cycle: past the last arc the deepest world holds forever
 const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 5), WORLDS.length - 1);
+/* world sections: world w spans floors 5w+1..5w+5; slaying its floor-5w+5
+   boss conquers it and unlocks the next world's gate in town */
+const WORLD_START = w => w * 5 + 1;
+const gateUnlocked = w => w === 0 || (G.conquered || []).includes(w - 1);
+/* pre-gate saves: any boss floor you descended past was conquered */
+function inferConquered(deepest) {
+  const c = [];
+  for (let w = 0; w < WORLDS.length; w++) if (deepest > 5 * (w + 1)) c.push(w);
+  return c;
+}
 
 /* ---------------- audio (tiny synth) ---------------- */
 let AC = null, soundOn = true;
@@ -131,7 +141,7 @@ function bellNote(freq, t, vol) {
     o.start(t); o.stop(t + 3.2);
   } catch (e) { }
 }
-const MUSIC_OFFS = [0, -2, -5, 3, -7];   // key offset per world (semitones)
+const MUSIC_OFFS = [0, -2, -5, 3, -7, -4, 1, 6, -9, -12];   // key offset per world (semitones)
 const PENTATONIC = [0, 3, 5, 7, 10, 12, 15];
 function musicTick() {
   if (!AC || AC.state !== 'running') return;
@@ -820,14 +830,18 @@ function enterCowLevel() {
 /* -------- town: safe hub with merchant, waypoint and stairs down -------- */
 function genTown() {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
-  const R = { x: 20, y: 20, w: 13, h: 11, cx: 26, cy: 25 };
+  // a larger village green: gates north, services west & east, obelisk south
+  const R = { x: 17, y: 17, w: 19, h: 15, cx: 26, cy: 24 };
   for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
   map[R.cy][R.x + R.w - 2] = T_DOWN;
   map[R.cy][R.x + 2] = T_WP;
-  map[R.y + 1][R.x + 1] = T_WALL; map[R.y + 1][R.x + R.w - 2] = T_WALL;   // corner pillars
-  map[R.y + R.h - 2][R.x + 1] = T_WALL; map[R.y + R.h - 2][R.x + R.w - 2] = T_WALL;
+  map[R.y + R.h - 2][R.x + 1] = T_WALL;   // corner pillars (south only — gates line the north)
+  map[R.y + R.h - 2][R.x + R.w - 2] = T_WALL;
   const torches = [];
-  for (let x = R.x + 1; x < R.x + R.w - 1; x += 3) torches.push({ x: x * TILE + TILE / 2, y: (R.y - 1) * TILE + TILE * 0.9 });
+  for (let y = R.y + 3; y < R.y + R.h - 1; y += 4) {   // side walls carry the torches
+    torches.push({ x: (R.x - 1) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
+    torches.push({ x: (R.x + R.w) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
+  }
   const ilvl = Math.max(1, ((G && G.deepest) || 1) + (G && G.ng || 0) * 8);
   const shopStock = [];
   for (let i = 0; i < 4; i++) shopStock.push(makeItem(choice(SLOTS), ilvl, Math.random() < 0.15 ? 'rare' : 'magic'));
@@ -836,16 +850,43 @@ function genTown() {
     wp: { x: (R.x + 2) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2 },
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: false,
-    entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 2) * TILE + TILE / 2 },
+    entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 3) * TILE + TILE / 2 },
     exitTile: { x: R.x + R.w - 2, y: R.cy },
-    vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
-    stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
-    obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
-    stable: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + 8) * TILE + TILE / 2 },
+    vendor: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
+    stash: { x: (R.x + 9) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
+    stable: { x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
+    obelisk: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
+    // world gates: first five realms along the north wall, the five
+    // realms beyond the Abyss along the south wall
+    gates: Array.from({ length: WORLDS.length }, (_, i) => ({
+      w: i,
+      x: (R.x + 2.5 + (i % 5) * 3.5) * TILE,
+      y: (i < 5 ? R.y : R.y + R.h) * TILE + TILE * 0.9,
+    })),
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
+    npcs: [
+      { id: 'elder', x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
+      { id: 'healer', x: (R.x + 2) * TILE + TILE / 2, y: (R.y + 4) * TILE + TILE / 2 },
+    ],
     shopStock,
   };
 }
+
+/* ---------------- town folk ---------------- */
+const ELDER_LINES = [
+  'The gates to the north answer only to conquest. Fell a realm\'s tyrant, and the next realm opens.',
+  'Two matching gems seated in full sockets may whisper a runeword. The old smiths knew dozens.',
+  'Charms work their magic from inside your bag — but they hoard the space you\'d keep loot in.',
+  'Fuse three lesser gems and they become one, finer. The merchant taught me that trick, for a fee.',
+  'The tyrants below sometimes carry a bovine sigil. Use it here in town. Don\'t ask what I saw.',
+  'The violet obelisk tears open rifts. Beat the sand-clock and the next tier will open to you.',
+  'Feed your mercenary good steel and mail. He fights harder than he haggles.',
+  'Champions burn, freeze, storm and drink blood. Read their glow before you charge in.',
+  'Ranks make a skill mighty; passives make the hero. Spend your points, child.',
+  'Sister Amara mends wounds for nothing. Her blessings, though, cost coin — the light runs a ledger.',
+  'I once knew a hero who hoarded every potion. The graveyard lists them alphabetically.',
+  'They say the deepest gate leads back to the beginning, only crueler. NG+, the scholars call it.',
+];
 
 /* ---------------- shared town stash ---------------- */
 const STASH_KEY = 'sanctuary_stash';
@@ -1200,6 +1241,17 @@ function killMonster(m) {
     G.lvl.locked = false;
     banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
     sfx.boss();
+    // conquering a world's boss opens the next world's gate in town
+    if (m.type.id === 'boss' && !G.rift && !G.cowLevel && G.dlvl % 5 === 0) {
+      const w = worldOf(G.dlvl);
+      G.conquered = G.conquered || [];
+      if (!G.conquered.includes(w)) {
+        G.conquered.push(w);
+        if (w < WORLDS.length - 1) {
+          setTimeout(() => { if (G) { banner('🏳 ' + WORLDS[w].name + ' conquered — the ' + WORLDS[w + 1].name + ' gate opens!'); sfx.level(); } }, 2600);
+        }
+      }
+    }
     if (m.final) showVictory();
   }
   saveDirty = true;
@@ -1224,6 +1276,7 @@ function newGamePlus() {
   G.ng = (G.ng || 0) + 1;
   G.waypoints = [];
   G.deepest = 1;
+  G.conquered = [];   // the gates seal again — reconquer the worlds
   const p = G.p;
   recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
   $('victoryScreen').classList.add('hidden');
@@ -1856,6 +1909,12 @@ function enterLevel(dlvl, fresh) {
     $('floorLabel').textContent = tierName + ' · ' + dlvl + (G.ng ? ' · NG+' + G.ng : '');
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
+    if (G.blessPending) {   // Amara's blessing kicks in past the gate
+      G.buffDmg = G.buffArmor = G.blessPending;
+      G.blessPending = 0;
+      spark(p.x, p.y - 10, '#ffd76a', 20, 200);
+      ftext(p.x, p.y - 34, '✨ blessed', '#ffd76a', 13);
+    }
   }
   if (G.p.hardcore) $('floorLabel').textContent += ' ☠';
   const ch = challengeOf(G.p.challenge);
@@ -1889,6 +1948,7 @@ function saveGame() {
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
       maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
+      conquered: G.conquered || [], blessPending: G.blessPending || 0,
       pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
@@ -1933,6 +1993,8 @@ function startGame(clsId, save, slot) {
     merc: (save && save.merc) || null,
     maxRiftTier: (save && save.maxRiftTier) || 1,
     riftBest: (save && save.riftBest) || {},
+    conquered: save ? (save.conquered || inferConquered(save.deepest || 1)) : [],
+    blessPending: (save && save.blessPending) || 0,
     anchor: null, offPortal: true,
   };
   recalc();
@@ -2409,6 +2471,573 @@ let cam = { x: 0, y: 0 };
 function worldToScreen(wx, wy) { return { x: (wx - cam.x) * ZOOM + VW / 2, y: (wy - cam.y) * ZOOM + VH / 2 }; }
 function screenToWorld(sx, sy) { return { x: (sx - VW / 2) / ZOOM + cam.x, y: (sy - VH / 2) / ZOOM + cam.y }; }
 
+/* ---------------- per-world wall & floor painters ----------------
+   Every world gets its own construction, not just a palette swap:
+   fieldstone & ivy, ice blocks & icicles, basalt columns & lava seams,
+   stacked bones & skulls, coral crust & kelp. All variation is driven
+   by the deterministic tile hash so tiles never flicker. */
+function drawWallTile(deco, px, py, tx, ty, h, pal) {
+  const h2 = thash(tx * 7 + 3, ty * 11 + 5), h3 = thash(tx * 13 + 9, ty * 5 + 1);
+  const floorBelow = tileAt(tx, ty + 1) >= T_FLOOR;
+  if (deco === 'snow') {
+    /* ---- ice blocks: glassy slabs, frost mortar, icicles ---- */
+    const g = ctx.createLinearGradient(px, py, px + TILE, py + TILE);
+    g.addColorStop(0, '#8fb8d8'); g.addColorStop(0.5, '#6f9cc0'); g.addColorStop(1, '#54809f');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#2f5a78'; ctx.lineWidth = 2;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 2 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 19); ctx.lineTo(px + TILE, ry + 19); ctx.stroke();
+      const off = ((tx + ty * 3 + row) % 2) * 14 + 8;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 19); ctx.stroke();
+    }
+    // diagonal glassy glints
+    ctx.strokeStyle = '#dff2ffaa'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(px + 6 + h * 10, py + 30); ctx.lineTo(px + 20 + h * 10, py + 8); ctx.stroke();
+    if (h2 > 0.5) { ctx.beginPath(); ctx.moveTo(px + 24 + h2 * 8, py + 36); ctx.lineTo(px + 36 + h2 * 6, py + 18); ctx.stroke(); }
+    // snow cap
+    ctx.fillStyle = '#e8f2fa';
+    ctx.fillRect(px, py, TILE, 4.5);
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + 4.5, 8, 2.5, 0, 0, 7); ctx.fill();
+    // icicles hanging over the passage below
+    if (floorBelow) {
+      ctx.fillStyle = '#cfe8f8';
+      for (let k = 0; k < 3; k++) {
+        const ix = px + 6 + k * 14 + h3 * 6, len = 5 + thash(tx * 3 + k, ty) * 9;
+        ctx.beginPath();
+        ctx.moveTo(ix - 2.4, py + TILE - 1); ctx.lineTo(ix, py + TILE + len); ctx.lineTo(ix + 2.4, py + TILE - 1);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  } else if (deco === 'flowers') {
+    /* ---- mossy fieldstone: rounded boulders and creeping ivy ---- */
+    ctx.fillStyle = '#3a4430';
+    ctx.fillRect(px, py, TILE, TILE);
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
+      const hh = thash(tx * 9 + col, ty * 9 + row);
+      const sx = px + 7 + col * 15 + (row % 2) * 6, sy = py + 7 + row * 15;
+      ctx.fillStyle = ['#5c6a4a', '#66755a', '#525f42'][Math.floor(hh * 3) % 3];
+      ctx.beginPath(); ctx.ellipse(sx, sy, 8.5, 6.5, hh * 3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff14';
+      ctx.beginPath(); ctx.ellipse(sx - 2, sy - 2, 4, 2.6, hh * 3, 0, 7); ctx.fill();
+    }
+    // moss patches
+    if (h > 0.35) {
+      ctx.fillStyle = '#4a7a3466';
+      ctx.beginPath(); ctx.ellipse(px + TILE * h, py + TILE * h2, 9, 6, h * 4, 0, 7); ctx.fill();
+    }
+    // ivy trailing down the face
+    if (h2 > 0.55) {
+      ctx.strokeStyle = '#4a7a34'; ctx.lineWidth = 1.4;
+      for (let k = 0; k < 2; k++) {
+        const ix = px + 10 + k * 20 + h * 8;
+        ctx.beginPath();
+        ctx.moveTo(ix, py);
+        ctx.quadraticCurveTo(ix + 4, py + 14, ix - 2, py + 24 + h3 * 14);
+        ctx.stroke();
+        ctx.fillStyle = '#5c8a44';
+        ctx.beginPath(); ctx.ellipse(ix - 1, py + 12 + k * 8, 2.6, 1.8, 0.6, 0, 7); ctx.fill();
+      }
+    }
+  } else if (deco === 'lava') {
+    /* ---- basalt columns with glowing lava seams ---- */
+    ctx.fillStyle = '#181210';
+    ctx.fillRect(px, py, TILE, TILE);
+    for (let col = 0; col < 4; col++) {
+      const hh = thash(tx * 5 + col, ty * 7);
+      const cxp = px + col * 11;
+      const g = ctx.createLinearGradient(cxp, 0, cxp + 11, 0);
+      g.addColorStop(0, '#120c0a'); g.addColorStop(0.5, ['#2c2220', '#342826', '#241c1a'][Math.floor(hh * 3) % 3]); g.addColorStop(1, '#0e0806');
+      ctx.fillStyle = g;
+      ctx.fillRect(cxp + 0.5, py, 10, TILE);
+      // column cap line at varying height
+      ctx.fillStyle = '#3c2e2a';
+      ctx.fillRect(cxp + 1, py + 4 + hh * 10, 9, 2);
+    }
+    // molten seam glowing between columns
+    if (h > 0.55) {
+      const sx = px + 11 * (1 + Math.floor(h2 * 3));
+      const g2 = ctx.createLinearGradient(sx - 3, 0, sx + 3, 0);
+      g2.addColorStop(0, '#ff6a2a00'); g2.addColorStop(0.5, h > 0.85 ? '#ffb03add' : '#ff6a2a88'); g2.addColorStop(1, '#ff6a2a00');
+      ctx.fillStyle = g2;
+      ctx.fillRect(sx - 3, py + TILE * 0.2, 6, TILE * 0.8);
+    }
+    ctx.fillStyle = '#00000066';
+    ctx.fillRect(px, py + TILE - 4, TILE, 4);
+  } else if (deco === 'graves') {
+    /* ---- catacomb walls: stacked bones with the odd staring skull ---- */
+    ctx.fillStyle = '#2a2430';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.lineCap = 'round';
+    for (let row = 0; row < 4; row++) {
+      const hh = thash(tx * 11 + row, ty * 13);
+      const ry = py + 6 + row * 11;
+      ctx.strokeStyle = ['#a89e88', '#b8ab8f', '#968b76'][Math.floor(hh * 3) % 3];
+      ctx.lineWidth = 5.5;
+      const off = (row % 2) * 8 - 4 + hh * 4;
+      ctx.beginPath(); ctx.moveTo(px + 5 + off, ry); ctx.lineTo(px + 18 + off, ry); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px + 25 + off, ry); ctx.lineTo(px + 38 + off, ry); ctx.stroke();
+      // bone knobs
+      ctx.fillStyle = '#c8bda4';
+      ctx.beginPath(); ctx.arc(px + 5 + off, ry, 3.2, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 18 + off, ry, 3.2, 0, 7); ctx.fill();
+    }
+    if (h > 0.82) {   // an embedded skull watches you
+      const sx = px + 10 + h2 * 22, sy = py + 10 + h3 * 22;
+      ctx.fillStyle = '#d8cdb4';
+      ctx.beginPath(); ctx.arc(sx, sy, 6, 0, 7); ctx.fill();
+      ctx.fillRect(sx - 3.4, sy + 3.6, 6.8, 3);
+      ctx.fillStyle = '#181018';
+      ctx.fillRect(sx - 3.6, sy - 2, 2.6, 2.8); ctx.fillRect(sx + 1, sy - 2, 2.6, 2.8);
+    }
+    ctx.fillStyle = '#00000055';
+    ctx.fillRect(px, py + TILE - 4, TILE, 4);
+  } else if (deco === 'shells') {
+    /* ---- drowned masonry crusted in coral, barnacles and kelp ---- */
+    ctx.fillStyle = '#16333a';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#0a161a'; ctx.lineWidth = 1.6;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 12 + 10;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // coral clumps
+    if (h > 0.3) {
+      const cxp = px + 8 + h2 * 28, cyp = py + 8 + h3 * 28;
+      ctx.fillStyle = h > 0.75 ? '#e87a6a' : '#3f7a70';
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.arc(cxp + k * 5 - 5, cyp + (k % 2) * 4, 3.4 - k * 0.5, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#ffffff22';
+      ctx.beginPath(); ctx.arc(cxp - 6, cyp - 1, 1.2, 0, 7); ctx.fill();
+    }
+    // barnacle dots
+    ctx.fillStyle = '#7ac8bc55';
+    ctx.beginPath(); ctx.arc(px + 6 + h * 30, py + 34 - h2 * 24, 2, 0, 7); ctx.fill();
+    // kelp swaying down the face
+    if (h2 > 0.6 && floorBelow) {
+      ctx.strokeStyle = '#2e6a4a'; ctx.lineWidth = 2;
+      const kx = px + 8 + h * 26;
+      ctx.beginPath();
+      ctx.moveTo(kx, py + 8);
+      ctx.quadraticCurveTo(kx + 5, py + 24, kx - 2 + Math.sin(G.time * 1.6 + tx) * 2.5, py + TILE + 8);
+      ctx.stroke();
+    }
+  } else if (deco === 'spores') {
+    /* ---- damp stone shelved with fungus, dusted in glowing spores ---- */
+    ctx.fillStyle = '#1a2824';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#0c1512'; ctx.lineWidth = 1.6;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 13 + 9;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // shelf fungi jutting from the face
+    for (let k = 0; k < 2; k++) {
+      const hh = thash(tx * 7 + k * 3, ty * 9 + k);
+      if (hh < 0.4) continue;
+      const fx = px + 6 + hh * 30, fy = py + 8 + thash(tx + k, ty * 3) * 28;
+      ctx.fillStyle = ['#6a5a44', '#7a6a50'][k % 2];
+      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#4a3e30';
+      ctx.fillRect(fx - 7, fy - 0.5, 14, 1.6);
+    }
+    // drifting spore glow
+    if (h > 0.55) {
+      ctx.fillStyle = hexA('#6adfb8', 0.35 + Math.sin(G.time * 1.8 + tx * 2 + ty) * 0.2);
+      ctx.beginPath(); ctx.arc(px + 8 + h2 * 28, py + 8 + h3 * 28, 1.8, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 30 - h3 * 20, py + 30 - h2 * 20, 1.3, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'sand') {
+    /* ---- layered sandstone strata, wind-carved ---- */
+    const bands = ['#5c4c2c', '#6a5834', '#52442a', '#74603a'];
+    for (let b = 0; b < 5; b++) {
+      ctx.fillStyle = bands[(b + tx + ty) % 4];
+      const by = py + b * 9;
+      ctx.beginPath();
+      ctx.moveTo(px, by + Math.sin(tx * 2 + b) * 2);
+      ctx.quadraticCurveTo(px + TILE / 2, by + 3 + Math.sin(ty + b) * 2, px + TILE, by + Math.sin(tx * 2 + b + 1) * 2);
+      ctx.lineTo(px + TILE, by + 12); ctx.lineTo(px, by + 12);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#00000033';
+    ctx.fillRect(px, py + TILE - 5, TILE, 5);
+    ctx.fillStyle = '#ffe9b022';
+    ctx.fillRect(px, py, TILE, 4);
+    if (h > 0.9) {   // wind-carved hollow
+      ctx.fillStyle = '#3a2e18';
+      ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * 0.5, 6, 9, 0, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'crystal') {
+    /* ---- amethyst rock studded with glowing shards ---- */
+    ctx.fillStyle = '#241c34';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#100c1a'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px + TILE * h3, py); ctx.lineTo(px + TILE * h2, py + TILE); ctx.stroke();
+    // protruding crystals catch the light
+    const glow = 0.5 + Math.sin(G.time * 2 + tx * 3 + ty * 2) * 0.25;
+    for (let k = 0; k < 2; k++) {
+      const hh = thash(tx * 5 + k * 11, ty * 7 + k);
+      if (hh < 0.35) continue;
+      const cxp = px + 8 + hh * 28, cyp = py + 10 + thash(tx + k * 3, ty) * 24;
+      ctx.fillStyle = hexA('#c28aff', k ? glow * 0.7 : glow);
+      ctx.beginPath();
+      ctx.moveTo(cxp, cyp - 9); ctx.lineTo(cxp + 4, cyp + 2); ctx.lineTo(cxp, cyp + 5); ctx.lineTo(cxp - 4, cyp + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f0e2ff';
+      ctx.fillRect(cxp - 0.8, cyp - 6, 1.6, 6);
+    }
+  } else if (deco === 'veins') {
+    /* ---- fleshy overgrowth crawling with dark veins ---- */
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#3e2026'); g.addColorStop(1, '#2c1418');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#1a0a0e'; ctx.lineWidth = 2.4;
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 3 + k * 5, ty * 7 + k);
+      ctx.beginPath();
+      ctx.moveTo(px + hh * TILE, py);
+      ctx.bezierCurveTo(px + hh * 30, py + 14, px + (1 - hh) * 30, py + 28, px + (1 - hh) * TILE, py + TILE);
+      ctx.stroke();
+    }
+    // a throbbing vein highlight
+    const pulse = 0.3 + Math.max(0, Math.sin(G.time * 2.6 + tx + ty * 2)) * 0.35;
+    ctx.strokeStyle = hexA('#ff5a6a', pulse); ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(px + h2 * TILE, py);
+    ctx.quadraticCurveTo(px + TILE / 2, py + TILE / 2, px + h3 * TILE, py + TILE);
+    ctx.stroke();
+    if (h > 0.88) {   // a blinking growth
+      ctx.fillStyle = hexA('#ff8a9a', pulse + 0.2);
+      ctx.beginPath(); ctx.arc(px + 10 + h2 * 24, py + 10 + h3 * 24, 3.4, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'void') {
+    /* ---- null slabs: black monoliths etched with drifting runes ---- */
+    ctx.fillStyle = '#0e0e16';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = hexA('#8a9aff', 0.28);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 3.5, py + 3.5, TILE - 7, TILE - 7);
+    // faint starfield inside the slab
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 7 + k * 13, ty * 11 + k);
+      ctx.fillStyle = hexA('#c8d2ff', 0.2 + hh * 0.5);
+      ctx.fillRect(px + 5 + hh * 34, py + 5 + thash(tx + k, ty * 5) * 34, 1.4, 1.4);
+    }
+    // a slow rune glyph fading in and out
+    if (h > 0.72) {
+      const a = 0.25 + Math.max(0, Math.sin(G.time * 1.2 + h * 20)) * 0.45;
+      ctx.strokeStyle = hexA('#8a9aff', a); ctx.lineWidth = 1.4;
+      const rx = px + TILE / 2, ry = py + TILE / 2;
+      ctx.beginPath();
+      ctx.moveTo(rx - 5, ry + 6); ctx.lineTo(rx, ry - 7); ctx.lineTo(rx + 5, ry + 6);
+      ctx.moveTo(rx - 3, ry + 1); ctx.lineTo(rx + 3, ry + 1);
+      ctx.stroke();
+    }
+  } else {
+    /* ---- classic brick (fallback) ---- */
+    ctx.fillStyle = pal.w;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = pal.m; ctx.lineWidth = 1.4;
+    for (let row = 0; row < 3; row++) {
+      const ry = py + 5 + row * 13;
+      ctx.beginPath(); ctx.moveTo(px, ry); ctx.lineTo(px + TILE, ry); ctx.stroke();
+      const off = ((tx * 3 + ty * 7 + row) % 2) * 11 + 8;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 13); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px + off + 22, ry); ctx.lineTo(px + off + 22, ry + 13); ctx.stroke();
+    }
+    ctx.fillStyle = pal.wt;
+    ctx.fillRect(px, py, TILE, 5);
+    ctx.fillStyle = '#00000055';
+    ctx.fillRect(px, py + TILE - 5, TILE, 5);
+  }
+}
+
+function drawFloorTile(deco, px, py, tx, ty, h, pal) {
+  const h2 = thash(tx * 5 + 1, ty * 3 + 2), h3 = thash(tx * 17 + 5, ty * 7 + 11);
+  if (deco === 'snow') {
+    /* ---- packed snow with frozen-over patches ---- */
+    ctx.fillStyle = ['#aebdca', '#b6c5d2', '#a6b5c2'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // wind-blown drift shading
+    ctx.fillStyle = '#8fa2b422';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * 0.6, 16, 6, 0.3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8f2fa66';
+    ctx.beginPath(); ctx.ellipse(px + TILE * (1 - h2), py + TILE * h3, 10, 4, -0.2, 0, 7); ctx.fill();
+    if (h > 0.62 && h < 0.8) {   // frozen pond patch with cracks
+      ctx.fillStyle = '#7fb0d0';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 15, 11, h * 2, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#dff2ff'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 12, py + 18 + h * 8);
+      ctx.lineTo(px + 22, py + 22); ctx.lineTo(px + 33, py + 16 + h2 * 10);
+      ctx.stroke();
+    }
+    // sparkle
+    if (h3 > 0.9) { ctx.fillStyle = '#ffffffcc'; ctx.fillRect(px + h * 40, py + h2 * 40, 1.8, 1.8); }
+    // footstep-sized shadow speckles
+    ctx.fillStyle = '#8fa2b433';
+    ctx.beginPath(); ctx.arc(px + 8 + h3 * 28, py + 8 + h * 28, 2.2, 0, 7); ctx.fill();
+  } else if (deco === 'flowers') {
+    /* ---- meadow grass ---- */
+    ctx.fillStyle = ['#3d5a2e', '#446234', '#37522a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // mottled light/dark grass patches (no stone grid)
+    ctx.fillStyle = '#2c421f55';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 13, 7, h * 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#5a7a4233';
+    ctx.beginPath(); ctx.ellipse(px + TILE * (1 - h3), py + TILE * h2, 9, 5, h, 0, 7); ctx.fill();
+    // grass blades
+    ctx.strokeStyle = '#55743d'; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+    for (let k = 0; k < 4; k++) {
+      const hh = thash(tx * 3 + k * 7, ty * 5 + k);
+      const gx = px + 4 + hh * 36, gy = py + 6 + thash(tx + k, ty * 9 + k) * 32;
+      ctx.beginPath(); ctx.moveTo(gx, gy + 4); ctx.quadraticCurveTo(gx + 1.5, gy, gx + (hh - 0.5) * 5, gy - 4); ctx.stroke();
+    }
+    // worn dirt path spots
+    if (h < 0.08) {
+      ctx.fillStyle = '#5a4a30';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 13, 8, h * 20, 0, 7); ctx.fill();
+      ctx.fillStyle = '#4a3c26';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2 + 3, py + TILE / 2 + 2, 7, 4, h * 20, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'lava') {
+    /* ---- charred basalt plates over living lava ---- */
+    ctx.fillStyle = ['#2c2422', '#302826', '#282020'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // irregular plate borders
+    ctx.strokeStyle = '#100a08'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py + TILE * h2);
+    ctx.lineTo(px + TILE * 0.4, py + TILE * h2 + (h - 0.5) * 8);
+    ctx.lineTo(px + TILE, py + TILE * h3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px + TILE * h3, py);
+    ctx.lineTo(px + TILE * h3 + (h2 - 0.5) * 8, py + TILE * 0.5);
+    ctx.lineTo(px + TILE * h2, py + TILE);
+    ctx.stroke();
+    // glowing lava seams in the cracks
+    if (h > 0.7) {
+      const glow = 0.55 + Math.sin(G.time * 2 + tx * 2 + ty) * 0.25;
+      ctx.strokeStyle = hexA('#ff6a2a', glow); ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(px + 6 + h * 20, py + 8);
+      ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
+      ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
+      ctx.stroke();
+      if (h > 0.93) {   // open lava pool
+        ctx.fillStyle = hexA('#ff8a3a', glow);
+        ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 9, 6, h, 0, 7); ctx.fill();
+        ctx.fillStyle = '#ffd27a';
+        ctx.beginPath(); ctx.ellipse(px + TILE / 2 - 2, py + TILE / 2 - 1, 3, 2, h, 0, 7); ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#00000030';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h3, py + TILE * h2, 8, 5, h * 3, 0, 7); ctx.fill();
+  } else if (deco === 'graves') {
+    /* ---- grave earth: turned soil, roots and remains ---- */
+    ctx.fillStyle = ['#38303c', '#3e3542', '#332b38'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // mounded soil ridges
+    ctx.strokeStyle = '#241e2a'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(px + 2, py + 8 + h * 10);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 2 + h2 * 14, px + TILE - 2, py + 10 + h3 * 10);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px + 2, py + 26 + h2 * 8);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 22 + h3 * 12, px + TILE - 2, py + 28 + h * 8);
+    ctx.stroke();
+    ctx.fillStyle = '#4a4052';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 7, 4, h * 3, 0, 7); ctx.fill();
+    // pale roots / clawed furrows
+    if (h > 0.55 && h < 0.7) {
+      ctx.strokeStyle = '#5a5264'; ctx.lineWidth = 1.2;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.moveTo(px + 8 + k * 6, py + 12 + h * 12);
+        ctx.lineTo(px + 12 + k * 6, py + 30 + h2 * 6);
+        ctx.stroke();
+      }
+    }
+    if (h < 0.04) {   // a half-buried ribcage
+      ctx.strokeStyle = '#8a8070'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2 + k * 4 - 4, 8 - k, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      }
+    }
+  } else if (deco === 'shells') {
+    /* ---- rippled wet sand with glinting puddles ---- */
+    ctx.fillStyle = ['#25444c', '#294a52', '#214048'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // sand ripples
+    ctx.strokeStyle = '#1a333a'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      const ry = py + 8 + k * 13 + h * 5;
+      ctx.beginPath();
+      ctx.moveTo(px, ry);
+      ctx.quadraticCurveTo(px + TILE * 0.3, ry - 4, px + TILE * 0.55, ry);
+      ctx.quadraticCurveTo(px + TILE * 0.8, ry + 4, px + TILE, ry - 1);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#3f6a7233'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(px, py + 14 + h2 * 8);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 10 + h3 * 8, px + TILE, py + 15 + h * 6);
+    ctx.stroke();
+    if (h > 0.68 && h < 0.82) {   // still puddle catching the light
+      ctx.fillStyle = '#3f7a8a88';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 13, 8, h, 0, 7); ctx.fill();
+      ctx.fillStyle = hexA('#bfe8ff', 0.4 + Math.sin(G.time * 1.8 + tx * 3) * 0.2);
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2 - 4, py + TILE / 2 - 2, 4, 2, h, 0, 7); ctx.fill();
+    }
+    // drifting bubbles
+    if (h3 > 0.93) {
+      ctx.strokeStyle = '#bfe8ff66'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(px + h * 40, py + ((G.time * 6 + h2 * 44) % 44), 2, 0, 7); ctx.stroke();
+    }
+  } else if (deco === 'spores') {
+    /* ---- mycelium beds threaded with glowing filaments ---- */
+    ctx.fillStyle = ['#243430', '#283a34', '#20302c'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // pale mycelium threads
+    ctx.strokeStyle = '#8aa89a44'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(px + h2 * TILE, py);
+    ctx.quadraticCurveTo(px + TILE / 2, py + TILE * h3, px + h3 * TILE, py + TILE);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px, py + h3 * TILE);
+    ctx.quadraticCurveTo(px + TILE * h2, py + TILE / 2, px + TILE, py + h2 * TILE);
+    ctx.stroke();
+    if (h > 0.78) {   // glowing mushroom cluster
+      const glow = 0.5 + Math.sin(G.time * 2.2 + tx + ty) * 0.2;
+      for (let k = 0; k < 3; k++) {
+        const mx = px + 14 + k * 7, my = py + 24 + (k % 2) * 5;
+        ctx.strokeStyle = '#3a5248'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx, my - 6 - k); ctx.stroke();
+        ctx.fillStyle = hexA('#6adfb8', glow);
+        ctx.beginPath(); ctx.ellipse(mx, my - 7 - k, 3.5 - k * 0.5, 2.4, 0, Math.PI, 0); ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#00000028';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h3, py + TILE * h2, 9, 5, h, 0, 7); ctx.fill();
+  } else if (deco === 'sand') {
+    /* ---- rolling dune sand, sun-bleached bones beneath ---- */
+    ctx.fillStyle = ['#5a4c30', '#625434', '#52442c'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#453a22'; ctx.lineWidth = 1.4;
+    for (let k = 0; k < 3; k++) {   // diagonal wind ripples
+      const off = k * 14 + h * 8;
+      ctx.beginPath();
+      ctx.moveTo(px + off - 8, py + TILE);
+      ctx.quadraticCurveTo(px + off + 6, py + TILE / 2, px + off - 2, py);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#74603a55';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 11, 5, 0.6, 0, 7); ctx.fill();
+    if (h < 0.05) {   // bleached bones surfacing
+      ctx.strokeStyle = '#c8bda4'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(px + 14, py + 24); ctx.lineTo(px + 26, py + 20); ctx.stroke();
+      ctx.fillStyle = '#c8bda4';
+      ctx.beginPath(); ctx.arc(px + 13, py + 24.5, 2.4, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'crystal') {
+    /* ---- polished cavern floor flecked with crystal ---- */
+    ctx.fillStyle = ['#2e2440', '#332948', '#2a203a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#100c1a66'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h3); ctx.stroke();
+    if (h > 0.8) {   // embedded shard cluster
+      const glow = 0.4 + Math.sin(G.time * 2 + tx * 2 + ty * 3) * 0.2;
+      ctx.fillStyle = hexA('#c28aff', glow);
+      const cxp = px + TILE / 2, cyp = py + TILE / 2;
+      ctx.beginPath();
+      ctx.moveTo(cxp, cyp - 6); ctx.lineTo(cxp + 3.4, cyp + 2); ctx.lineTo(cxp - 3.4, cyp + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cxp + 6, cyp - 2); ctx.lineTo(cxp + 8.5, cyp + 4); ctx.lineTo(cxp + 3.5, cyp + 4);
+      ctx.closePath(); ctx.fill();
+    }
+    if (h3 > 0.9) { ctx.fillStyle = '#f0e2ff88'; ctx.fillRect(px + h * 40, py + h2 * 40, 1.6, 1.6); }
+  } else if (deco === 'veins') {
+    /* ---- garden of flesh: tendrils weaving through dark loam ---- */
+    ctx.fillStyle = ['#3c1e22', '#422226', '#361a1e'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#26090e'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py + h2 * TILE);
+    ctx.bezierCurveTo(px + 14, py + h3 * 30, px + 30, py + (1 - h2) * 30, px + TILE, py + h3 * TILE);
+    ctx.stroke();
+    if (h > 0.74) {   // pulsing tendril
+      const pulse = 0.3 + Math.max(0, Math.sin(G.time * 2.6 + tx * 2 + ty)) * 0.35;
+      ctx.strokeStyle = hexA('#ff5a6a', pulse); ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(px + h3 * TILE, py);
+      ctx.quadraticCurveTo(px + TILE / 2, py + TILE * h2, px + h2 * TILE, py + TILE);
+      ctx.stroke();
+    }
+    if (h < 0.05) {   // bulbous seed pod
+      ctx.fillStyle = '#5a2830';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 7, 5.5, h * 9, 0, 7); ctx.fill();
+      ctx.fillStyle = hexA('#ff8a9a', 0.4 + Math.max(0, Math.sin(G.time * 2 + tx)) * 0.3);
+      ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 2.2, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'void') {
+    /* ---- void glass: a floor of near-nothing and cold stars ---- */
+    ctx.fillStyle = ['#14141e', '#181824', '#10101a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#8a9aff18'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    for (let k = 0; k < 3; k++) {   // starlight beneath the glass
+      const hh = thash(tx * 9 + k * 5, ty * 13 + k);
+      ctx.fillStyle = hexA('#c8d2ff', 0.15 + hh * 0.55);
+      ctx.fillRect(px + 3 + hh * 38, py + 3 + thash(tx + k * 2, ty * 7) * 38, 1.3, 1.3);
+    }
+    if (h > 0.86) {   // a drifting violet mote
+      const my = (G.time * 5 + h * 44) % 44;
+      ctx.fillStyle = hexA('#8a9aff', 0.6);
+      ctx.beginPath(); ctx.arc(px + h2 * 40, py + 44 - my, 1.6, 0, 7); ctx.fill();
+    }
+    if (h < 0.03) {   // hairline fracture in reality
+      ctx.strokeStyle = hexA('#8a9aff', 0.5); ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 8, py + 30);
+      ctx.lineTo(px + 18, py + 22); ctx.lineTo(px + 24, py + 26); ctx.lineTo(px + 36, py + 14);
+      ctx.stroke();
+    }
+  } else {
+    /* ---- classic flagstone (fallback) ---- */
+    ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = pal.m + '99'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    ctx.strokeStyle = pal.m + '55';
+    if (h2 < 0.35) { ctx.beginPath(); ctx.moveTo(px + TILE * (0.3 + h2), py); ctx.lineTo(px + TILE * (0.3 + h2), py + TILE); ctx.stroke(); }
+    else if (h2 < 0.7) { ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h2); ctx.stroke(); }
+    if (h > 0.84 && h < 0.93) {
+      ctx.strokeStyle = pal.m + 'cc'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 6 + h * 20, py + 8);
+      ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
+      ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
+      ctx.stroke();
+    }
+    if (h < 0.05) {
+      ctx.fillStyle = '#00000030';
+      ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.5, 12 + h * 100, 8, h * 40, 0, 7); ctx.fill();
+    }
+  }
+}
+
 function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#070404';
@@ -2430,6 +3059,8 @@ function render() {
   const y0 = Math.max(0, Math.floor((cam.y - VH / 2 / ZOOM) / TILE) - 1);
   const y1 = Math.min(MAP_H - 1, Math.ceil((cam.y + VH / 2 / ZOOM) / TILE) + 1);
   const wrld = WORLDS[G.world || 0], pal = wrld.pal;
+  // boss floors replace the plain stairs with the next world's gate
+  const bossGate = G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
     if (t === T_WALL) {
@@ -2456,50 +3087,10 @@ function render() {
         ctx.fillStyle = '#00000044';
         ctx.fillRect(px + 11, py - 15, TILE - 22, 3);
       } else {
-        // brick wall
-        ctx.fillStyle = pal.w;
-        ctx.fillRect(px, py, TILE, TILE);
-        ctx.strokeStyle = pal.m; ctx.lineWidth = 1.4;
-        for (let row = 0; row < 3; row++) {
-          const ry = py + 5 + row * 13;
-          ctx.beginPath(); ctx.moveTo(px, ry); ctx.lineTo(px + TILE, ry); ctx.stroke();
-          const off = ((tx * 3 + ty * 7 + row) % 2) * 11 + 8;
-          ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 13); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(px + off + 22, ry); ctx.lineTo(px + off + 22, ry + 13); ctx.stroke();
-        }
-        ctx.fillStyle = pal.wt;
-        ctx.fillRect(px, py, TILE, 5);
-        ctx.fillStyle = '#00000055';
-        ctx.fillRect(px, py + TILE - 5, TILE, 5);
-        if (h > 0.9 && pal.acc) {   // moss / seep stain
-          ctx.fillStyle = pal.acc + '26';
-          ctx.beginPath(); ctx.ellipse(px + TILE * h, py + TILE * 0.55, 7, 12, 0, 0, 7); ctx.fill();
-        }
+        drawWallTile(wrld.deco, px, py, tx, ty, h, pal);
       }
     } else {
-      // flagstone floor
-      ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
-      ctx.fillRect(px, py, TILE, TILE);
-      ctx.strokeStyle = pal.m + '99'; ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
-      const h2 = thash(tx * 5 + 1, ty * 3 + 2);
-      ctx.strokeStyle = pal.m + '55';
-      if (h2 < 0.35) { ctx.beginPath(); ctx.moveTo(px + TILE * (0.3 + h2), py); ctx.lineTo(px + TILE * (0.3 + h2), py + TILE); ctx.stroke(); }
-      else if (h2 < 0.7) { ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h2); ctx.stroke(); }
-      if (h > 0.84 && h < 0.93) {   // cracks (ember-lit in the Molten Warrens)
-        const molten = wrld.deco === 'lava';
-        ctx.strokeStyle = molten ? pal.acc + 'aa' : pal.m + 'cc';
-        ctx.lineWidth = molten ? 1.6 : 1;
-        ctx.beginPath();
-        ctx.moveTo(px + 6 + h * 20, py + 8);
-        ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
-        ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
-        ctx.stroke();
-      }
-      if (h < 0.05) {   // dark stain
-        ctx.fillStyle = '#00000030';
-        ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.5, 12 + h * 100, 8, h * 40, 0, 7); ctx.fill();
-      }
+      drawFloorTile(wrld.deco, px, py, tx, ty, h, pal);
       if (h > 0.9) { // per-world floor decoration
         const cx3 = px + TILE * 0.5, cy3 = py + TILE * 0.55;
         if (wrld.deco === 'flowers') {
@@ -2602,7 +3193,7 @@ function render() {
         ctx.fillStyle = '#6a5a3a';
         for (let s = 0; s < 3; s++) ctx.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
       }
-      if (t === T_DOWN) {
+      if (t === T_DOWN && !bossGate) {
         const locked = G.lvl.locked;
         ctx.fillStyle = '#050302'; ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
         ctx.strokeStyle = locked ? '#8a2c1a' : '#d9c65a';
@@ -2704,11 +3295,19 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
+  /* world gates: the town's row of realm doors + the boss floor's exit */
+  if (G.lvl.gates) for (const gt of G.lvl.gates) drawWorldGate(gt.x, gt.y, gt.w, gateUnlocked(gt.w), 1, true);
+  if (bossGate) {
+    const ex = G.lvl.exitTile;
+    drawWorldGate(ex.x * TILE + TILE / 2, ex.y * TILE + TILE * 0.4, worldOf(G.dlvl + 1), !G.lvl.locked, 1.4, false);
+  }
+
   /* town vendor, stash trunk, stable & rift obelisk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
   if (G.lvl.stable) drawStable(G.lvl.stable);
   if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) drawNpc(n);
 
   /* portals: town-side return + dungeon-side anchor */
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
@@ -2882,6 +3481,10 @@ function drawLights() {
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
+  if (G.lvl.gates) for (const gt of G.lvl.gates) hole(gt.x, gt.y - 12, gateUnlocked(gt.w) ? 95 : 60, gateUnlocked(gt.w) ? 0.85 : 0.5);
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) hole(n.x, n.y - 8, 95, 0.85);
+  if (G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel)
+    hole(G.lvl.exitTile.x * TILE + TILE / 2, G.lvl.exitTile.y * TILE, 110, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
   if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) hole(G.anchor.x, G.anchor.y - 6, 90, 0.85);
@@ -4017,6 +4620,174 @@ function drawTrunk(s) {
   ctx.fillText('🧳 Trunk', s.x, s.y - 26);
 }
 
+/* ---------------- world gates ----------------
+   Each realm has its own archway. Locked gates hang with chains until
+   the previous world's boss falls; open gates glow with the realm's
+   colors and lead straight to that world's first floor. */
+function drawWorldGate(x, y, w, unlocked, s, label) {
+  s = s || 1;
+  const wr = WORLDS[w], acc = wr.pal.acc, t = G.time;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  // dark opening with a living glow when unlocked
+  const glow = unlocked ? 0.35 + Math.sin(t * 2.4 + w) * 0.15 : 0;
+  ctx.fillStyle = '#050308';
+  ctx.beginPath();
+  ctx.moveTo(-13, 10);
+  ctx.lineTo(-13, -16);
+  ctx.quadraticCurveTo(0, -30, 13, -16);
+  ctx.lineTo(13, 10);
+  ctx.closePath(); ctx.fill();
+  if (unlocked) {
+    const g = ctx.createRadialGradient(0, -6, 0, 0, -6, 22);
+    g.addColorStop(0, hexA(acc, glow + 0.25));
+    g.addColorStop(1, hexA(acc, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-12, 10); ctx.lineTo(-12, -15);
+    ctx.quadraticCurveTo(0, -28, 12, -15); ctx.lineTo(12, 10);
+    ctx.closePath(); ctx.fill();
+    // drifting motes in the portal
+    ctx.fillStyle = hexA(acc, 0.8);
+    for (let k = 0; k < 3; k++) {
+      const my = 8 - ((t * 9 + k * 13 + w * 7) % 30);
+      ctx.fillRect(-6 + k * 6 + Math.sin(t * 2 + k) * 2, my, 1.8, 1.8);
+    }
+  }
+  // per-realm arch dressing
+  if (w === 0) {          // living archway: trunks and leaves
+    ctx.strokeStyle = '#5a4226'; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-16, -14, -4, -24); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(14, 11); ctx.quadraticCurveTo(16, -14, 4, -24); ctx.stroke();
+    ctx.fillStyle = '#4a7a34';
+    for (const [lx, ly, lr] of [[-13, -14, 5], [-8, -21, 5.5], [0, -25, 6], [8, -21, 5.5], [13, -14, 5]]) {
+      ctx.beginPath(); ctx.arc(lx, ly, lr, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#d8b84a';
+    ctx.fillRect(-9, -19, 2, 2); ctx.fillRect(7, -17, 2, 2); ctx.fillRect(-1, -23, 2, 2);
+  } else if (w === 1) {   // ice arch with icicles
+    ctx.strokeStyle = '#9cc4e0'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.lineTo(-14, -14); ctx.quadraticCurveTo(0, -28, 14, -14); ctx.lineTo(14, 11); ctx.stroke();
+    ctx.strokeStyle = '#e8f4ff'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-12, 6); ctx.lineTo(-12, -13); ctx.quadraticCurveTo(0, -25, 12, -13); ctx.stroke();
+    ctx.fillStyle = '#cfe8f8';
+    for (const [ix, iy, len] of [[-8, -18, 6], [0, -22, 8], [8, -18, 6]]) {
+      ctx.beginPath(); ctx.moveTo(ix - 2, iy); ctx.lineTo(ix, iy + len); ctx.lineTo(ix + 2, iy); ctx.closePath(); ctx.fill();
+    }
+  } else if (w === 2) {   // obsidian gate, lava-lit
+    ctx.fillStyle = '#241c1a';
+    ctx.fillRect(-18, -16, 6, 27);
+    ctx.fillRect(12, -16, 6, 27);
+    ctx.beginPath(); ctx.moveTo(-18, -14); ctx.quadraticCurveTo(0, -32, 18, -14); ctx.lineTo(18, -8); ctx.quadraticCurveTo(0, -25, -18, -8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = hexA('#ff6a2a', unlocked ? 0.8 : 0.3); ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-15, 8); ctx.lineTo(-15, -12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(15, 8); ctx.lineTo(15, -12); ctx.stroke();
+    ctx.fillStyle = '#ff8a3a';
+    ctx.beginPath(); ctx.moveTo(0, -29); ctx.lineTo(-3, -24); ctx.lineTo(3, -24); ctx.closePath(); ctx.fill();
+  } else if (w === 3) {   // arch of ribs with a skull keystone
+    ctx.strokeStyle = '#b8ab8f'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 15, 11); ctx.quadraticCurveTo(sd * 17, -12, sd * 3, -22); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sd * 12, 2); ctx.quadraticCurveTo(sd * 13, -8, sd * 5, -15); ctx.stroke();
+    }
+    ctx.fillStyle = '#d8cdb4';
+    ctx.beginPath(); ctx.arc(0, -23, 5.5, 0, 7); ctx.fill();
+    ctx.fillRect(-3, -19.5, 6, 3);
+    ctx.fillStyle = '#181018';
+    ctx.fillRect(-3.2, -25, 2.4, 2.6); ctx.fillRect(0.8, -25, 2.4, 2.6);
+  } else if (w === 4) {   // coral arch, bubbling
+    ctx.strokeStyle = '#3f7a70'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-15, -16, 0, -25); ctx.quadraticCurveTo(15, -16, 14, 11); ctx.stroke();
+    ctx.fillStyle = '#e87a6a';
+    for (const [cx2, cy2] of [[-14, -6], [-10, -18], [0, -25], [10, -18], [14, -6]]) {
+      ctx.beginPath(); ctx.arc(cx2, cy2, 3, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx2 + 2.5, cy2 - 2, 1.8, 0, 7); ctx.fill();
+    }
+    if (unlocked) {
+      ctx.strokeStyle = '#bfe8ff88'; ctx.lineWidth = 1;
+      const by = 6 - ((t * 7 + w) % 26);
+      ctx.beginPath(); ctx.arc(5, by, 2, 0, 7); ctx.stroke();
+    }
+  } else if (w === 5) {   // one colossal mushroom, hollowed
+    ctx.fillStyle = '#7a6a50';
+    ctx.fillRect(-15, -14, 5, 25);
+    ctx.fillRect(10, -14, 5, 25);
+    ctx.fillStyle = '#6adfb8';
+    ctx.beginPath();
+    ctx.moveTo(-20, -13);
+    ctx.quadraticCurveTo(0, -34, 20, -13);
+    ctx.quadraticCurveTo(0, -20, -20, -13);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e8f4ee';
+    for (const [sx, sy] of [[-10, -22], [2, -26], [12, -20]]) {
+      ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 7); ctx.fill();
+    }
+  } else if (w === 6) {   // wind-carved sandstone arch
+    const bands = ['#74603a', '#5c4c2c', '#6a5834'];
+    for (let b = 0; b < 3; b++) {
+      ctx.strokeStyle = bands[b]; ctx.lineWidth = 6 - b * 1.4; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-15 + b, 11);
+      ctx.quadraticCurveTo(-16 + b, -14, 0, -24 + b * 2);
+      ctx.quadraticCurveTo(16 - b, -14, 15 - b, 11);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#3a2e18';
+    ctx.beginPath(); ctx.ellipse(-13, -4, 2, 3.4, 0.3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(12, -8, 1.8, 3, -0.3, 0, 7); ctx.fill();
+  } else if (w === 7) {   // jagged crystal arch
+    const glow = unlocked ? 0.85 : 0.4;
+    ctx.fillStyle = hexA('#c28aff', glow);
+    for (const [bx, by, tx2, ty2, s2] of [[-16, 11, -12, -12, 5], [16, 11, 12, -12, 5], [-12, -12, -4, -22, 4], [12, -12, 4, -22, 4], [-4, -22, 0, -27, 3], [4, -22, 0, -27, 3]]) {
+      ctx.beginPath();
+      ctx.moveTo(bx - s2, by); ctx.lineTo(tx2, ty2); ctx.lineTo(bx + s2, by);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#f0e2ff';
+    ctx.fillRect(-1, -26, 2, 5); ctx.fillRect(-13, -10, 1.6, 6); ctx.fillRect(11.5, -10, 1.6, 6);
+  } else if (w === 8) {   // arch of thorned flesh
+    ctx.strokeStyle = '#5a2830'; ctx.lineWidth = 5.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-16, -14, 0, -24); ctx.quadraticCurveTo(16, -14, 14, 11); ctx.stroke();
+    ctx.strokeStyle = hexA('#ff5a6a', 0.4 + Math.max(0, Math.sin(t * 2.6)) * 0.4);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-13, 8); ctx.quadraticCurveTo(-14, -12, 0, -21.5); ctx.quadraticCurveTo(14, -12, 13, 8); ctx.stroke();
+    ctx.fillStyle = '#3c1418';
+    for (const [thx, thy, a] of [[-14, -4, -0.6], [-10, -15, -0.3], [10, -15, 0.3], [14, -4, 0.6]]) {
+      ctx.save(); ctx.translate(thx, thy); ctx.rotate(a);
+      ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(0, -7); ctx.lineTo(2, 0); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  } else {                // two floating void monoliths
+    const hover = Math.sin(t * 1.4) * 1.5;
+    ctx.fillStyle = '#0e0e16';
+    ctx.strokeStyle = hexA('#8a9aff', unlocked ? 0.8 : 0.35); ctx.lineWidth = 1.2;
+    ctx.fillRect(-17, -16 + hover, 6, 24); ctx.strokeRect(-17, -16 + hover, 6, 24);
+    ctx.fillRect(11, -16 - hover, 6, 24); ctx.strokeRect(11, -16 - hover, 6, 24);
+    ctx.fillRect(-6, -28 + hover * 0.5, 12, 5); ctx.strokeRect(-6, -28 + hover * 0.5, 12, 5);
+    ctx.fillStyle = hexA('#c8d2ff', 0.6);
+    ctx.fillRect(-14.5, -8 + hover, 1.4, 1.4); ctx.fillRect(13.5, -2 - hover, 1.4, 1.4);
+  }
+  // chains & lock over sealed gates
+  if (!unlocked) {
+    ctx.strokeStyle = '#6a6a72'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(-14, -10); ctx.lineTo(14, 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-14, 2); ctx.lineTo(14, -10); ctx.stroke();
+    ctx.fillStyle = '#8a8a92';
+    ctx.fillRect(-4, -8, 8, 7);
+    ctx.strokeStyle = '#8a8a92'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, -8, 3, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = '#3a3a42';
+    ctx.fillRect(-1, -6, 2, 3);
+  }
+  ctx.restore();
+  if (label) {
+    ctx.font = '10.5px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = unlocked ? '#c9b98a' : '#6a6a72';
+    ctx.fillText((unlocked ? '' : '🔒 ') + WORLDS[w].name, x, y - 36 * s);
+  }
+}
+
 function drawObelisk(o) {
   const t = G.time;
   const pulse = 0.5 + Math.sin(t * 2.2) * 0.25;
@@ -4048,6 +4819,76 @@ function drawObelisk(o) {
   ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#c9b98a';
   ctx.fillText('🌀 Rift Obelisk', o.x, o.y - 52);
+}
+
+function drawNpc(n) {
+  const t = G.time, bob = Math.sin(t * 1.8 + (n.id === 'elder' ? 2 : 0)) * 0.8;
+  ctx.fillStyle = '#00000066';
+  ctx.beginPath(); ctx.ellipse(n.x, n.y + 12, 11, 4.5, 0, 0, 7); ctx.fill();
+  if (n.id === 'elder') {
+    /* Elder Maro: bent back, long white beard, cane and a heavy book */
+    const g = ctx.createLinearGradient(n.x, n.y - 10, n.x, n.y + 12);
+    g.addColorStop(0, '#5c5244'); g.addColorStop(1, '#38322a');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(n.x - 8, n.y + 12);
+    ctx.quadraticCurveTo(n.x - 9, n.y - 5 + bob, n.x + 1, n.y - 9 + bob);   // hunched forward
+    ctx.quadraticCurveTo(n.x + 9, n.y - 5 + bob, n.x + 8, n.y + 12);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#d8b890';
+    ctx.beginPath(); ctx.arc(n.x + 2.5, n.y - 12 + bob, 4.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(n.x + 1, n.y - 13 + bob, 1.4, 1.4); ctx.fillRect(n.x + 4, n.y - 13 + bob, 1.4, 1.4);
+    ctx.fillStyle = '#e8e4da';   // the beard
+    ctx.beginPath();
+    ctx.moveTo(n.x - 1, n.y - 10 + bob);
+    ctx.quadraticCurveTo(n.x + 2, n.y - 1 + bob, n.x + 1, n.y + 4 + bob);
+    ctx.quadraticCurveTo(n.x + 5, n.y - 2 + bob, n.x + 6, n.y - 9 + bob);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8a8070';   // bald pate wisps
+    ctx.beginPath(); ctx.arc(n.x - 0.5, n.y - 14.5 + bob, 2, Math.PI * 0.9, Math.PI * 1.9); ctx.fill();
+    ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 2;   // cane
+    ctx.beginPath(); ctx.moveTo(n.x + 9, n.y - 6 + bob); ctx.lineTo(n.x + 11, n.y + 11); ctx.stroke();
+    ctx.fillStyle = '#7a2c1a';   // tome under the other arm
+    ctx.fillRect(n.x - 12, n.y - 4 + bob, 7, 9);
+    ctx.fillStyle = '#c9a45a';
+    ctx.fillRect(n.x - 12, n.y - 4 + bob, 7, 1.6);
+    ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#c9b98a';
+    ctx.fillText('📜 Elder Maro', n.x, n.y - 28);
+  } else {
+    /* Sister Amara: pale robes, red sash, softly glowing censer */
+    const g = ctx.createLinearGradient(n.x, n.y - 10, n.x, n.y + 12);
+    g.addColorStop(0, '#d8d2c4'); g.addColorStop(1, '#a8a294');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(n.x - 8, n.y + 12);
+    ctx.quadraticCurveTo(n.x - 9, n.y - 7 + bob, n.x, n.y - 10 + bob);
+    ctx.quadraticCurveTo(n.x + 9, n.y - 7 + bob, n.x + 8, n.y + 12);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#a3130b'; ctx.lineWidth = 2;   // sash
+    ctx.beginPath(); ctx.moveTo(n.x - 5, n.y - 2 + bob); ctx.quadraticCurveTo(n.x, n.y + bob, n.x + 5, n.y - 2 + bob); ctx.stroke();
+    // wimple + face
+    ctx.fillStyle = '#e8e4da';
+    ctx.beginPath(); ctx.arc(n.x, n.y - 13 + bob, 5.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#d8b890';
+    ctx.beginPath(); ctx.arc(n.x + 0.6, n.y - 12.4 + bob, 3.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(n.x - 1, n.y - 13 + bob, 1.3, 1.3); ctx.fillRect(n.x + 1.8, n.y - 13 + bob, 1.3, 1.3);
+    // swinging censer sheds warm light
+    const ca = Math.sin(t * 2.2) * 0.35;
+    ctx.strokeStyle = '#c9a45a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(n.x + 8, n.y - 6 + bob); ctx.lineTo(n.x + 8 + Math.sin(ca) * 8, n.y + 2 + Math.cos(ca) * 4); ctx.stroke();
+    const cx2 = n.x + 8 + Math.sin(ca) * 8, cy2 = n.y + 3 + Math.cos(ca) * 4;
+    ctx.fillStyle = '#c9a45a';
+    ctx.beginPath(); ctx.arc(cx2, cy2, 2.6, 0, 7); ctx.fill();
+    ctx.fillStyle = hexA('#ffd76a', 0.5 + Math.sin(t * 5) * 0.2);
+    ctx.beginPath(); ctx.arc(cx2, cy2, 4.5, 0, 7); ctx.fill();
+    if (Math.random() < 0.08) G.parts.push({ x: cx2, y: cy2 - 2, vx: rand(-3, 3), vy: rand(-12, -6), r: rand(1, 1.8), color: '#ffd76a', life: 0.6, glow: true });
+    ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#c9b98a';
+    ctx.fillText('✚ Sister Amara', n.x, n.y - 28);
+  }
 }
 
 function drawVendor(v) {
@@ -4151,10 +4992,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -4171,6 +5012,7 @@ function togglePanel(id) {
     if (id === 'riftPanel') renderRift();
     if (id === 'stablePanel') renderStable();
     if (id === 'stairsPanel') renderStairs();
+    if (id === 'npcPanel') renderNpc(G.talkNpc);
     paused = true;
   }
 }
@@ -4306,6 +5148,56 @@ function renderStash() {
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
     saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
+}
+
+function renderNpc(id) {
+  const p = G.p;
+  if (id === 'healer') {
+    // Amara mends you the moment you approach
+    const healed = p.hp < G.d.maxHp - 0.5 || p.mp < G.d.maxMp - 0.5;
+    p.hp = G.d.maxHp; p.mp = G.d.maxMp;
+    if (healed) { spark(p.x, p.y - 10, '#ffd76a', 14, 160); sfx.potion(); updateHUD(); }
+    const cost = 150 + p.level * 30;
+    $('npcPanel').innerHTML = `
+      <button class="pclose" data-close>✕</button>
+      <div class="ptitle">✚ Sister Amara</div>
+      <div class="derived" style="text-align:center; font-size:14px">
+        ${healed ? '“Be still — there. Whole again.”' : '“The light finds nothing to mend. Walk carefully anyway.”'}
+      </div>
+      <div class="invactions" style="flex-direction:column">
+        <button class="smallbtn" data-bless ${p.gold < cost || G.blessPending ? 'disabled' : ''}>
+          ✨ Blessing for the road (${cost}g)${G.blessPending ? ' — already blessed' : ''}</button>
+      </div>
+      <div class="derived" style="text-align:center">A blessing grants +40% damage and +50% armor for your first
+      90 seconds beyond a gate.</div>`;
+    $('npcPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+    const bb = $('npcPanel').querySelector('[data-bless]');
+    bb.addEventListener('click', () => {
+      if (p.gold < cost || G.blessPending) return;
+      p.gold -= cost;
+      G.blessPending = 90;
+      banner('✨ Amara\'s blessing settles over you');
+      sfx.level(); updateHUD(); saveDirty = true;
+      renderNpc('healer');
+    });
+  } else {
+    G.elderLine = (G.elderLine === undefined ? Math.floor(Math.random() * ELDER_LINES.length) : G.elderLine);
+    $('npcPanel').innerHTML = `
+      <button class="pclose" data-close>✕</button>
+      <div class="ptitle">📜 Elder Maro</div>
+      <div class="derived" style="text-align:center; font-size:14px; font-style:italic; line-height:1.6">
+        “${ELDER_LINES[G.elderLine]}”
+      </div>
+      <div class="invactions">
+        <button class="smallbtn" data-more>Ask for more</button>
+        <button class="smallbtn" data-close>Farewell</button>
+      </div>`;
+    $('npcPanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
+    $('npcPanel').querySelector('[data-more]').addEventListener('click', () => {
+      G.elderLine = (G.elderLine + 1) % ELDER_LINES.length;
+      renderNpc('elder');
+    });
+  }
 }
 
 function renderRift() {
@@ -4939,6 +5831,29 @@ cvs.addEventListener('pointerup', e => {
     if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
     else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
     return;
+  }
+  // townsfolk?
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) {
+    if (dist(w.x, w.y, n.x, n.y - 6) < 42) {
+      if (dist(p.x, p.y, n.x, n.y) < 95) { G.talkNpc = n.id; togglePanel('npcPanel'); }
+      else setMoveTarget(n.x, n.y + 34);
+      return;
+    }
+  }
+  // world gate?
+  if (G.lvl.gates) for (const gt of G.lvl.gates) {
+    if (dist(w.x, w.y, gt.x, gt.y - 12) < 42) {
+      if (dist(p.x, p.y, gt.x, gt.y) < 100) {
+        if (gateUnlocked(gt.w)) {
+          spark(p.x, p.y, WORLDS[gt.w].pal.acc, 20, 220);
+          enterLevel(WORLD_START(gt.w), false);
+        } else {
+          banner('🔒 Conquer ' + WORLDS[gt.w - 1].name + ' to open this gate');
+          sfx.hurt();
+        }
+      } else setMoveTarget(gt.x, gt.y + 44);
+      return;
+    }
   }
   // drop?
   for (const dr of G.drops) {
