@@ -462,11 +462,17 @@ function fusableGroups(inv) {
   const groups = {};
   for (let i = 0; i < inv.length; i++) {
     const it = inv[i];
-    if (!it.g) continue;
-    const q = gemQ(it);
-    // quality fuses accept mixed grades; grade fuses need matching grade
-    const key = q < 2 ? 'q:' + it.g + ':' + q
-      : gemGradeIdx(it) < GEM_GRADES.length - 1 ? 'g:' + it.g + ':' + gemGradeIdx(it) : null;
+    let key = null;
+    if (it.g) {
+      const q = gemQ(it);
+      // quality fuses accept mixed grades; grade fuses need matching grade
+      key = q < 2 ? 'q:' + it.g + ':' + q
+        : gemGradeIdx(it) < GEM_GRADES.length - 1 ? 'g:' + it.g + ':' + gemGradeIdx(it) : null;
+    } else if (it.slot === 'charm' && charmT(it) < 2) {
+      key = 'c:' + charmT(it);
+    } else if (it.slot === 'sigil' && !it.golden) {
+      key = 's:0';
+    }
     if (!key) continue;
     (groups[key] = groups[key] || []).push(i);
   }
@@ -476,17 +482,25 @@ function fusableGroups(inv) {
     const idx = groups[key].slice(0, 3);
     const src = inv[idx[0]];
     const lvl = Math.max(...idx.map(i => inv[i].lvl || 1));
-    let result;
+    let result, from = src.name;
     if (key[0] === 'q') {
       const bestGrade = GEM_GRADES[Math.max(...idx.map(i => gemGradeIdx(inv[i])))];
       result = gemItem(src.g, gemQ(src) + 1, lvl, bestGrade);
-    } else {
+    } else if (key[0] === 'g') {
       result = gemItem(src.g, 2, lvl, GEM_GRADES[gemGradeIdx(src) + 1]);
+    } else if (key[0] === 'c') {
+      result = makeCharm(lvl, charmT(src) + 1);
+      from = CHARM_TIERS[charmT(src)].name.trim();
+    } else {
+      result = makeSigil(lvl, true);
+      from = 'Bovine Sigil';
     }
-    out.push({ idx, from: src.name, result });
+    out.push({ idx, from, result });
   }
   return out;
 }
+/* fusion feedback color: a gem's stone, otherwise the result's rarity */
+const fuseColor = it => it.g ? GEMS[it.g].color : rarityColor(it.rarity);
 /* kept for quick "is anything fusable" checks */
 function fusableGems(inv) {
   const gs = fusableGroups(inv);
@@ -518,29 +532,42 @@ const CHARM_SUFFIX = {
   leech: 'of the Leech', mf: 'of Fortune', fireDmg: 'of Embers',
   coldDmg: 'of Frost', lightDmg: 'of Storms', poisonDmg: 'of Venom',
 };
-function makeCharm(ilvl) {
-  const grand = Math.random() < 0.3;
+/* charm tiers: Small (1 affix) → Grand (2) → Exalted (3, fusion-only) */
+const CHARM_TIERS = [
+  { name: 'Small Charm ', icon: '🔶', rarity: 'magic', aff: 1, mult: 0.5 },
+  { name: 'Grand Charm ', icon: '🧿', rarity: 'rare', aff: 2, mult: 0.75 },
+  { name: 'Exalted Charm ', icon: '🪬', rarity: 'unique', aff: 3, mult: 1.05 },
+];
+function makeCharm(ilvl, tier) {
+  const t = tier !== undefined ? tier : (Math.random() < 0.3 ? 1 : 0);
+  const def = CHARM_TIERS[t];
   const it = {
-    slot: 'charm', base: 'charm', icon: grand ? '🧿' : '🔶',
-    rarity: grand ? 'rare' : 'magic', lvl: ilvl, mods: {},
+    slot: 'charm', base: 'charm', ct: t, icon: def.icon,
+    rarity: def.rarity, lvl: ilvl, mods: {},
   };
   const used = new Set();
-  for (let i = 0; i < (grand ? 2 : 1); i++) {
+  for (let i = 0; i < def.aff; i++) {
     const a = choice(AFFIXES);
     if (used.has(a.stat)) continue;
     used.add(a.stat);
-    it.mods[a.stat] = Math.max(1, Math.round(a.roll(ilvl) * (grand ? 0.75 : 0.5)));
+    it.mods[a.stat] = Math.max(1, Math.round(a.roll(ilvl) * def.mult));
   }
   const first = Object.keys(it.mods)[0];
-  it.name = (grand ? 'Grand Charm ' : 'Small Charm ') + (CHARM_SUFFIX[first] || 'of Power');
+  it.name = def.name + (CHARM_SUFFIX[first] || 'of Power');
   return it;
+}
+/* charm tier of an item; pre-tier saves lack .ct so read the name */
+function charmT(it) {
+  if (it.ct !== undefined) return it.ct;
+  return it.name.startsWith('Exalted') ? 2 : it.name.startsWith('Grand') ? 1 : 0;
 }
 
 /* the key to the secret pasture — floor bosses sometimes carry one */
-function makeSigil(ilvl) {
+function makeSigil(ilvl, golden) {
   return {
-    slot: 'sigil', base: 'sigil', name: 'Bovine Sigil', icon: '🐮',
-    rarity: 'unique', lvl: ilvl || 1, mods: {},
+    slot: 'sigil', base: 'sigil', golden: !!golden,
+    name: golden ? 'Golden Bovine Sigil' : 'Bovine Sigil', icon: '🐮',
+    rarity: golden ? 'exotic' : 'unique', lvl: ilvl || 1, mods: {},
   };
 }
 
@@ -995,7 +1022,7 @@ const RIFT_TIME = 150;   // seconds on the clock
 const RIFT_GUARDIAN = { id: 'riftguardian', name: 'RIFT GUARDIAN', hp: 280, dmg: [13, 21], spd: 82, r: 26, xp: 220, gold: [120, 220], atkCd: 1.0, range: 56, minL: 1, w: 0, color: '#b86adf' };
 const riftDepth = tier => 3 + tier * 6;
 function enterRift(tier) {
-  G.cowLevel = false;
+  G.cowLevel = false; G.goldenPasture = false;
   G.petLair = null;
   const depth = riftDepth(tier);
   G.dlvl = depth;                        // drives monster & loot scaling
@@ -1057,7 +1084,7 @@ function riftComplete(m) {
 const fmtTime = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 
 /* -------- the secret cow level: one huge pasture, many angry bovines ----- */
-function genCowLevel(depth) {
+function genCowLevel(depth, golden) {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
   const R = { x: 6, y: 6, w: 40, h: 40, cx: 26, cy: 26 };
   for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
@@ -1096,9 +1123,9 @@ function genCowLevel(depth) {
       mx = ri(R.x + 1, R.x + R.w - 2); my = ri(R.y + 1, R.y + R.h - 2);
     } while ((map[my][mx] !== T_FLOOR || dist(mx, my, ex, ey) < 6) && ++tries < 20);
     if (map[my][mx] !== T_FLOOR) continue;
-    monsters.push(makeMonster(COW_TYPE, mx * TILE + TILE / 2, my * TILE + TILE / 2, scaleHp, scaleDmg, scaleXp, Math.random() < 0.06, false, depth));
+    monsters.push(makeMonster(COW_TYPE, mx * TILE + TILE / 2, my * TILE + TILE / 2, scaleHp * (golden ? 1.3 : 1), scaleDmg, scaleXp * (golden ? 1.6 : 1), Math.random() < (golden ? 1 : 0.06), false, depth));
   }
-  const boss = makeMonster(COW_KING, R.cx * TILE + TILE / 2, (R.y + 4) * TILE, scaleHp, scaleDmg, scaleXp, false, true, depth);
+  const boss = makeMonster(COW_KING, R.cx * TILE + TILE / 2, (R.y + 4) * TILE, scaleHp * (golden ? 1.8 : 1), scaleDmg * (golden ? 1.2 : 1), scaleXp * (golden ? 2 : 1), false, true, depth);
   monsters.push(boss);
   const shrines = [{ x: (R.cx + 4) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2, kind: 'gem', used: false }];
   const chests = [{ x: (R.cx - 5) * TILE + TILE / 2, y: (R.cy - 3) * TILE + TILE / 2, opened: false }];
@@ -1111,12 +1138,13 @@ function genCowLevel(depth) {
     exitTile: { x: ex - 2, y: ey },
   };
 }
-function enterCowLevel() {
+function enterCowLevel(golden) {
   const depth = Math.max(5, G.deepest || 5);
   G.dlvl = depth;                       // drives loot & damage scaling
   G.cowLevel = true;
+  G.goldenPasture = !!golden;
   G.petLair = null;
-  G.lvl = genCowLevel(depth);
+  G.lvl = genCowLevel(depth, golden);
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
@@ -1127,8 +1155,8 @@ function enterCowLevel() {
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
   G.world = 0;   // sunny Verdant Fields palette
-  $('floorLabel').textContent = 'The Secret Pasture 🐄' + (G.p.hardcore ? ' ☠' : '');
-  banner('MOO?! The herd senses an intruder…');
+  $('floorLabel').textContent = (G.goldenPasture ? 'The Gilded Pasture 🐮' : 'The Secret Pasture 🐄') + (G.p.hardcore ? ' ☠' : '');
+  banner(G.goldenPasture ? 'MOO! The gilded herd glitters with menace…' : 'MOO?! The herd senses an intruder…');
   sfx.boss();
 }
 
@@ -1178,7 +1206,7 @@ function genPetLair(spIdx, rarity, depth) {
 function enterPetLair(item) {
   const eg = item.egg;
   const spd = PET_SPECIES[eg.sp];
-  G.cowLevel = false; G.rift = null;
+  G.cowLevel = false; G.goldenPasture = false; G.rift = null;
   G.petLair = true;
   G.dlvl = Math.max(1, item.lvl);   // drives the beast's level scaling
   G.lvl = genPetLair(eg.sp, item.rarity, G.dlvl);
@@ -1575,7 +1603,10 @@ function modLines(it) {
     if (a) lines.push(a.txt(it.mods[k]));
   }
   if (it.slot === 'charm') lines.push('Works from your bag');
-  if (it.slot === 'sigil') { lines.push('It smells faintly of hay…'); lines.push('Use in town to open a strange portal'); }
+  if (it.slot === 'sigil') {
+    lines.push(it.golden ? 'It gleams — the herd beyond is champion-blooded' : 'It smells faintly of hay…');
+    lines.push('Use in town to open a strange portal');
+  }
   if (it.egg) {
     const sp = PET_SPECIES[it.egg.sp];
     lines.push('Holds a ' + (sp.whelp ? '⭐ ' : '') + sp.name + ' — ' + it.rarity + ' grade');
@@ -2065,7 +2096,7 @@ function dropLoot(m) {
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
   const isCow = m.type.id === 'cow';
-  if (Math.random() < (m.boss ? 0.8 : isCow ? 0.18 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  if (Math.random() < (m.boss ? 0.8 : isCow ? (G.goldenPasture ? 0.4 : 0.18) : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
   if (Math.random() < (m.boss ? 0.35 : 0.04)) G.drops.push({ kind: 'item', item: makeCharm(Math.max(1, dlvl + ngb * 8)), ...scatter() });
   if (m.boss && m.type.id !== 'cowking' && Math.random() < 0.2)
     G.drops.push({ kind: 'item', item: makeSigil(dlvl), ...scatter() });
@@ -2664,7 +2695,7 @@ function drinkPotion(kind) {
 
 /* ---------------- level flow ---------------- */
 function enterLevel(dlvl, fresh) {
-  G.cowLevel = false;
+  G.cowLevel = false; G.goldenPasture = false;
   G.rift = null;
   G.petLair = null;
   if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
@@ -7644,7 +7675,7 @@ function renderFuse() {
   const groups = fusableGroups(p.inv);
   const rows = groups.map((g, i) => `
     <button class="smallbtn" data-fuserow="${i}" style="width:100%">
-      ${GEMS[g.result.g].icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}">${g.from}</span>
+      ${g.result.icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}">${g.from}</span>
       &nbsp;→&nbsp; <span class="rc-${g.result.rarity}">${g.result.name}</span>
     </button>`).join('');
   $('fusePanel').innerHTML = `
@@ -7662,8 +7693,8 @@ function renderFuse() {
     const { count, finest } = fuseAll(p);
     if (!count) return;
     banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
-    spark(p.x, p.y - 10, GEMS[finest.g].color, 16, 200);
-    sfx.level(); saveDirty = true;
+    spark(p.x, p.y - 10, fuseColor(finest), 16, 200);
+    sfx.level(); recalc(); saveDirty = true;
     renderFuse();
   });
   $('fusePanel').querySelectorAll('[data-fuserow]').forEach(b => b.addEventListener('click', () => {
@@ -7671,9 +7702,9 @@ function renderFuse() {
     if (!g) return;
     for (let k = g.idx.length - 1; k >= 0; k--) p.inv.splice(g.idx[k], 1);
     p.inv.push(g.result);
-    banner('⚗ ' + g.result.name + ' — gems fused!');
-    spark(p.x, p.y - 10, GEMS[g.result.g].color, 14, 180);
-    sfx.level(); saveDirty = true; updateHUD();
+    banner('⚗ ' + g.result.name + ' — fused!');
+    spark(p.x, p.y - 10, fuseColor(g.result), 14, 180);
+    sfx.level(); recalc(); saveDirty = true; updateHUD();
     renderFuse();   // stay open for chain-fusing up the ladder
   }));
 }
@@ -7955,8 +7986,8 @@ function renderInv() {
     const { count, finest } = fuseAll(p);
     if (!count) return;
     banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
-    spark(p.x, p.y - 10, GEMS[finest.g].color, 16, 200);
-    sfx.level(); saveDirty = true; renderInv(); updateHUD();
+    spark(p.x, p.y - 10, fuseColor(finest), 16, 200);
+    sfx.level(); recalc(); saveDirty = true; renderInv(); updateHUD();
   });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
@@ -8120,8 +8151,8 @@ function showItemPopup(it, ref, equipped) {
       p.inv.splice(ref, 1);
       pop.classList.add('hidden');
       closePanels();
-      spark(p.x, p.y, '#c8281e', 30, 260);
-      enterCowLevel();
+      spark(p.x, p.y, it.golden ? '#ffd76a' : '#c8281e', 30, 260);
+      enterCowLevel(it.golden);
       saveDirty = true;
       updateHUD();
       return;
