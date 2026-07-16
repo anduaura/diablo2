@@ -426,9 +426,16 @@ function genTown() {
     entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 2) * TILE + TILE / 2 },
     exitTile: { x: R.x + R.w - 2, y: R.cy },
     vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
+    stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     shopStock,
   };
 }
+
+/* ---------------- shared town stash ---------------- */
+const STASH_KEY = 'sanctuary_stash';
+const STASH_MAX = 48;
+function loadStash() { try { return JSON.parse(localStorage.getItem(STASH_KEY)) || []; } catch (e) { return []; } }
+function saveStash(s) { try { localStorage.setItem(STASH_KEY, JSON.stringify(s)); } catch (e) { } }
 
 const CHAMP_AFFIXES = {
   fire: { name: 'Fire-Enchanted', color: '#ff8a3a' },
@@ -1896,8 +1903,9 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
-  /* town vendor */
+  /* town vendor & stash trunk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
+  if (G.lvl.stash) drawTrunk(G.lvl.stash);
 
   /* entities sorted by y */
   const ents = [];
@@ -2047,6 +2055,7 @@ function drawLights() {
   if (G.lvl.wp) hole(G.lvl.wp.x, G.lvl.wp.y, 100, 0.85);
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
+  if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -2917,6 +2926,35 @@ function drawChest(ch) {
   }
 }
 
+function drawTrunk(s) {
+  const t = G.time;
+  ctx.fillStyle = '#00000060';
+  ctx.beginPath(); ctx.ellipse(s.x, s.y + 10, 18, 6, 0, 0, 7); ctx.fill();
+  // body with iron bands
+  const g = ctx.createLinearGradient(s.x, s.y - 12, s.x, s.y + 10);
+  g.addColorStop(0, '#7a5230'); g.addColorStop(1, '#4a2f1a');
+  ctx.fillStyle = g;
+  ctx.fillRect(s.x - 16, s.y - 6, 32, 16);
+  ctx.fillStyle = '#5c4226';
+  ctx.beginPath();
+  ctx.moveTo(s.x - 16, s.y - 6);
+  ctx.quadraticCurveTo(s.x, s.y - 17, s.x + 16, s.y - 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#8a909c';
+  ctx.fillRect(s.x - 12, s.y - 14, 3, 24);
+  ctx.fillRect(s.x + 9, s.y - 14, 3, 24);
+  ctx.fillStyle = '#c9a45a';   // lock plate + keyhole
+  ctx.fillRect(s.x - 3, s.y - 7, 6, 7);
+  ctx.fillStyle = '#20140a';
+  ctx.fillRect(s.x - 0.8, s.y - 5, 1.6, 3);
+  // gentle glint so it reads as interactive
+  ctx.fillStyle = 'rgba(255,231,176,' + (0.25 + Math.sin(t * 2.4) * 0.15) + ')';
+  ctx.fillRect(s.x - 12, s.y - 13, 6, 2);
+  ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🧳 Trunk', s.x, s.y - 26);
+}
+
 function drawVendor(v) {
   const bob = Math.sin(G.time * 2) * 0.8;
   ctx.fillStyle = '#00000066';
@@ -3012,10 +3050,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3028,8 +3066,52 @@ function togglePanel(id) {
     if (id === 'pausePanel') renderPause();
     if (id === 'wpPanel') renderWp();
     if (id === 'shopPanel') renderShop();
+    if (id === 'stashPanel') renderStash();
     paused = true;
   }
+}
+
+function renderStash() {
+  const p = G.p, stash = loadStash();
+  const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) : ''}</button>`;
+  let sg = ''; for (let i = 0; i < STASH_MAX; i++) sg += cell(stash[i], 'st', i);
+  let bg = ''; for (let i = 0; i < p.bagSlots; i++) bg += cell(p.inv[i], 'bg', i);
+  $('stashPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🧳 Trunk · ${stash.length}/${STASH_MAX}</div>
+    <div class="invactions">
+      <button class="smallbtn" data-all-in ${!p.inv.length || stash.length >= STASH_MAX ? 'disabled' : ''}>⬇ Stash whole bag</button>
+      <button class="smallbtn" data-all-out ${!stash.length || p.inv.length >= p.bagSlots ? 'disabled' : ''}>⬆ Take everything</button>
+    </div>
+    <div class="invgrid">${sg}</div>
+    <div class="ptitle" style="margin-top:12px">🎒 Your bag · ${p.inv.length}/${p.bagSlots}</div>
+    <div class="invgrid">${bg}</div>
+    <div class="derived" style="text-align:center">Tap an item to move it across.<br>The trunk is shared by all of your heroes.</div>`;
+  $('stashPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('stashPanel').querySelectorAll('[data-st]').forEach(b => b.addEventListener('click', () => {
+    const s2 = loadStash(), it = s2[+b.dataset.st];
+    if (!it || p.inv.length >= p.bagSlots) return;
+    s2.splice(+b.dataset.st, 1);
+    p.inv.push(it);
+    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+  }));
+  $('stashPanel').querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => {
+    const s2 = loadStash(), it = p.inv[+b.dataset.bg];
+    if (!it || s2.length >= STASH_MAX) return;
+    p.inv.splice(+b.dataset.bg, 1);
+    s2.push(it);
+    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+  }));
+  $('stashPanel').querySelector('[data-all-in]').addEventListener('click', () => {
+    const s2 = loadStash();
+    while (p.inv.length && s2.length < STASH_MAX) s2.push(p.inv.shift());
+    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+  });
+  $('stashPanel').querySelector('[data-all-out]').addEventListener('click', () => {
+    const s2 = loadStash();
+    while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
+    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+  });
 }
 
 function renderWp() {
@@ -3383,6 +3465,12 @@ cvs.addEventListener('pointerup', e => {
   if (G.lvl.vendor && dist(w.x, w.y, G.lvl.vendor.x, G.lvl.vendor.y) < 44) {
     if (dist(p.x, p.y, G.lvl.vendor.x, G.lvl.vendor.y) < 95) togglePanel('shopPanel');
     else setMoveTarget(G.lvl.vendor.x, G.lvl.vendor.y + 34);
+    return;
+  }
+  // stash trunk?
+  if (G.lvl.stash && dist(w.x, w.y, G.lvl.stash.x, G.lvl.stash.y) < 44) {
+    if (dist(p.x, p.y, G.lvl.stash.x, G.lvl.stash.y) < 95) togglePanel('stashPanel');
+    else setMoveTarget(G.lvl.stash.x, G.lvl.stash.y + 34);
     return;
   }
   // drop?
