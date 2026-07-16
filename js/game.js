@@ -4131,6 +4131,9 @@ function render() {
   /* darkness + lights */
   drawLights();
 
+  /* per-world weather, drifting over the scene */
+  drawWeather();
+
   /* rift clock (screen space) */
   if (G.rift && !G.rift.done) {
     const r = G.rift;
@@ -4155,6 +4158,120 @@ function render() {
     ctx.fillStyle = '#e8d9a8'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
     ctx.fillText(boss.name, VW / 2, y + 22);
   }
+}
+
+/* ---------------- weather & ambience ----------------
+   Every realm breathes: a light field of screen-space particles —
+   petals, snow, embers, fog, bubbles, spores, sandstorm, glints,
+   mist, void motes, clouds, data-rain — drawn over the lit scene. */
+let weatherParts = [], weatherWorld = -1, weatherPrevT = 0;
+
+function makeWeatherPart(w, anywhere) {
+  const p = { x: Math.random() * VW, y: Math.random() * VH, ph: Math.random() * 7, vx: 0, vy: 0, r: 1, a: 0.5 };
+  switch (w) {
+    case 0:   // drifting petals & pollen
+      p.vx = rand(6, 18); p.vy = rand(10, 24); p.r = rand(1.2, 2.4);
+      p.c = choice(['#d8b84a', '#c86a8a', '#e8e4da']); p.a = rand(0.3, 0.55);
+      break;
+    case 1:   // snowfall
+      p.vx = rand(-6, 6); p.vy = rand(28, 70); p.r = rand(1, 2.6);
+      p.c = '#e8f2fa'; p.a = rand(0.35, 0.8);
+      break;
+    case 2:   // rising embers and ash
+      p.vx = rand(-8, 8); p.vy = -rand(20, 55); p.r = rand(0.8, 2);
+      p.c = Math.random() < 0.7 ? '#ff8a3a' : '#8a8078'; p.a = rand(0.3, 0.7);
+      if (!anywhere) p.y = VH + 4;
+      break;
+    case 3:   // creeping grave-fog
+      p.vx = rand(4, 14) * (Math.random() < 0.5 ? -1 : 1); p.vy = rand(-2, 2);
+      p.r = rand(36, 80); p.c = '#8a9a8a'; p.a = rand(0.04, 0.08);
+      break;
+    case 4:   // rising bubbles
+      p.vx = rand(-4, 4); p.vy = -rand(14, 34); p.r = rand(1.2, 3.2);
+      p.c = '#bfe8ff'; p.a = rand(0.2, 0.45); p.ring = true;
+      if (!anywhere) p.y = VH + 4;
+      break;
+    case 5:   // luminous spores
+      p.vx = rand(-8, 8); p.vy = rand(-8, 8); p.r = rand(1, 2.2);
+      p.c = '#6adfb8'; p.a = rand(0.25, 0.6); p.pulse = true;
+      break;
+    case 6:   // sandstorm streaks
+      p.vx = rand(120, 240); p.vy = rand(6, 20); p.r = rand(8, 22);
+      p.c = '#d8bc7a'; p.a = rand(0.12, 0.28); p.streak = true;
+      if (!anywhere) p.x = -24;
+      break;
+    case 7:   // crystal glints, winking in place
+      p.vx = 0; p.vy = 0; p.r = rand(1, 2);
+      p.c = Math.random() < 0.5 ? '#e8d4ff' : '#fff'; p.a = 1; p.pulse = true;
+      break;
+    case 8:   // crimson mist
+      p.vx = rand(3, 10) * (Math.random() < 0.5 ? -1 : 1); p.vy = rand(-3, 3);
+      p.r = rand(30, 70); p.c = '#8a2432'; p.a = rand(0.05, 0.1);
+      break;
+    case 9:   // slow void motes
+      p.vx = rand(-5, 5); p.vy = rand(-5, 5); p.r = rand(0.8, 1.8);
+      p.c = Math.random() < 0.6 ? '#8a9aff' : '#c8d2ff'; p.a = rand(0.3, 0.8); p.pulse = true;
+      break;
+    case 10:   // passing cloud wisps
+      p.vx = rand(16, 34); p.vy = rand(-2, 2); p.r = rand(30, 70);
+      p.c = '#ffffff'; p.a = rand(0.07, 0.13);
+      if (!anywhere) p.x = -80;
+      break;
+    default:   // 11: data-rain
+      p.vx = 0; p.vy = rand(150, 260); p.r = rand(6, 14);
+      p.c = Math.random() < 0.85 ? '#4affd4' : '#8adfff'; p.a = rand(0.1, 0.25); p.fall = true;
+      if (!anywhere) p.y = -16;
+      break;
+  }
+  return p;
+}
+
+function drawWeather() {
+  if (!G) return;
+  const w = G.world || 0;
+  const dt = Math.min(0.06, Math.max(0, G.time - weatherPrevT));
+  weatherPrevT = G.time;
+  if (weatherWorld !== w) {   // rebuild the field when the realm changes
+    weatherWorld = w;
+    weatherParts = [];
+    const n = [24, 54, 38, 14, 28, 32, 40, 26, 12, 26, 14, 34][w] || 26;
+    for (let i = 0; i < n; i++) weatherParts.push(makeWeatherPart(w, true));
+  }
+  ctx.save();
+  for (let i = 0; i < weatherParts.length; i++) {
+    const pt = weatherParts[i];
+    pt.ph += dt;
+    pt.x += (pt.vx + (pt.streak ? Math.sin(G.time * 0.7) * 60 : Math.sin(pt.ph * 1.6) * 8)) * dt;
+    pt.y += pt.vy * dt;
+    // recycle particles that drift off screen
+    if (pt.x < -100 || pt.x > VW + 100 || pt.y < -100 || pt.y > VH + 100) {
+      weatherParts[i] = makeWeatherPart(w, false);
+      continue;
+    }
+    const a = pt.pulse ? pt.a * (0.35 + Math.max(0, Math.sin(pt.ph * 2.2)) * 0.65) : pt.a;
+    if (a <= 0.01) continue;
+    ctx.globalAlpha = a;
+    if (pt.streak) {   // wind-stretched grains
+      ctx.strokeStyle = pt.c; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x - pt.r, pt.y + pt.r * 0.15); ctx.stroke();
+    } else if (pt.fall) {   // vertical data streaks
+      ctx.strokeStyle = pt.c; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x, pt.y - pt.r); ctx.stroke();
+    } else if (pt.ring) {   // hollow bubbles
+      ctx.strokeStyle = pt.c; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, 7); ctx.stroke();
+    } else if (pt.r > 20) {   // soft fog / cloud blobs
+      const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r);
+      g.addColorStop(0, pt.c); g.addColorStop(1, pt.c + '00');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, 7); ctx.fill();
+    } else {
+      ctx.fillStyle = pt.c;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, 7); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawLights() {
