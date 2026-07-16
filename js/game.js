@@ -1348,38 +1348,258 @@ function drawPlayer(p) {
 }
 
 function drawMonster(m) {
-  const t = m.type;
-  const bob = Math.sin(G.time * 8 + m.x) * 1.4;
+  const t = m.type, rr = m.r;
+  const time = G.time;
+  const ph = m.x * 0.13 + m.y * 0.07;
+  const moving = m.aggro && m.stunT <= 0;
+  const stride = moving ? Math.sin(time * 9 + ph) : 0;
+  const bob = moving ? Math.abs(Math.cos(time * 9 + ph)) * rr * 0.08 : Math.sin(time * 2.6 + ph) * rr * 0.05;
+  const face = Math.cos(m.dir) >= 0 ? 1 : -1;
+  const hurt = m.hurtT > 0;
+  const W = c => hurt ? '#ffffff' : c;
+
+  // shadow + champion/boss ground ring
   ctx.fillStyle = '#00000066';
-  ctx.beginPath(); ctx.ellipse(m.x, m.y + m.r * 0.8, m.r * 0.85, m.r * 0.35, 0, 0, 7); ctx.fill();
-  const col = m.hurtT > 0 ? '#ffffff' : t.color;
-  // body
-  ctx.fillStyle = col;
-  ctx.beginPath();
-  ctx.moveTo(m.x - m.r * 0.7, m.y + m.r * 0.8);
-  ctx.quadraticCurveTo(m.x - m.r * 0.9, m.y - m.r * 0.6 + bob, m.x, m.y - m.r * 0.9 + bob);
-  ctx.quadraticCurveTo(m.x + m.r * 0.9, m.y - m.r * 0.6 + bob, m.x + m.r * 0.7, m.y + m.r * 0.8);
-  ctx.closePath(); ctx.fill();
-  if (m.champ || m.boss) { ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 1.6; ctx.stroke(); }
-  // head
-  ctx.fillStyle = col;
-  ctx.beginPath(); ctx.arc(m.x, m.y - m.r * 1.1 + bob, m.r * 0.45, 0, 7); ctx.fill();
-  // eyes
-  ctx.fillStyle = m.boss ? '#ffe14d' : '#ff3a2a';
-  const ed = m.r * 0.18;
-  ctx.fillRect(m.x - ed - 1.4, m.y - m.r * 1.15 + bob, 2.6, 2.6);
-  ctx.fillRect(m.x + ed - 1.2, m.y - m.r * 1.15 + bob, 2.6, 2.6);
-  // horns for boss/brute
-  if (m.boss || t.id === 'brute') {
-    ctx.strokeStyle = '#d8cdb4'; ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.moveTo(m.x - m.r * 0.4, m.y - m.r * 1.3 + bob); ctx.lineTo(m.x - m.r * 0.7, m.y - m.r * 1.8 + bob); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(m.x + m.r * 0.4, m.y - m.r * 1.3 + bob); ctx.lineTo(m.x + m.r * 0.7, m.y - m.r * 1.8 + bob); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(m.x, m.y + rr * 0.8, rr * 0.9, rr * 0.35, 0, 0, 7); ctx.fill();
+  if (m.champ || m.boss) {
+    ctx.strokeStyle = m.boss ? '#ff5a3aa8' : '#ffd76aa8';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.ellipse(m.x, m.y + rr * 0.8, rr * 1.15 + Math.sin(time * 4) * 1.2, rr * 0.45, 0, 0, 7); ctx.stroke();
   }
-  // bow for archers
-  if (m.ranged) {
-    ctx.strokeStyle = '#7a5a30'; ctx.lineWidth = 1.8;
-    ctx.beginPath(); ctx.arc(m.x + Math.cos(m.dir) * m.r, m.y - 2 + Math.sin(m.dir) * m.r, 7, m.dir - 1.1, m.dir + 1.1); ctx.stroke();
+
+  ctx.save();
+  ctx.translate(m.x, m.y - bob);
+  ctx.scale(face, 1);
+  ctx.lineCap = 'round';
+
+  if (t.id === 'skel' || t.id === 'archer') {
+    /* -------- skeleton / bone archer -------- */
+    ctx.scale(rr / 13, rr / 13);
+    ctx.strokeStyle = W('#cfc9b8'); ctx.lineWidth = 2.6;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 3, 1); ctx.lineTo(sd * 3 + stride * 4 * sd, 10); ctx.stroke();
+    }
+    ctx.fillStyle = W('#b8b2a0');
+    ctx.fillRect(-4, -1, 8, 3);
+    ctx.strokeStyle = W('#cfc9b8'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -11); ctx.stroke();
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(0, -9.5 + i * 2.7, 4.6 - i * 0.5, 0.15, Math.PI - 0.15); ctx.stroke();
+    }
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-5, -11); ctx.lineTo(5, -11); ctx.stroke();
+    ctx.lineWidth = 2.2;   // rear arm swings
+    ctx.beginPath(); ctx.moveTo(-5, -11); ctx.lineTo(-6.5, -4 + stride * 1.5); ctx.stroke();
+    // skull
+    ctx.fillStyle = W('#e0dbcc');
+    ctx.beginPath(); ctx.arc(0, -16, 4.6, 0, 7); ctx.fill();
+    ctx.fillRect(-2.6, -12.8, 5.2, 2.4);
+    ctx.fillStyle = '#1a1008';
+    ctx.fillRect(-2.9, -17.2, 2.1, 2.1); ctx.fillRect(0.9, -17.2, 2.1, 2.1);
+    ctx.fillRect(-0.5, -14.4, 1, 1.3);
+    ctx.fillStyle = '#c83a2a';
+    ctx.fillRect(-2.3, -16.6, 0.9, 0.9); ctx.fillRect(1.5, -16.6, 0.9, 0.9);
+    ctx.strokeStyle = '#1a1008'; ctx.lineWidth = 0.6;    // jaw teeth lines
+    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 1.4, -12.6); ctx.lineTo(i * 1.4, -10.8); ctx.stroke(); }
+    // weapon arm
+    ctx.strokeStyle = W('#cfc9b8'); ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(5, -11); ctx.lineTo(8.5, -6.5); ctx.stroke();
+    if (t.id === 'archer') {
+      ctx.strokeStyle = W('#6a4a26'); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(9, -6.5, 8, -1.2, 1.2); ctx.stroke();
+      ctx.strokeStyle = '#d8cdb4'; ctx.lineWidth = 0.7;
+      const ex = 9 + Math.cos(1.2) * 8, ey1 = -6.5 - Math.sin(1.2) * 8, ey2 = -6.5 + Math.sin(1.2) * 8;
+      ctx.beginPath(); ctx.moveTo(ex, ey1); ctx.lineTo(9, -6.5); ctx.lineTo(ex, ey2); ctx.stroke();
+    } else {
+      ctx.save();
+      ctx.translate(8.5, -6.5); ctx.rotate(-0.55 + stride * 0.15);
+      ctx.fillStyle = W('#5a4a32'); ctx.fillRect(-2, -1, 4, 2);
+      ctx.fillStyle = W('#8a8378');
+      ctx.beginPath(); ctx.moveTo(-1.1, -1); ctx.lineTo(-0.4, -10.5); ctx.lineTo(0.4, -10.5); ctx.lineTo(1.1, -1);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+
+  } else if (t.id === 'zombie') {
+    /* -------- shambling zombie -------- */
+    ctx.scale(rr / 14, rr / 14);
+    ctx.strokeStyle = W('#4a5a3a'); ctx.lineWidth = 3.4;
+    ctx.beginPath(); ctx.moveTo(2.5, 2); ctx.lineTo(2.5 + stride * 3.5, 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2.5, 2); ctx.lineTo(-4.5 - stride * 1.2, 10.5); ctx.stroke(); // dragging leg
+    const g = ctx.createLinearGradient(0, -9, 0, 6);
+    g.addColorStop(0, W('#6a8a4a')); g.addColorStop(1, W('#42542c'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-6, 4);
+    ctx.quadraticCurveTo(-8, -6, -1, -9);
+    ctx.quadraticCurveTo(7.5, -7, 6, 4);
+    ctx.quadraticCurveTo(0, 6.5, -6, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#4a3a2c');   // torn rags
+    ctx.beginPath(); ctx.moveTo(-5.5, -2); ctx.lineTo(2, -3.5); ctx.lineTo(3, 1); ctx.lineTo(-1, 3.5); ctx.lineTo(-5.5, 2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#7a1a12');   // open wound
+    ctx.beginPath(); ctx.ellipse(3.4, -3.4, 1.7, 2.3, 0.4, 0, 7); ctx.fill();
+    // both arms reaching forward
+    ctx.strokeStyle = W('#6a8a4a'); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(4, -7); ctx.lineTo(11, -5 + stride * 1.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3, -4); ctx.lineTo(10.5, -1 - stride * 1.4); ctx.stroke();
+    ctx.fillStyle = W('#8aa668');
+    ctx.beginPath(); ctx.arc(11.3, -5 + stride * 1.4, 1.7, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10.8, -1 - stride * 1.4, 1.7, 0, 7); ctx.fill();
+    // lolling head
+    ctx.save();
+    ctx.translate(1, -11); ctx.rotate(0.22);
+    ctx.fillStyle = W('#7a9a58');
+    ctx.beginPath(); ctx.arc(0, 0, 4.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#141008';
+    ctx.fillRect(-2.5, -1.2, 1.8, 1.4); ctx.fillRect(0.9, -1.2, 1.8, 1.4);
+    ctx.fillStyle = '#d8d8c0';
+    ctx.fillRect(-2, -0.9, 0.8, 0.8);   // one milky eye
+    ctx.fillStyle = '#2a1410';
+    ctx.fillRect(-1.2, 1.6, 3.2, 1.8);  // gaping mouth
+    ctx.restore();
+
+  } else if (t.id === 'fallen') {
+    /* -------- fallen imp -------- */
+    ctx.scale(rr / 11, rr / 11);
+    ctx.strokeStyle = W('#c0392b'); ctx.lineWidth = 2;   // whipping tail
+    ctx.beginPath();
+    ctx.moveTo(-3, 3);
+    ctx.quadraticCurveTo(-9, 2 + Math.sin(time * 7 + ph) * 2, -12, -3 + Math.sin(time * 7 + ph) * 3);
+    ctx.stroke();
+    ctx.strokeStyle = W('#a02a1e'); ctx.lineWidth = 2.4;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2, 4); ctx.lineTo(sd * 2 + stride * 3 * sd, 9.5); ctx.stroke();
+    }
+    ctx.fillStyle = W('#c0392b');   // crouched body
+    ctx.beginPath();
+    ctx.moveTo(-5, 4);
+    ctx.quadraticCurveTo(-6, -4, 0, -5.5);
+    ctx.quadraticCurveTo(6, -4, 5, 4);
+    ctx.quadraticCurveTo(0, 6, -5, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#d87a4a');   // belly
+    ctx.beginPath(); ctx.ellipse(0.6, 0.2, 2.8, 3.2, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#c0392b');   // big head
+    ctx.beginPath(); ctx.arc(1, -8.5, 4.2, 0, 7); ctx.fill();
+    ctx.beginPath();                // pointed ear
+    ctx.moveTo(-2.6, -9.5); ctx.lineTo(-6.5, -11.5); ctx.lineTo(-2.8, -7.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = W('#e8d9a8'); ctx.lineWidth = 1.6;   // horn nubs
+    ctx.beginPath(); ctx.moveTo(-1, -12.2); ctx.lineTo(-2, -14.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3, -12.2); ctx.lineTo(4, -14.5); ctx.stroke();
+    ctx.fillStyle = '#ffd23a';
+    ctx.fillRect(-0.7, -9.8, 1.7, 1.7); ctx.fillRect(2.3, -9.8, 1.7, 1.7);
+    ctx.strokeStyle = '#2a1410'; ctx.lineWidth = 1;   // wicked grin
+    ctx.beginPath(); ctx.arc(1.4, -7.6, 2.2, 0.3, Math.PI - 0.6); ctx.stroke();
+    ctx.strokeStyle = W('#9a938a'); ctx.lineWidth = 1.8;   // crude dagger
+    ctx.beginPath(); ctx.moveTo(5.5, -2); ctx.lineTo(9.5, -5.5); ctx.stroke();
+
+  } else if (t.id === 'ghoul') {
+    /* -------- lanky ghoul -------- */
+    ctx.scale(rr / 14, rr / 14);
+    const g = ctx.createLinearGradient(0, -10, 0, 7);
+    g.addColorStop(0, W('#7a5a8a')); g.addColorStop(1, W('#4a3458'));
+    ctx.fillStyle = g;   // hunched body leaning forward
+    ctx.beginPath();
+    ctx.moveTo(-6, 5);
+    ctx.quadraticCurveTo(-9, -8, 0, -10);
+    ctx.quadraticCurveTo(8, -8.5, 5.5, -1);
+    ctx.quadraticCurveTo(7, 3, 5.5, 5);
+    ctx.quadraticCurveTo(0, 7, -6, 5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#5a4468');   // back spines
+    for (const [sx, sy] of [[-5.4, -6.5], [-3, -8.8], [0.2, -9.8]]) {
+      ctx.beginPath(); ctx.moveTo(sx - 1.2, sy + 1.5); ctx.lineTo(sx, sy - 2.6); ctx.lineTo(sx + 1.4, sy + 1.2);
+      ctx.closePath(); ctx.fill();
+    }
+    // long clawed arms
+    ctx.strokeStyle = W('#8a6a9a'); ctx.lineWidth = 2.8;
+    ctx.beginPath(); ctx.moveTo(4, -5); ctx.quadraticCurveTo(9, -2, 10 + stride, 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2, -3); ctx.quadraticCurveTo(7, 2, 8 - stride, 7); ctx.stroke();
+    ctx.strokeStyle = W('#e8e4da'); ctx.lineWidth = 1.1;
+    for (const k of [-1, 0, 1]) {
+      ctx.beginPath(); ctx.moveTo(10 + stride, 6); ctx.lineTo(10 + stride + 2 + k * 0.8, 8.5 + k); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(8 - stride, 7); ctx.lineTo(8 - stride + 2 + k * 0.8, 9.5 + k); ctx.stroke();
+    }
+    // head thrust forward
+    ctx.fillStyle = W('#8a6a9a');
+    ctx.beginPath(); ctx.arc(4, -11, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#baffd8';
+    ctx.fillRect(2.4, -12.4, 1.6, 1.4); ctx.fillRect(5.2, -12.4, 1.6, 1.4);
+    ctx.fillStyle = '#1a0c14';   // wide maw
+    ctx.fillRect(1.8, -9.8, 5.2, 2.2);
+    ctx.fillStyle = '#e8e4da';
+    for (let i = 0; i < 3; i++) ctx.fillRect(2.4 + i * 1.7, -9.8, 0.8, 1);
+
+  } else {
+    /* -------- hell brute / boss demon -------- */
+    ctx.scale(rr / 20, rr / 20);
+    const boss = m.boss;
+    ctx.strokeStyle = W('#6a2014'); ctx.lineWidth = 5.5;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 5, 6); ctx.lineTo(sd * 5 + stride * 4 * sd, 15); ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -13, 0, 10);
+    g.addColorStop(0, W(boss ? '#c04028' : '#a03a24'));
+    g.addColorStop(1, W(boss ? '#601410' : '#5a1810'));
+    ctx.fillStyle = g;   // massive torso
+    ctx.beginPath();
+    ctx.moveTo(-11, 8);
+    ctx.quadraticCurveTo(-14, -10, 0, -13);
+    ctx.quadraticCurveTo(14, -10, 11, 8);
+    ctx.quadraticCurveTo(0, 11, -11, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -8.5, 5, 0, 7); ctx.fill();   // shoulder humps
+    ctx.beginPath(); ctx.arc(10, -8.5, 5, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#d8a06a'); ctx.lineWidth = 1.8;   // belly plates
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(0, -1 + i * 3.4, 7.4 - i * 1.1, 0.45, Math.PI - 0.45); ctx.stroke();
+    }
+    // heavy arms with fists
+    ctx.strokeStyle = W('#8a2c1a'); ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(10, -8); ctx.lineTo(15, 2 + stride * 2.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-10, -8); ctx.lineTo(-15, 2 - stride * 2.5); ctx.stroke();
+    ctx.fillStyle = W('#6a2014');
+    ctx.beginPath(); ctx.arc(15.4, 3.4 + stride * 2.5, 3.4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-15.4, 3.4 - stride * 2.5, 3.4, 0, 7); ctx.fill();
+    // head
+    ctx.fillStyle = W('#7a2416');
+    ctx.beginPath(); ctx.arc(0, -16, 5.5, 0, 7); ctx.fill();
+    // curved horns
+    ctx.fillStyle = W('#e8d9a8');
+    for (const sd of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sd * 3.5, -19);
+      ctx.quadraticCurveTo(sd * 9, -22, sd * 10, -28);
+      ctx.quadraticCurveTo(sd * 6, -24, sd * 2.5, -20.5);
+      ctx.closePath(); ctx.fill();
+      if (boss) {   // second horn pair for the boss
+        ctx.beginPath();
+        ctx.moveTo(sd * 1.5, -20.5);
+        ctx.quadraticCurveTo(sd * 3, -25, sd * 2, -28.5);
+        ctx.quadraticCurveTo(sd * 0.8, -24.5, sd * 0.4, -21);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    // glowing eyes + tusks
+    if (boss) {
+      const eg = ctx.createRadialGradient(0, -16.5, 0, 0, -16.5, 7);
+      eg.addColorStop(0, 'rgba(255,225,77,0.5)'); eg.addColorStop(1, 'rgba(255,225,77,0)');
+      ctx.fillStyle = eg;
+      ctx.beginPath(); ctx.arc(0, -16.5, 7, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = boss ? '#ffe14d' : '#ff3a2a';
+    ctx.fillRect(-3, -17.4, 2.1, 2.1); ctx.fillRect(0.9, -17.4, 2.1, 2.1);
+    ctx.fillStyle = '#e8e4da';
+    ctx.beginPath(); ctx.moveTo(-2.8, -12.4); ctx.lineTo(-2, -10.2); ctx.lineTo(-1.2, -12.4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(1.2, -12.4); ctx.lineTo(2, -10.2); ctx.lineTo(2.8, -12.4); ctx.closePath(); ctx.fill();
   }
+
+  ctx.restore();
+
   // slow tint
   if (m.slowT > 0) {
     ctx.fillStyle = '#9adcff44';
@@ -1752,4 +1972,4 @@ window.addEventListener('pagehide', saveGame);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
 
 /* expose for debugging / tests */
-window.__sanctuary = { get G() { return G; }, startGame, CLASSES, makeItem: (...a) => makeItem(...a), genLevel };
+window.__sanctuary = { get G() { return G; }, startGame, CLASSES, MTYPES, makeItem: (...a) => makeItem(...a), genLevel };
