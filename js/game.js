@@ -376,17 +376,46 @@ function gemQ(it) {
   if (it.q !== undefined) return it.q;
   return it.name.startsWith('Chipped') ? 0 : it.name.startsWith('Flawless') ? 2 : 1;
 }
-/* first triple of same-kind, same-quality gems below Flawless in the bag */
-function fusableGems(inv) {
+/* the fusion ladder: three of a kind climb quality first, then grade.
+   Below Flawless, 3 same-kind same-quality gems (any grades) fuse into
+   the next quality, keeping the best grade. Flawless gems keep going:
+   3 of the same grade fuse into the next rarity grade, all the way to
+   Celestial. Chipped commons to one Celestial Flawless: 3^6 gems. */
+const GEM_GRADES = ['common', 'magic', 'rare', 'unique', 'exotic'];
+const gemGradeIdx = it => Math.max(0, GEM_GRADES.indexOf(it.rarity));
+function fusableGroups(inv) {
   const groups = {};
   for (let i = 0; i < inv.length; i++) {
     const it = inv[i];
-    if (!it.g || gemQ(it) >= 2) continue;
-    const key = it.g + ':' + gemQ(it);
+    if (!it.g) continue;
+    const q = gemQ(it);
+    // quality fuses accept mixed grades; grade fuses need matching grade
+    const key = q < 2 ? 'q:' + it.g + ':' + q
+      : gemGradeIdx(it) < GEM_GRADES.length - 1 ? 'g:' + it.g + ':' + gemGradeIdx(it) : null;
+    if (!key) continue;
     (groups[key] = groups[key] || []).push(i);
-    if (groups[key].length === 3) return groups[key];
   }
-  return null;
+  const out = [];
+  for (const key in groups) {
+    if (groups[key].length < 3) continue;
+    const idx = groups[key].slice(0, 3);
+    const src = inv[idx[0]];
+    const lvl = Math.max(...idx.map(i => inv[i].lvl || 1));
+    let result;
+    if (key[0] === 'q') {
+      const bestGrade = GEM_GRADES[Math.max(...idx.map(i => gemGradeIdx(inv[i])))];
+      result = gemItem(src.g, gemQ(src) + 1, lvl, bestGrade);
+    } else {
+      result = gemItem(src.g, 2, lvl, GEM_GRADES[gemGradeIdx(src) + 1]);
+    }
+    out.push({ idx, from: src.name, result });
+  }
+  return out;
+}
+/* kept for quick "is anything fusable" checks */
+function fusableGems(inv) {
+  const gs = fusableGroups(inv);
+  return gs.length ? gs[0].idx : null;
 }
 /* charms: power that lives in your bag — the slot it occupies is the cost */
 const CHARM_SUFFIX = {
@@ -6293,10 +6322,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -6314,6 +6343,7 @@ function togglePanel(id) {
     if (id === 'stablePanel') renderStable();
     if (id === 'stairsPanel') renderStairs();
     if (id === 'npcPanel') renderNpc(G.talkNpc);
+    if (id === 'fusePanel') renderFuse();
     paused = true;
   }
 }
@@ -6563,6 +6593,35 @@ function renderQuestDialog() {
   });
 }
 
+function renderFuse() {
+  const p = G.p;
+  const groups = fusableGroups(p.inv);
+  const rows = groups.map((g, i) => `
+    <button class="smallbtn" data-fuserow="${i}" style="width:100%">
+      ${GEMS[g.result.g].icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}">${g.from}</span>
+      &nbsp;→&nbsp; <span class="rc-${g.result.rarity}">${g.result.name}</span>
+    </button>`).join('');
+  $('fusePanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">⚗ Gem Fusion</div>
+    <div class="invactions" style="flex-direction:column">
+      ${rows || '<div class="derived" style="text-align:center">Nothing left to fuse — gather three of a kind.</div>'}
+    </div>
+    <div class="derived" style="text-align:center">Three of a kind climb the ladder: Chipped → Gem → Flawless,<br>
+    then Flawless grades ascend all the way to <span class="rc-exotic">Celestial</span>.</div>`;
+  $('fusePanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('fusePanel').querySelectorAll('[data-fuserow]').forEach(b => b.addEventListener('click', () => {
+    const g = groups[+b.dataset.fuserow];
+    if (!g) return;
+    for (let k = g.idx.length - 1; k >= 0; k--) p.inv.splice(g.idx[k], 1);
+    p.inv.push(g.result);
+    banner('⚗ ' + g.result.name + ' — gems fused!');
+    spark(p.x, p.y - 10, GEMS[g.result.g].color, 14, 180);
+    sfx.level(); saveDirty = true; updateHUD();
+    renderFuse();   // stay open for chain-fusing up the ladder
+  }));
+}
+
 function renderRift() {
   const max = G.maxRiftTier || 1;
   const best = G.riftBest || {};
@@ -6778,7 +6837,7 @@ function renderInv() {
       <button class="smallbtn" data-buy="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
-      <button class="smallbtn" data-fuse ${fusableGems(p.inv) ? '' : 'disabled'} title="Combine 3 matching gems into 1 of the next quality">⚗ Fuse 3 gems</button>
+      <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 matching gems into a finer one">⚗ Fuse gems${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
@@ -6832,19 +6891,8 @@ function renderInv() {
     sfx.level(); renderInv(); updateHUD(); saveDirty = true;
   });
   $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
-    const idx = fusableGems(p.inv);
-    if (!idx) return;
-    const src = p.inv[idx[0]];
-    // the fused gem keeps the best rarity grade among the three
-    const order = ['common', 'magic', 'rare', 'unique', 'exotic'];
-    const bestRarity = idx.reduce((best, i) =>
-      order.indexOf(p.inv[i].rarity) > order.indexOf(best) ? p.inv[i].rarity : best, 'common');
-    const fused = gemItem(src.g, gemQ(src) + 1, src.lvl, bestRarity);
-    for (let k = idx.length - 1; k >= 0; k--) p.inv.splice(idx[k], 1);
-    p.inv.push(fused);
-    banner('⚗ ' + fused.name + ' — gems fused!');
-    spark(p.x, p.y - 10, GEMS[fused.g].color, 14, 180);
-    sfx.level(); renderInv(); saveDirty = true;
+    if (!fusableGroups(p.inv).length) return;
+    togglePanel('fusePanel');
   });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
