@@ -263,7 +263,36 @@ const PET_SPECIES = [
   { id: 'tiger', name: 'Tiger', icon: '🐯', price: 5000, dmgMult: 0.65, kind: 'melee' },
   { id: 'drake', name: 'Ember Drake', icon: '🐉', price: 12000, dmgMult: 0.8, kind: 'rangedfly' },
   { id: 'dragon', name: 'Dragon', icon: '🐲', price: 30000, dmgMult: 1.1, kind: 'dragon' },
+  /* egg-born beasts (indices 6-17): one per realm, never sold in the
+     stable — their eggs drop in their home world and open a lair where
+     the beast must be bested to be tamed. form picks the body renderer,
+     pal recolors it to the realm. */
+  { id: 'faefox', name: 'Fae Fox', icon: '🦊', price: 2600, dmgMult: 0.5, kind: 'melee', form: 'wolf', world: 0, ilvl: 6, eggOnly: true, pal: { body: '#c8743a', dark: '#7a3a24', leg: '#a05a2e', eye: '#c86a8a' } },
+  { id: 'frostsabre', name: 'Frost Sabre', icon: '❄️', price: 4100, dmgMult: 0.53, kind: 'melee', form: 'tiger', world: 1, ilvl: 8, eggOnly: true, pal: { body: '#b8d8ee', dark: '#4a7a9a', leg: '#8fb8d8', eye: '#9adcff' } },
+  { id: 'magmahound', name: 'Magma Hound', icon: '🌋', price: 5600, dmgMult: 0.56, kind: 'melee', form: 'hound', world: 2, ilvl: 10, eggOnly: true, pal: { body: '#5a2c1a', dark: '#ff6a2a', leg: '#3a1c10', eye: '#ff8a3a' } },
+  { id: 'gravewolf', name: 'Grave Wolf', icon: '🦴', price: 7100, dmgMult: 0.59, kind: 'melee', form: 'wolf', world: 3, ilvl: 12, eggOnly: true, pal: { body: '#cfc9b8', dark: '#38303c', leg: '#a8a290', eye: '#9adc8a' } },
+  { id: 'tidedrake', name: 'Tide Drake', icon: '🌊', price: 8600, dmgMult: 0.62, kind: 'rangedfly', form: 'drake', world: 4, ilvl: 14, eggOnly: true, pal: { body: '#2e7a8a', dark: '#1a4a56', belly: '#7ac8bc', eye: '#bfe8ff' } },
+  { id: 'sporesprite', name: 'Spore Sprite', icon: '🍄', price: 10100, dmgMult: 0.65, kind: 'rangedfly', form: 'wisp', world: 5, ilvl: 16, eggOnly: true, pal: { body: '#6adfb8' } },
+  { id: 'dunefalcon', name: 'Dune Falcon', icon: '🏜️', price: 11600, dmgMult: 0.68, kind: 'fly', form: 'hawk', world: 6, ilvl: 18, eggOnly: true, pal: { body: '#d8bc7a', dark: '#a8874a' } },
+  { id: 'prismpanther', name: 'Prism Panther', icon: '💎', price: 13100, dmgMult: 0.71, kind: 'melee', form: 'tiger', world: 7, ilvl: 20, eggOnly: true, pal: { body: '#7a5aa8', dark: '#c28aff', leg: '#5a4088', eye: '#c28aff' } },
+  { id: 'bloodwing', name: 'Bloodwing', icon: '🩸', price: 14600, dmgMult: 0.74, kind: 'rangedfly', form: 'drake', world: 8, ilvl: 22, eggOnly: true, pal: { body: '#8a2432', dark: '#3c1418', belly: '#ff8a9a', eye: '#ff5a6a' } },
+  { id: 'voidwisp', name: 'Void Wisp', icon: '🌌', price: 16100, dmgMult: 0.77, kind: 'rangedfly', form: 'wisp', world: 9, ilvl: 24, eggOnly: true, pal: { body: '#8a9aff' } },
+  { id: 'zephyrfalcon', name: 'Zephyr Falcon', icon: '🌬️', price: 17600, dmgMult: 0.8, kind: 'fly', form: 'hawk', world: 10, ilvl: 26, eggOnly: true, pal: { body: '#e8ecf4', dark: '#aab4c8' } },
+  { id: 'wardenorb', name: 'Warden Orb', icon: '🤖', price: 19100, dmgMult: 0.83, kind: 'rangedfly', form: 'wisp', world: 11, ilvl: 28, eggOnly: true, pal: { body: '#4affd4' } },
 ];
+/* tyrant whelps (indices 18-29): the realms' final bosses in miniature —
+   the mightiest companions, from the rarest eggs of their own tyrants */
+const WHELP_NAMES = ['Thornwing Whelp', 'Isafrost Whelp', 'Cindermaw Whelp', 'Ossuary Whelp',
+  'Malgoroth Whelp', 'Mycelior Whelp', 'Simoom Whelp', 'Prismatrix Whelp',
+  'Haemovore Whelp', 'Nullscale Whelp', 'Zephyrax Whelp', 'Mechagorath Core-Spawn'];
+for (let i = 0; i < DRAGONS.length; i++) {
+  PET_SPECIES.push({
+    id: 'whelp' + i, name: WHELP_NAMES[i], icon: '🐲', price: 40000 + i * 6000,
+    dmgMult: 1.05 + i * 0.03, kind: 'dragon', form: 'dragon', world: i,
+    ilvl: 24 + i * 2, eggOnly: true, whelp: true,
+    pal: { body: DRAGONS[i].body, dark: DRAGONS[i].body, belly: DRAGONS[i].belly, eye: DRAGONS[i].belly },
+  });
+}
 const PET_RARITIES = ['common', 'magic', 'rare', 'unique', 'exotic'];
 /* wild beasts prowl their home realms — subdue one and it joins your
    stable, mods and all. Dragons roost only in the two highest realms. */
@@ -286,12 +315,31 @@ function rollPetRarity() {
   const r = Math.random();
   return r < 0.05 ? 'exotic' : r < 0.15 ? 'unique' : r < 0.4 ? 'rare' : r < 0.75 ? 'magic' : 'common';
 }
+
+/* ---------------- pet eggs ----------------
+   Eggs drop in each beast's home realm — rarer eggs from rarer foes.
+   An egg incubates in real time (rarer = longer), then becomes a living
+   key: crack it to open the beast's lair and best it to tame it. */
+const EGG_HATCH_MS = [3 * 60000, 12 * 60000, 45 * 60000, 3 * 3600000, 8 * 3600000];
+function makeEgg(spIdx, rarity, dlvl) {
+  const rIdx = PET_RARITIES.indexOf(rarity);
+  return {
+    slot: 'egg', base: 'egg', icon: '🥚', rarity, lvl: Math.max(1, dlvl),
+    name: PET_SPECIES[spIdx].name + ' Egg', mods: {},
+    egg: { sp: spIdx, hatchAt: Date.now() + EGG_HATCH_MS[rIdx] },
+  };
+}
+const eggReady = it => it.egg && Date.now() >= it.egg.hatchAt;
+function fmtDur(ms) {
+  const m = Math.ceil(ms / 60000);
+  return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + 'm';
+}
 function makePetData(spIdx, rarity) {
   const sp = PET_SPECIES[spIdx];
   const rIdx = PET_RARITIES.indexOf(rarity);
   const nMods = [1, ri(1, 2), ri(2, 3), 3, 4][rIdx];
   const mult = [0.7, 1, 1.3, 1.7, 2.2][rIdx];
-  const ilvl = 2 + spIdx * 4;   // exotic species roll bigger buffs
+  const ilvl = sp.ilvl || (2 + spIdx * 4);   // exotic species roll bigger buffs
   const mods = {}, used = new Set();
   for (let i = 0; i < nMods; i++) {
     const a = choice(AFFIXES);
@@ -929,6 +977,7 @@ const RIFT_GUARDIAN = { id: 'riftguardian', name: 'RIFT GUARDIAN', hp: 280, dmg:
 const riftDepth = tier => 3 + tier * 6;
 function enterRift(tier) {
   G.cowLevel = false;
+  G.petLair = null;
   const depth = riftDepth(tier);
   G.dlvl = depth;                        // drives monster & loot scaling
   G.rift = { tier, t: RIFT_TIME, elapsed: 0, kills: 0, need: 0, guardian: false, done: false };
@@ -1047,6 +1096,7 @@ function enterCowLevel() {
   const depth = Math.max(5, G.deepest || 5);
   G.dlvl = depth;                       // drives loot & damage scaling
   G.cowLevel = true;
+  G.petLair = null;
   G.lvl = genCowLevel(depth);
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
@@ -1060,6 +1110,71 @@ function enterCowLevel() {
   G.world = 0;   // sunny Verdant Fields palette
   $('floorLabel').textContent = 'The Secret Pasture 🐄' + (G.p.hardcore ? ' ☠' : '');
   banner('MOO?! The herd senses an intruder…');
+  sfx.boss();
+}
+
+/* -------- beast lairs: an egg cracks open a one-beast arena -------- */
+function genPetLair(spIdx, rarity, depth) {
+  const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
+  const R = { x: 15, y: 15, w: 22, h: 22, cx: 26, cy: 26 };
+  for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
+  // scattered boulders for cover
+  for (let i = 0; i < 14; i++) {
+    const x = ri(R.x + 2, R.x + R.w - 3), y = ri(R.y + 2, R.y + R.h - 3);
+    if (Math.abs(x - R.cx) > 3 || Math.abs(y - R.cy) > 3) map[y][x] = T_WALL;
+  }
+  const ex = R.cx, ey = R.y + R.h - 2;   // entrance south, portal home beside it
+  map[ey][ex] = T_FLOOR; map[ey][ex - 2] = T_DOWN;
+  const torches = [];
+  for (let i = 0; i < 10; i++) torches.push({ x: ri(R.x + 1, R.x + R.w - 2) * TILE + TILE / 2, y: ri(R.y + 1, R.y + R.h - 2) * TILE + TILE * 0.9 });
+  // the beast: harder with rarity grade and species tier
+  const spd = PET_SPECIES[spIdx];
+  const rIdx = PET_RARITIES.indexOf(rarity);
+  const ngm = 1 + (G && G.ng || 0) * 0.8;
+  const eff = effDepth(depth);
+  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
+  const tier = 1 + (spd.world || 0) * 0.06 + (spd.whelp ? 0.7 : 0);
+  const ranged = spd.form === 'drake' || spd.form === 'dragon' || spd.form === 'wisp';
+  const wt = {
+    id: 'wildpet', name: (spd.whelp ? '' : 'Wild ') + spd.name,
+    hp: Math.round(150 * tier * [1, 1.5, 2.2, 3.2, 4.4][rIdx]),
+    dmg: [Math.round(10 * tier * [1, 1.15, 1.35, 1.6, 1.9][rIdx]), Math.round(17 * tier * [1, 1.15, 1.35, 1.6, 1.9][rIdx])],
+    spd: 118, r: spd.whelp ? 22 : 15, xp: Math.round(120 * tier), gold: [0, 0],
+    atkCd: 1.0, range: ranged ? 240 : 38, ranged, minL: 1, w: 0, color: '#e8c14d',
+  };
+  const wm = makeMonster(wt, R.cx * TILE + TILE / 2, (R.y + 4) * TILE, scaleHp, scaleDmg, scaleXp, false, false, depth);
+  wm.wild = { data: makePetData(spIdx, rarity) };
+  wm.novaT = 0;
+  return {
+    map, rooms: [R], torches, monsters: [wm], boss: null, wp: null, shrines: [], chests: [], goldPiles: [],
+    props: [], propSet: new Set(),
+    seen: new Uint8Array(MAP_W * MAP_H),
+    locked: false,
+    entrance: { x: ex * TILE + TILE / 2, y: ey * TILE + TILE / 2 },
+    exitTile: { x: ex - 2, y: ey },
+  };
+}
+function enterPetLair(item) {
+  const eg = item.egg;
+  const spd = PET_SPECIES[eg.sp];
+  G.cowLevel = false; G.rift = null;
+  G.petLair = true;
+  G.dlvl = Math.max(1, item.lvl);   // drives the beast's level scaling
+  G.lvl = genPetLair(eg.sp, item.rarity, G.dlvl);
+  G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
+  const actPet2 = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet2 ? spawnPet(actPet2) : null;
+  const p = G.p;
+  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  G.world = Math.min(spd.world || 0, WORLDS.length - 1);   // the beast's home palette
+  $('floorLabel').textContent = '🥚 Beast Lair · ' + spd.name + (G.p.hardcore ? ' ☠' : '');
+  banner('🐣 The egg cracks — the ' + spd.name + '\'s lair opens! Subdue it to tame it.');
   sfx.boss();
 }
 
@@ -1108,7 +1223,7 @@ function genTown() {
       x: (R.x + 1.8 + (i % 6) * 3.1) * TILE,
       y: (i < 6 ? R.y : R.y + R.h) * TILE + TILE * 0.9,
     })),
-    petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
+    petStock: Array.from({ length: 3 }, () => makePetData(ri(0, 5), rollPetRarity())),
     npcs: [
       { id: 'elder', x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
       { id: 'healer', x: (R.x + 2) * TILE + TILE / 2, y: (R.y + 4) * TILE + TILE / 2 },
@@ -1442,6 +1557,14 @@ function modLines(it) {
   }
   if (it.slot === 'charm') lines.push('Works from your bag');
   if (it.slot === 'sigil') { lines.push('It smells faintly of hay…'); lines.push('Use in town to open a strange portal'); }
+  if (it.egg) {
+    const sp = PET_SPECIES[it.egg.sp];
+    lines.push('Holds a ' + (sp.whelp ? '⭐ ' : '') + sp.name + ' — ' + it.rarity + ' grade');
+    lines.push(eggReady(it)
+      ? '🐣 Ready to crack: opens the beast\'s lair'
+      : '🕒 Incubating — hatches into a lair key in ' + fmtDur(it.egg.hatchAt - Date.now()));
+    lines.push('Rarer eggs brood longer and hide fiercer beasts');
+  }
   if (it.relic !== undefined) lines.push('★ Relic of ' + WORLDS[it.relic].name + ' — found only there');
   return lines;
 }
@@ -1836,7 +1959,7 @@ function killMonster(m) {
   }
   if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
   // side quest: cull progress counts only on the quest's own world floors
-  if (!G.rift && !G.cowLevel && G.quests) {
+  if (!G.rift && !G.cowLevel && !G.petLair && G.quests) {
     const w = worldOf(G.dlvl), q = QUESTS[w], st = G.quests[w];
     if (q && q.type === 'cull' && st && st.s === 'active' && (!q.match || q.match.includes(m.type.id))) {
       st.n = (st.n || 0) + 1;
@@ -1928,10 +2051,27 @@ function dropLoot(m) {
   if (m.boss && m.type.id !== 'cowking' && Math.random() < 0.2)
     G.drops.push({ kind: 'item', item: makeSigil(dlvl), ...scatter() });
   // realm relics: rare, and only from the world that hoards them
-  if (!G.rift && !G.cowLevel && dlvl > 0 && !m.type.flee) {
+  if (!G.rift && !G.cowLevel && !G.petLair && dlvl > 0 && !m.type.flee) {
     const rRelic = m.boss ? 0.08 : m.champ ? 0.012 : 0.0018;
     if (Math.random() < rRelic)
       G.drops.push({ kind: 'item', item: makeRelic(worldOf(dlvl), Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  }
+  // pet eggs: living keys to the beast lairs of this realm. Tyrants lay
+  // whelp eggs of themselves; mini-bosses sometimes do; rarer foes lay
+  // rarer (and slower, meaner) eggs
+  if (!G.rift && !G.cowLevel && !G.petLair && dlvl > 0 && !m.type.flee && !m.wild) {
+    const isTyrant = m.type.id === 'dragon';
+    const rEgg = isTyrant ? 0.75 : m.boss ? 0.14 : m.champ ? 0.02 : 0.002;
+    if (Math.random() < rEgg) {
+      const w = worldOf(dlvl);
+      const whelp = isTyrant ? Math.random() < 0.55 : m.boss ? Math.random() < 0.12 : false;
+      const spIdx = whelp ? 18 + w : 6 + w;
+      const r3 = Math.random();
+      const rarity = isTyrant ? (r3 < 0.25 ? 'exotic' : r3 < 0.65 ? 'unique' : 'rare')
+        : m.boss ? (r3 < 0.05 ? 'exotic' : r3 < 0.2 ? 'unique' : r3 < 0.55 ? 'rare' : 'magic')
+          : rollPetRarity();
+      G.drops.push({ kind: 'item', item: makeEgg(spIdx, rarity, dlvl), ...scatter() });
+    }
   }
 }
 
@@ -2302,7 +2442,8 @@ function refreshMercEntity() {
 
 function spawnPet(data) {
   const p = G.p;
-  return { isPet: true, kind: PET_SPECIES[data.sp].id, data, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
+  const sp = PET_SPECIES[data.sp];
+  return { isPet: true, kind: sp.form || sp.id, data, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
 }
 function hurtMinion(mi, dmg) {
   mi.hp -= dmg; mi.hurtT = 0.15;
@@ -2506,6 +2647,7 @@ function drinkPotion(kind) {
 function enterLevel(dlvl, fresh) {
   G.cowLevel = false;
   G.rift = null;
+  G.petLair = null;
   if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
@@ -2902,7 +3044,7 @@ function update(dt) {
     } else if (G.drops.length > 0) {
       togglePanel('stairsPanel');
     } else {
-      enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
+      enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
       return;
     }
   } else G.stairsHold = false;
@@ -3915,7 +4057,7 @@ function render() {
   const y1 = Math.min(MAP_H - 1, Math.ceil((cam.y + VH / 2 / ZOOM) / TILE) + 1);
   const wrld = WORLDS[G.world || 0], pal = wrld.pal;
   // boss floors replace the plain stairs with the next world's gate
-  const bossGate = G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel;
+  const bossGate = G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel && !G.petLair;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
     if (t === T_WALL) {
@@ -4512,7 +4654,7 @@ function drawLights() {
     else if (pr.w === 2) hole(pr.x, pr.y - 15, 50, 0.4);
     else if (pr.w === 8) hole(pr.x, pr.y - 12, 45, 0.3);
   }
-  if (G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel)
+  if (G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel && !G.petLair)
     hole(G.lvl.exitTile.x * TILE + TILE / 2, G.lvl.exitTile.y * TILE, 110, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
@@ -4890,7 +5032,10 @@ function drawPlayer(p) {
 }
 
 function drawWildPet(m) {
-  if (!m.petVis) m.petVis = { isPet: true, kind: PET_SPECIES[m.wild.data.sp].id, data: m.wild.data, x: m.x, y: m.y, dir: m.dir, atkT: 0, swingT: 0 };
+  if (!m.petVis) {
+    const spDef = PET_SPECIES[m.wild.data.sp];
+    m.petVis = { isPet: true, kind: spDef.form || spDef.id, data: m.wild.data, x: m.x, y: m.y, dir: m.dir, atkT: 0, swingT: 0 };
+  }
   m.petVis.x = m.x; m.petVis.y = m.y; m.petVis.dir = m.dir;
   // a feral red ring marks it as wild until subdued
   ctx.strokeStyle = hexA('#ff5a3a', 0.5 + Math.sin(G.time * 4) * 0.2);
@@ -5735,6 +5880,9 @@ function drawPet(pet) {
   const t = G.time;
   const bob = Math.sin(t * 3 + 1) * 1.2;
   const face = Math.cos(pet.dir) >= 0 ? 1 : -1;
+  // egg-born species reuse a base body recolored to their realm
+  const spDef = pet.data ? PET_SPECIES[pet.data.sp] : null;
+  const pal = (spDef && spDef.pal) || null;
   // rare+ companions glow with their grade's color
   const rIdx = pet.data ? PET_RARITIES.indexOf(pet.data.rarity) : 0;
   if (rIdx >= 2) {
@@ -5744,9 +5892,9 @@ function drawPet(pet) {
   }
   if (pet.kind === 'hound' || pet.kind === 'wolf' || pet.kind === 'tiger') {
     const wolf = pet.kind === 'wolf', tiger = pet.kind === 'tiger';
-    const cBody = tiger ? '#d8863a' : wolf ? '#78828e' : '#6a5238';
-    const cDark = tiger ? '#2c1c10' : wolf ? '#4e5762' : '#3a2c1c';
-    const cLeg = tiger ? '#b8702e' : wolf ? '#565f6a' : '#4a3826';
+    const cBody = pal ? pal.body : tiger ? '#d8863a' : wolf ? '#78828e' : '#6a5238';
+    const cDark = pal ? pal.dark : tiger ? '#2c1c10' : wolf ? '#4e5762' : '#3a2c1c';
+    const cLeg = pal ? (pal.leg || pal.dark) : tiger ? '#b8702e' : wolf ? '#565f6a' : '#4a3826';
     const s = tiger ? 1.32 : wolf ? 1.18 : 1;
     ctx.fillStyle = '#00000060';
     ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11 * s, 4 * s, 0, 0, 7); ctx.fill();
@@ -5777,7 +5925,7 @@ function drawPet(pet) {
       ctx.fillStyle = '#e8d9c0';
       ctx.fillRect(11, -2.2 + bob * 0.3, 4.5, 1.6);
     }
-    ctx.fillStyle = tiger ? '#ffe14d' : wolf ? '#9adcff' : '#ffd76a';
+    ctx.fillStyle = pal ? (pal.eye || '#ffd76a') : tiger ? '#ffe14d' : wolf ? '#9adcff' : '#ffd76a';
     ctx.fillRect(9.6, -5.6 + bob * 0.3, 1.6, 1.6);
     ctx.restore();
   } else if (pet.kind === 'drake' || pet.kind === 'dragon') {
@@ -5790,7 +5938,9 @@ function drawPet(pet) {
     ctx.translate(pet.x, fy);
     ctx.scale(face * s, s);
     const flap = Math.sin(t * (drg ? 8 : 11));
-    const cBody = drg ? '#a32430' : '#c86a30', cWing = drg ? '#701420' : '#8a4520', cBelly = drg ? '#e8c05a' : '#e8a05a';
+    const cBody = pal ? pal.body : drg ? '#a32430' : '#c86a30';
+    const cWing = pal ? pal.dark : drg ? '#701420' : '#8a4520';
+    const cBelly = pal ? (pal.belly || '#e8c05a') : drg ? '#e8c05a' : '#e8a05a';
     for (const sd of [-1, 1]) {   // membrane wings
       ctx.fillStyle = cWing;
       ctx.beginPath();
@@ -5819,7 +5969,7 @@ function drawPet(pet) {
     ctx.strokeStyle = cBelly; ctx.lineWidth = 1.4;   // horns
     ctx.beginPath(); ctx.moveTo(9.5, -9.5); ctx.lineTo(8, -12.5); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(11.5, -9.5); ctx.lineTo(11, -13); ctx.stroke();
-    ctx.fillStyle = drg ? '#ffe14d' : '#ffd76a';
+    ctx.fillStyle = pal ? (pal.eye || '#ffd76a') : drg ? '#ffe14d' : '#ffd76a';
     ctx.fillRect(10, -7.6, 1.7, 1.7);
     ctx.restore();
     // smoke & sparks from the dragon's snout
@@ -5834,7 +5984,7 @@ function drawPet(pet) {
     ctx.translate(pet.x, fly);
     ctx.scale(face, 1);
     const flap = Math.sin(t * 12);
-    ctx.fillStyle = '#7a5a34';
+    ctx.fillStyle = pal ? pal.dark : '#7a5a34';
     for (const sd of [-1, 1]) {   // wings
       ctx.beginPath();
       ctx.moveTo(sd * 2, 0);
@@ -5842,31 +5992,32 @@ function drawPet(pet) {
       ctx.quadraticCurveTo(sd * 9, 2 - flap * 2, sd * 2, 2.5);
       ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = '#8a683c';   // body
+    ctx.fillStyle = pal ? pal.body : '#8a683c';   // body
     ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 3.4, 0, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(5, -1.4, 2.6, 0, 7); ctx.fill();
     ctx.fillStyle = '#ffd23a';   // beak + eye
     ctx.beginPath(); ctx.moveTo(7.2, -1.8); ctx.lineTo(10, -0.8); ctx.lineTo(7.2, 0); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#20140a';
     ctx.fillRect(5, -2.4, 1.3, 1.3);
-    ctx.fillStyle = '#6a4a2c';   // tail feathers
+    ctx.fillStyle = pal ? pal.dark : '#6a4a2c';   // tail feathers
     ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-10, -1 + bob * 0.4); ctx.lineTo(-9.5, 2); ctx.closePath(); ctx.fill();
     ctx.restore();
-  } else {   // arcane familiar
+  } else {   // arcane familiar / wisp-form beasts
+    const wc = pal ? pal.body : '#b8a4ff';
     const fy = pet.y - 18 + bob * 2;
     ctx.fillStyle = '#00000044';
     ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 5, 6, 2.4, 0, 0, 7); ctx.fill();
     const g = ctx.createRadialGradient(pet.x, fy, 0, pet.x, fy, 13);
-    g.addColorStop(0, 'rgba(184,164,255,0.55)'); g.addColorStop(1, 'rgba(184,164,255,0)');
+    g.addColorStop(0, hexA(wc, 0.55)); g.addColorStop(1, hexA(wc, 0));
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(pet.x, fy, 13, 0, 7); ctx.fill();
-    ctx.fillStyle = '#b8a4ff';
+    ctx.fillStyle = wc;
     ctx.beginPath(); ctx.arc(pet.x, fy, 5.5, 0, 7); ctx.fill();
     ctx.fillStyle = '#efe8ff';
     ctx.beginPath(); ctx.arc(pet.x - 1.5, fy - 1.5, 2, 0, 7); ctx.fill();
-    ctx.fillStyle = '#2a1a4a';
+    ctx.fillStyle = '#1a1424';
     ctx.fillRect(pet.x - 2.6, fy - 1, 1.6, 1.8); ctx.fillRect(pet.x + 1, fy - 1, 1.6, 1.8);
-    if (Math.random() < 0.25) G.parts.push({ x: pet.x + rand(-4, 4), y: fy + rand(-4, 4), vx: rand(-6, 6), vy: rand(4, 14), r: rand(1, 2), color: '#b8a4ff', life: 0.4, glow: true });
+    if (Math.random() < 0.25) G.parts.push({ x: pet.x + rand(-4, 4), y: fy + rand(-4, 4), vx: rand(-6, 6), vy: rand(4, 14), r: rand(1, 2), color: wc, life: 0.4, glow: true });
   }
 }
 
@@ -7232,7 +7383,7 @@ function renderStairs() {
   if (items) bits.push(items + ' item' + (items > 1 ? 's' : ''));
   if (gold) bits.push(gold + ' gold pile' + (gold > 1 ? 's' : ''));
   if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
-  const leaving = G.cowLevel || G.rift;   // these stairs lead back to town
+  const leaving = G.cowLevel || G.rift || G.petLair;   // these stairs lead back to town
   $('stairsPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">${leaving ? '🌀 Return to town?' : '⬇ Descend?'}</div>
@@ -7253,7 +7404,7 @@ function renderStairs() {
   $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
   $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
     closePanels();
-    enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
+    enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
   });
 }
 
@@ -7681,7 +7832,7 @@ const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
 // bulk-sellable: everything of the tier (gems included) except socketed
 // gem hosts, charms (their power is live from the bag) and quest sigils
 const sellListUpTo = (p, tier) =>
-  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' &&
+  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' && i.slot !== 'egg' &&
     RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
 
 function sockBadge(it) {
@@ -7726,7 +7877,7 @@ function renderInv() {
         return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
       }).join('')}
     </div>
-    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms and sigils always stay.</div>
+    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms, sigils and eggs always stay.</div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {
@@ -7860,6 +8011,7 @@ function showItemPopup(it, ref, equipped) {
             `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
           : !SLOTS.includes(it.slot)
             ? `${it.slot === 'sigil' ? '<button class="smallbtn" data-act="cow">🐄 Use the sigil</button>' : ''}
+               ${it.egg ? (eggReady(it) ? '<button class="smallbtn" data-act="lair" style="border-color:#d9c65a">🐣 Crack open the egg</button>' : `<button class="smallbtn" disabled style="opacity:.55">🕒 Hatches in ${fmtDur(it.egg.hatchAt - Date.now())}</button>`) : ''}
                <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
             : `<button class="smallbtn" data-act="equip">Equip</button>
              ${G.merc && (it.slot === 'weapon' || it.slot === 'armor') ? '<button class="smallbtn" data-act="merc">🛡 Give to merc</button>' : ''}
@@ -7907,6 +8059,21 @@ function showItemPopup(it, ref, equipped) {
     } else if (act === 'unequip') {
       if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
       else { p.inv.push(it); p.equip[ref] = null; recalc(); }
+    } else if (act === 'lair') {
+      if (G.rift || G.cowLevel || G.petLair) {
+        ftext(p.x, p.y - 30, 'Not in here…', '#c9b98a', 12);
+        pop.classList.add('hidden');
+        return;
+      }
+      if (!eggReady(it)) { pop.classList.add('hidden'); return; }
+      p.inv.splice(ref, 1);
+      pop.classList.add('hidden');
+      closePanels();
+      spark(p.x, p.y, '#ffd76a', 30, 260);
+      enterPetLair(it);
+      saveDirty = true;
+      updateHUD();
+      return;
     } else if (act === 'cow') {
       if (G.dlvl !== 0) {
         ftext(p.x, p.y - 30, 'The sigil only stirs in town…', '#c9b98a', 12);

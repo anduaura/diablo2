@@ -79,6 +79,12 @@ python3 -m http.server 8000
   wolves in the tundra, drakes in the caldera, dragons in the highest
   realms); subdue one in battle and it joins your stable, rarity and
   buffs intact
+- **Pet eggs & beast lairs** — monsters drop eggs of their realm's own
+  beast (24 species from the Fae Fox to the Warden Orb, plus miniature
+  **tyrant whelps** from the dragon tyrants themselves); eggs incubate
+  in real time — rarer eggs from rarer foes brood longer and hide
+  fiercer beasts — then crack open a private lair where the beast must
+  be bested to be tamed
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
