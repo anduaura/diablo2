@@ -774,26 +774,100 @@ function recalc() { G.d = derived(G.p); G.p.hp = Math.min(G.p.hp, G.d.maxHp); G.
 const xpNext = lvl => Math.round(80 * Math.pow(lvl, 1.6));
 
 /* ---------------- dungeon generation ---------------- */
+/* macro footprints: each floor's walkable region takes a different overall
+   silhouette so the map edge can't be predicted — the old full square is
+   just one rare shape among ovals, blobs, rings, bands, crosses and Ls */
+function pickFootprint() {
+  const cxm = MAP_W / 2 + ri(-5, 5), cym = MAP_H / 2 + ri(-5, 5);
+  const shape = choice(['ellipse', 'ellipse', 'blob', 'blob', 'band', 'ring', 'cross', 'corner', 'full']);
+  if (shape === 'ellipse') {
+    const rx = ri(17, 23), ry = ri(15, 23);
+    return (x, y) => ((x - cxm) / rx) ** 2 + ((y - cym) / ry) ** 2 <= 1;
+  }
+  if (shape === 'blob') {   // 2–3 overlapping lobes, drifting off-center
+    const lobes = [];
+    for (let i = ri(2, 3); i > 0; i--)
+      lobes.push({ x: ri(14, MAP_W - 14), y: ri(14, MAP_H - 14), rx: ri(10, 16), ry: ri(9, 15) });
+    return (x, y) => lobes.some(l => ((x - l.x) / l.rx) ** 2 + ((y - l.y) / l.ry) ** 2 <= 1);
+  }
+  if (shape === 'band') {   // a wide diagonal canyon, either slant
+    const sgn = Math.random() < 0.5 ? 1 : -1, hw = ri(9, 12);
+    return (x, y) => Math.abs((x - cxm) - sgn * (y - cym)) / 1.414 <= hw;
+  }
+  if (shape === 'ring') {   // a donut with a solid heart of rock
+    const rx = ri(20, 24), ry = ri(19, 23), ir2 = rand(0.35, 0.48) ** 2;
+    return (x, y) => {
+      const d = ((x - cxm) / rx) ** 2 + ((y - cym) / ry) ** 2;
+      return d <= 1 && d >= ir2;
+    };
+  }
+  if (shape === 'cross') {  // crossroads: two wide perpendicular halls
+    const aw = ri(7, 10), ah = ri(7, 10);
+    return (x, y) => Math.abs(x - cxm) <= aw || Math.abs(y - cym) <= ah;
+  }
+  if (shape === 'corner') { // an L hugging two random edges
+    const fx = Math.random() < 0.5, fy = Math.random() < 0.5, t = ri(16, 22);
+    return (x, y) => (fx ? x < 2 + t : x > MAP_W - 3 - t) || (fy ? y < 2 + t : y > MAP_H - 3 - t);
+  }
+  return () => true;        // the classic full square, now a rarity
+}
 function genLevel(dlvl, riftMode) {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
+  const inMask = pickFootprint();
+  // a room fits when its corners, edge midpoints and center all sit inside
+  // the footprint (center matters for the non-convex ring)
+  const fits = (x, y, w, h) => {
+    const mx2 = x + (w >> 1), my2 = y + (h >> 1);
+    for (const [px3, py3] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1],
+      [mx2, y], [mx2, y + h - 1], [x, my2], [x + w - 1, my2], [mx2, my2]])
+      if (!inMask(px3, py3)) return false;
+    return true;
+  };
   const rooms = [];
-  for (let i = 0; i < 60 && rooms.length < 11; i++) {
+  for (let i = 0; i < 260 && rooms.length < 11; i++) {
     const w = ri(5, 9), h = ri(5, 9), x = ri(2, MAP_W - w - 3), y = ri(2, MAP_H - h - 3);
+    // late attempts ignore the footprint if a floor came out too sparse,
+    // so every level is guaranteed enough rooms to play
+    if (!fits(x, y, w, h) && !(i > 200 && rooms.length < 6)) continue;
     if (rooms.some(r => x < r.x + r.w + 2 && x + w + 2 > r.x && y < r.y + r.h + 2 && y + h + 2 > r.y)) continue;
     rooms.push({ x, y, w, h, cx: x + Math.floor(w / 2), cy: y + Math.floor(h / 2) });
   }
-  for (const r of rooms) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) map[y][x] = T_FLOOR;
+  // room silhouettes vary too: rectangles, ovals, diamonds, rounded halls
+  // (superellipse |dx/a|^f + |dy/b|^f <= 1 — convex, so never disconnected)
+  for (const r of rooms) {
+    const fr = Math.random();
+    r.form = fr < 0.4 ? 0 : fr < 0.65 ? 2 : fr < 0.82 ? 4 : 1;
+    const a = (r.w - 1) / 2 || 1, b = (r.h - 1) / 2 || 1, c0x = r.x + a, c0y = r.y + b;
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!r.form || Math.abs((x - c0x) / a) ** r.form + Math.abs((y - c0y) / b) ** r.form <= 1.15)
+        map[y][x] = T_FLOOR;
+    }
+  }
   const corr = (x1, y1, x2, y2) => {
     let x = x1, y = y1;
     while (x !== x2) { map[y][x] = map[y][x] || T_FLOOR; map[Math.min(y + 1, MAP_H - 1)][x] = map[Math.min(y + 1, MAP_H - 1)][x] || T_FLOOR; x += Math.sign(x2 - x); }
     while (y !== y2) { map[y][x] = map[y][x] || T_FLOOR; map[y][Math.min(x + 1, MAP_W - 1)] = map[y][Math.min(x + 1, MAP_W - 1)] || T_FLOOR; y += Math.sign(y2 - y); }
     map[y][x] = map[y][x] || T_FLOOR;
   };
-  for (let i = 1; i < rooms.length; i++) corr(rooms[i - 1].cx, rooms[i - 1].cy, rooms[i].cx, rooms[i].cy);
+  // link each room to its nearest already-linked neighbour so corridors
+  // follow the footprint's silhouette instead of zig-zagging across it
+  for (let i = 1; i < rooms.length; i++) {
+    let bj = 0, bd = Infinity;
+    for (let j = 0; j < i; j++) {
+      const d = dist(rooms[j].cx, rooms[j].cy, rooms[i].cx, rooms[i].cy);
+      if (d < bd) { bd = d; bj = j; }
+    }
+    corr(rooms[bj].cx, rooms[bj].cy, rooms[i].cx, rooms[i].cy);
+  }
+  // …plus the occasional extra loop, so floors aren't pure trees
+  if (rooms.length > 5 && Math.random() < 0.55) {
+    const ra2 = choice(rooms), rb2 = choice(rooms);
+    if (ra2 !== rb2) corr(ra2.cx, ra2.cy, rb2.cx, rb2.cy);
+  }
 
-  // pillars in large rooms (never on a room center, where stairs go)
+  // pillars in large rectangular rooms (never on a room center, where stairs go)
   for (const r of rooms) {
-    if (r.w >= 6 && r.h >= 6 && Math.random() < 0.65) {
+    if (!r.form && r.w >= 6 && r.h >= 6 && Math.random() < 0.65) {
       for (const [ppx, ppy] of [[r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + 1], [r.x + 1, r.y + r.h - 2], [r.x + r.w - 2, r.y + r.h - 2]]) {
         if (Math.random() < 0.75 && !(ppx === r.cx && ppy === r.cy)) map[ppy][ppx] = T_WALL;
       }
