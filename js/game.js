@@ -556,6 +556,24 @@ function makeItem(slot, ilvl, forceRarity) {
   return it;
 }
 const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200 }[it.rarity] + it.lvl * 6);
+/* rough power score used by auto-equip to compare items */
+function itemScore(it) {
+  if (!it) return -1;
+  let s = 0;
+  if (it.dmg) s += (it.dmg[0] + it.dmg[1]) * 1.5;
+  if (it.armor) s += it.armor * 2;
+  const m = it.mods || {};
+  s += (m.str || 0) + (m.dex || 0) + (m.vit || 0) + (m.ene || 0);
+  s += (m.hp || 0) * 0.4 + (m.mp || 0) * 0.3;
+  s += (m.dmgPct || 0) * 1.2 + (m.armor || 0) * 1.5;
+  s += (m.leech || 0) * 3 + (m.mf || 0) * 0.5;
+  s += ((m.fireDmg || 0) + (m.coldDmg || 0) + (m.lightDmg || 0) + (m.poisonDmg || 0)) * 1.5;
+  if (it.gems) for (const g of it.gems) s += g.v * 1.5;
+  const rw = runewordOf(it);
+  if (rw) for (const k in rw.mods) s += rw.mods[k];
+  s += (it.sockets || 0) * 4;
+  return s;
+}
 function modLines(it) {
   if (it.g) return [GEMS[it.g].txt(it.v), 'Embed into a socketed item'];
   const lines = [];
@@ -1143,6 +1161,7 @@ function saveGame() {
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
       waypoints: G.waypoints, deepest: G.deepest,
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
+      autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1166,6 +1185,9 @@ function startGame(clsId, save, slot) {
     slot: slot !== undefined ? slot : 0, ng: (save && save.ng) || 0,
     buffDmg: 0, buffArmor: 0, buffSpd: 0,
     minions: [], pet: null,
+    autoEquip: save && save.autoEquip !== undefined ? save.autoEquip : true,
+    autoSell: save && save.autoSell !== undefined ? save.autoSell : 1,
+    portalFloor: (save && save.portalFloor) || 0,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -1379,13 +1401,34 @@ function update(dt) {
       ftext(dr.x, dr.y - 12, dr.kind === 'hpPot' ? 'Health Potion' : 'Mana Potion', dr.kind === 'hpPot' ? '#ff8a7a' : '#8fb3ff', 12);
       G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
     } else if (dr.kind === 'item' && dd < 30) {
-      if (p.inv.length >= 24) { if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; } }
-      else {
-        p.inv.push(dr.item);
-        ftext(dr.x, dr.y - 12, dr.item.name, rarityColor(dr.item.rarity), 13);
+      const it = dr.item;
+      if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
+        // auto-equip upgrades; old piece goes to the bag (or the floor if full)
+        const old = p.equip[it.slot];
+        p.equip[it.slot] = it;
+        if (old) {
+          if (p.inv.length < 24) p.inv.push(old);
+          else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
+        }
+        recalc();
+        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
+        spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
+      } else if (G.autoSell > 0 && !it.g && !(it.sockets >= 2) &&
+        (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
+        // auto-sell junk straight to gold (2-socket runeword bases are kept)
+        const gold = sellPrice(it);
+        p.gold += gold;
+        ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
+        G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
+      } else if (p.inv.length >= 24) {
+        if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
+      } else {
+        p.inv.push(it);
+        ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
-        if ($('invPanel') && !$('invPanel').classList.contains('hidden')) renderInv();
       }
+      if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
     }
   }
 
@@ -2940,10 +2983,13 @@ function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
     : FLOOR_NAMES[Math.min(Math.floor((d - 1) / 3), FLOOR_NAMES.length - 1)] + ' · Floor ' + d;
+  const ret = G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
+    ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '';
   $('wpPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🌀 Waypoint</div>
     <div class="invactions" style="flex-direction:column">
+      ${ret}
       ${dests.map(d => `<button class="smallbtn" data-wp="${d}" ${d === G.dlvl ? 'disabled' : ''}>${nameOf(d)}${d === G.dlvl ? ' (here)' : ''}</button>`).join('')}
     </div>
     <div class="derived" style="text-align:center">Waypoints awaken on floors ${WP_FLOORS.slice(0, 5).join(', ')}…<br>Step on one to bind it forever.</div>`;
@@ -3147,6 +3193,8 @@ function renderPause() {
       <button class="smallbtn" data-snd>${soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF'}</button>
       <button class="smallbtn" data-autopot>🧪 Auto-Potion: ${G.autoPot > 0 ? 'below ' + Math.round(G.autoPot * 100) + '% life' : 'OFF'}</button>
       <button class="smallbtn" data-autoskill>🤖 Auto-Skills: ${G.autoSkill ? 'ON' : 'OFF'}</button>
+      <button class="smallbtn" data-autoequip>⬆ Auto-Equip upgrades: ${G.autoEquip ? 'ON' : 'OFF'}</button>
+      <button class="smallbtn" data-autosell>💰 Auto-Sell: ${['OFF', 'common items', 'common + magic'][G.autoSell]}</button>
       <button class="smallbtn" data-quit>💾 Save & Main Menu</button>
       <button class="smallbtn" data-newchar style="color:#ff8a7a">☠ Abandon Hero (new character)</button>
     </div>
@@ -3163,6 +3211,14 @@ function renderPause() {
   $('pausePanel').querySelector('[data-autoskill]').addEventListener('click', () => {
     G.autoSkill = !G.autoSkill;
     $('btnAuto').classList.toggle('on', G.autoSkill);
+    saveDirty = true; renderPause();
+  });
+  $('pausePanel').querySelector('[data-autoequip]').addEventListener('click', () => {
+    G.autoEquip = !G.autoEquip;
+    saveDirty = true; renderPause();
+  });
+  $('pausePanel').querySelector('[data-autosell]').addEventListener('click', () => {
+    G.autoSell = (G.autoSell + 1) % 3;
     saveDirty = true; renderPause();
   });
   $('pausePanel').querySelector('[data-quit]').addEventListener('click', () => { saveGame(); toMenu(); });
@@ -3275,6 +3331,7 @@ window.addEventListener('keydown', e => {
   if (k === 'e') drinkPotion('mp');
   if (k === 'i') togglePanel('invPanel');
   if (k === 'c') togglePanel('charPanel');
+  if (k === 't') $('btnPortal').click();
   if (k === 'escape') { if (anyPanelOpen()) closePanels(); else togglePanel('pausePanel'); }
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -3296,6 +3353,16 @@ $('btnAuto').addEventListener('click', () => {
 });
 $('btnInv').addEventListener('click', () => togglePanel('invPanel'));
 $('btnChar').addEventListener('click', () => togglePanel('charPanel'));
+$('btnPortal').addEventListener('click', () => {
+  if (!G || paused || G.p.hp <= 0) return;
+  audioInit();
+  if (G.dlvl === 0) { banner('You are already in town'); return; }
+  G.portalFloor = G.dlvl;
+  spark(G.p.x, G.p.y, '#5ab0ff', 24, 220);
+  sfx.stairs();
+  enterLevel(0, false);
+  banner('Town portal — return via the waypoint');
+});
 $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
 $('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
 $('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
