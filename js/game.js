@@ -265,6 +265,22 @@ const PET_SPECIES = [
   { id: 'dragon', name: 'Dragon', icon: '🐲', price: 30000, dmgMult: 1.1, kind: 'dragon' },
 ];
 const PET_RARITIES = ['common', 'magic', 'rare', 'unique', 'exotic'];
+/* wild beasts prowl their home realms — subdue one and it joins your
+   stable, mods and all. Dragons roost only in the two highest realms. */
+const WILD_HOMES = [
+  [0],         // Verdant Fields: hound
+  [1],         // Frozen Tundra: dire wolf
+  [4],         // Molten Caldera: ember drake
+  [0, 1],      // Plains of Undeath: grave hounds & wolves
+  [1],         // Drowned Abyss: sea wolf
+  [3],         // Fungal Depths: tiger
+  [2],         // Screaming Sands: hawk
+  [2, 3],      // Crystal Hollows: hawk & tiger
+  [3],         // Blood Gardens: tiger
+  [4],         // Nullvoid: void drake
+  [2, 4, 5],   // Skyreach Isles: hawk, drake & dragon
+  [4, 5],      // Chrome Bastion: drake & DRAGON
+];
 const STARTER_PET = { warrior: 0, sorceress: 1, huntress: 2, necromancer: -1 };
 function rollPetRarity() {
   const r = Math.random();
@@ -792,6 +808,21 @@ function genLevel(dlvl, riftMode) {
     if (!(isBossFloor && room === exit))
       monsters.push(makeMonster(TIMP_TYPE, room.cx * TILE, room.cy * TILE, scaleHp, scaleDmg, scaleXp, false, false, dlvl));
   }
+  // a wild beast prowls some floors of its home realm — subdue it to tame it
+  if (!riftMode && G && !isBossFloor && Math.random() < 0.08) {
+    const sp = choice(WILD_HOMES[wIdx] || [0]);
+    const spd2 = PET_SPECIES[sp];
+    const wt = {
+      id: 'wildpet', name: 'Wild ' + spd2.name, hp: Math.round(95 * (1 + sp * 0.22)),
+      dmg: [Math.round(9 * (0.7 + spd2.dmgMult)), Math.round(15 * (0.7 + spd2.dmgMult))],
+      spd: spd2.kind === 'fly' ? 135 : 115, r: sp >= 4 ? 18 : 14, xp: 70 + sp * 25, gold: [0, 0],
+      atkCd: 1.0, range: sp >= 4 ? 230 : 34, ranged: sp >= 4, minL: 1, w: 0, color: '#e8c14d',
+    };
+    const room = rooms[ri(1, rooms.length - 1)];
+    const wm = makeMonster(wt, room.cx * TILE + 20, room.cy * TILE, scaleHp, scaleDmg, scaleXp, false, false, dlvl);
+    wm.wild = { data: makePetData(sp, rollPetRarity()) };
+    monsters.push(wm);
+  }
   let boss = null;
   if (isBossFloor) {
     let bt;
@@ -1170,6 +1201,7 @@ const ELDER_LINES = [
   'Past the void the world turns strange: isles adrift in open sky, and above them a bastion of chrome where the machines still march.',
   'Every realm hides its own wonder — fae rings, singing crystals, graves best left alone. Touch what glitters, but keep a potion ready.',
   'If you spy a little golden thief, drop everything and give chase. Its sack holds a season\'s plunder — and it knows the way out.',
+  'Wild beasts still roam the realms that birthed them. Best the creature without killing its spirit, and it may follow you home.',
 ];
 
 /* ---------------- shared town stash ---------------- */
@@ -1752,6 +1784,20 @@ function updateWonders(dt) {
 }
 
 function killMonster(m) {
+  if (m.wild) {   // subdued, not slain: the wild beast yields and is tamed
+    const p2 = G.p, data = m.wild.data;
+    p2.pets = p2.pets || [];
+    p2.pets.push(data);
+    p2.xp += Math.round(m.xp * 0.6);
+    ftext(m.x, m.y - 26, '+' + Math.round(m.xp * 0.6) + ' xp', '#b8a4e8', 12);
+    grantLevelUps();
+    spark(m.x, m.y - 10, '#7adf6a', 26, 250);
+    G.rings.push({ x: m.x, y: m.y - 8, r: 8, max: 58, color: '#7adf6a', life: 0.4 });
+    banner('🐾 The ' + PET_SPECIES[data.sp].name + ' yields — tamed! (' + data.rarity + ') It waits at the town stable.');
+    sfx.level();
+    updateHUD(); saveDirty = true;
+    return;
+  }
   burst(m.x, m.y, m.type.color, 16, 160);
   burst(m.x, m.y, '#3a3a3a', 8, 80);
   spark(m.x, m.y, m.type.color, m.boss ? 30 : 7, m.boss ? 300 : 180);
@@ -2928,7 +2974,11 @@ function update(dt) {
       continue;
     }
     if (!m.aggro) {
-      if (tdd < 265 && los(m.x, m.y, T.x, T.y)) { m.aggro = true; if (m.boss) { banner('⚔ ' + m.name + ' ⚔'); sfx.boss(); } }
+      if (tdd < 265 && los(m.x, m.y, T.x, T.y)) {
+        m.aggro = true;
+        if (m.boss) { banner('⚔ ' + m.name + ' ⚔'); sfx.boss(); }
+        else if (m.wild) { banner('🐾 A ' + m.name + ' (' + m.wild.data.rarity + ') — subdue it to tame it!'); sfx.boss(); }
+      }
       else continue;
     }
     if (p.hp <= 0) continue;
@@ -4839,8 +4889,35 @@ function drawPlayer(p) {
   ctx.restore();
 }
 
+function drawWildPet(m) {
+  if (!m.petVis) m.petVis = { isPet: true, kind: PET_SPECIES[m.wild.data.sp].id, data: m.wild.data, x: m.x, y: m.y, dir: m.dir, atkT: 0, swingT: 0 };
+  m.petVis.x = m.x; m.petVis.y = m.y; m.petVis.dir = m.dir;
+  // a feral red ring marks it as wild until subdued
+  ctx.strokeStyle = hexA('#ff5a3a', 0.5 + Math.sin(G.time * 4) * 0.2);
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.ellipse(m.x, m.y + m.r * 0.8, m.r * 1.25, m.r * 0.5, 0, 0, 7); ctx.stroke();
+  drawPet(m.petVis);
+  if (!m.aggro) {   // an alert mark hovers over the unprovoked beast
+    ctx.fillStyle = '#ff5a3a';
+    ctx.font = 'bold 13px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('❗', m.x, m.y - m.r - 18 + Math.sin(G.time * 3) * 2);
+  }
+  if (m.hitT < 4 && m.hp < m.maxHp) {   // same hp bar as any monster
+    const w = m.r * 2.2;
+    ctx.fillStyle = '#000000aa'; ctx.fillRect(m.x - w / 2 - 1, m.y - m.r * 1.9 - 1, w + 2, 5);
+    ctx.fillStyle = '#5a0f0a'; ctx.fillRect(m.x - w / 2, m.y - m.r * 1.9, w, 3);
+    ctx.fillStyle = '#c8281e';
+    ctx.fillRect(m.x - w / 2, m.y - m.r * 1.9, w * clamp(m.hp / m.maxHp, 0, 1), 3);
+  }
+  if (G.p.target === m) {
+    ctx.strokeStyle = '#ff8a5a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 5 + Math.sin(G.time * 7) * 1.5, 0, 7); ctx.stroke();
+  }
+}
+
 function drawMonster(m) {
   const t = m.type, rr = m.r;
+  if (t.id === 'wildpet') { drawWildPet(m); return; }
   const time = G.time;
   const ph = m.x * 0.13 + m.y * 0.07;
   const moving = m.aggro && m.stunT <= 0;
