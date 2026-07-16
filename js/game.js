@@ -8075,6 +8075,7 @@ function renderInv() {
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
       <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 of a kind into a finer one">⚗ Fuse${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
       <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Apply every possible fusion, cascading up the ladder">⚡ Fuse all</button>
+      <button class="smallbtn" data-reorg ${p.inv.length > 1 ? '' : 'disabled'} title="Sort the bag by item type, most valuable first">🗂 Reorg</button>
       ${p.bagSlots < BAG_MAX
         ? `<button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button>`
         : ''}
@@ -8125,6 +8126,18 @@ function renderInv() {
     p.bagSlots = Math.min(BAG_MAX, p.bagSlots + 6);
     banner('Bag expanded — ' + p.bagSlots + ' slots!');
     sfx.level(); renderInv(); updateHUD(); saveDirty = true;
+  });
+  $('invPanel').querySelector('[data-reorg]').addEventListener('click', () => {
+    if (p.inv.length < 2) return;
+    // group by type, then most valuable first within each group
+    const order = ['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet', 'charm', 'gem', 'egg', 'sigil'];
+    p.inv.sort((a, b) => {
+      const ta = order.indexOf(a.slot), tb = order.indexOf(b.slot);
+      if (ta !== tb) return (ta < 0 ? 99 : ta) - (tb < 0 ? 99 : tb);
+      return (sellPrice(b) || 0) - (sellPrice(a) || 0);
+    });
+    ftext(p.x, p.y - 30, 'bag organized', '#c9b98a', 12);
+    sfx.pickup(); renderInv(); saveDirty = true;
   });
   $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
     if (!fusableGroups(p.inv).length) return;

@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.14.0';
+const SANCTUARY_VERSION = '1.15.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.15.0', date: '2026-07-16', title: 'Tidy bags',
+    notes: [
+      'A new 🗂 Reorg button in the bag sorts everything by item type, most valuable first within each group',
+    ],
+  },
   {
     v: '1.14.0', date: '2026-07-16', title: 'Doors answer to a tap',
     notes: [
