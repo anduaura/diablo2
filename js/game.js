@@ -129,6 +129,30 @@ const CLASSES = {
 /* companion pets — the necromancer's companions are his minions */
 const PETS = { warrior: 'hound', sorceress: 'familiar', huntress: 'hawk', necromancer: null };
 
+/* class passives: two per class, up to 5 ranks each, bought with skill points */
+const SKILL_MAX = 10, PASSIVE_MAX = 5;
+const PASSIVES = {
+  warrior: [
+    { id: 'mastery', name: 'Weapon Mastery', icon: '⚔️', desc: '+4% damage per rank' },
+    { id: 'juggernaut', name: 'Juggernaut', icon: '🛡️', desc: '+5% life per rank' }],
+  sorceress: [
+    { id: 'attune', name: 'Elemental Attunement', icon: '🌀', desc: '+8% elemental damage per rank' },
+    { id: 'focus', name: 'Arcane Focus', icon: '🔮', desc: '+6% mana & regen per rank' }],
+  huntress: [
+    { id: 'precision', name: 'Precision', icon: '🎯', desc: '+2% crit chance per rank' },
+    { id: 'fleet', name: 'Fleetfoot', icon: '🌬️', desc: '+3% move & attack speed per rank' }],
+  necromancer: [
+    { id: 'gravemight', name: 'Grave Might', icon: '💀', desc: '+8% minion damage & life per rank' },
+    { id: 'occult', name: 'Occult Focus', icon: '🕯️', desc: '+6% mana & regen per rank' }],
+};
+const skillRank = (p, i) => (p.skillLvls && p.skillLvls[i]) || 1;
+const skillMult = (p, i) => 1 + 0.15 * (skillRank(p, i) - 1);
+const passiveRank = (p, id) => {
+  const defs = PASSIVES[p.cls];
+  const i = defs.findIndex(d => d.id === id);
+  return i >= 0 && p.passives ? (p.passives[i] || 0) : 0;
+};
+
 /* ---------------- monster data ---------------- */
 const MTYPES = [
   { id: 'fallen', name: 'Fallen Imp', hp: 15, dmg: [2, 4], spd: 118, r: 11, xp: 8, gold: [2, 6], atkCd: 1.0, range: 26, minL: 1, w: 3, color: '#c0392b' },
@@ -303,6 +327,7 @@ function newPlayer(clsId) {
   return {
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
+    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
@@ -349,18 +374,28 @@ function derived(p) {
   const str = p.stats.str + m.str, dex = p.stats.dex + m.dex,
     vit = p.stats.vit + m.vit, ene = p.stats.ene + m.ene;
   const prim = { str, dex, ene }[c.primary] ?? str;
+  // class passives
+  m.dmgPct += 4 * passiveRank(p, 'mastery');
+  const hpMult = 1 + 0.05 * passiveRank(p, 'juggernaut');
+  const mpMult = 1 + 0.06 * (passiveRank(p, 'focus') + passiveRank(p, 'occult'));
+  const eleMult = 1 + 0.08 * passiveRank(p, 'attune');
+  const fleet = passiveRank(p, 'fleet');
   const mult = (1 + prim * 0.012) * (1 + m.dmgPct / 100);
   return {
     str, dex, vit, ene,
-    maxHp: Math.round(40 + vit * 3.5 + p.level * 8 + m.hp),
-    maxMp: Math.round(20 + ene * 2.5 + p.level * 3 + m.mp),
+    maxHp: Math.round((40 + vit * 3.5 + p.level * 8 + m.hp) * hpMult),
+    maxMp: Math.round((20 + ene * 2.5 + p.level * 3 + m.mp) * mpMult),
     dmgLo: Math.max(1, Math.round(wdmg[0] * mult)),
     dmgHi: Math.max(2, Math.round(wdmg[1] * mult)),
     armor: Math.round(warmor + m.armor + dex * 0.25),
-    crit: Math.min(0.5, 0.05 + dex * 0.002),
+    crit: Math.min(0.6, 0.05 + dex * 0.002 + 0.02 * passiveRank(p, 'precision')),
     leech: m.leech / 100, mf: m.mf,
-    fire: m.fireDmg, cold: m.coldDmg, light: m.lightDmg, poison: m.poisonDmg,
-    hpRegen: 1 + vit * 0.03, mpRegen: 1.6 + ene * 0.06,
+    fire: Math.round(m.fireDmg * eleMult), cold: Math.round(m.coldDmg * eleMult),
+    light: Math.round(m.lightDmg * eleMult), poison: Math.round(m.poisonDmg * eleMult),
+    hpRegen: 1 + vit * 0.03,
+    mpRegen: (1.6 + ene * 0.06) * mpMult,
+    spdMult: 1 + 0.03 * fleet, atkSpd: 1 + 0.03 * fleet,
+    minionMult: 1 + 0.08 * passiveRank(p, 'gravemight'),
   };
 }
 function domEle(d) {   // dominant elemental color, or null
@@ -774,8 +809,9 @@ function grantLevelUps() {
   const p = G.p;
   while (p.xp >= xpNext(p.level)) {
     p.xp -= xpNext(p.level); p.level++; p.statPts += 5;
+    p.skillPts = (p.skillPts || 0) + 1;
     recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
-    banner('LEVEL ' + p.level + '!  +5 stat points');
+    banner('LEVEL ' + p.level + '!  +5 stats · +1 skill point');
     burst(p.x, p.y, '#ffd76a', 30, 200);
     spark(p.x, p.y, '#ffd76a', 30, 260);
     G.rings.push({ x: p.x, y: p.y, r: 8, max: 70, color: '#ffd76a', life: 0.5 });
@@ -923,7 +959,7 @@ function castSkill(i) {
   let aim = p.dir;
   const t = p.target && p.target.hp > 0 ? p.target : nearestMonster(p.x, p.y, 420);
   if (t) { aim = Math.atan2(t.y - p.y, t.x - p.x); p.dir = aim; }
-  const atk = playerAtk();
+  const atk = Math.round(playerAtk() * skillMult(p, i));
   switch (sk.id) {
     case 'cleave':
       for (const m of G.lvl.monsters) {
@@ -1086,7 +1122,7 @@ function shoot(x, y, ang, spd, dmg, from, o) {
 /* ---------------- minions & pets ---------------- */
 function makeMinion(kind) {
   const p = G.p, lvl = p.level;
-  const mult = 1 + G.d.ene * 0.008;
+  const mult = (1 + G.d.ene * 0.008) * (G.d.minionMult || 1);
   const base = kind === 'golem'
     ? { hp: 120 + lvl * 22, dmg: [8 + lvl * 2, 14 + lvl * 3], spd: 100, r: 17, range: 34, atkCd: 1.2 }
     : { hp: 30 + lvl * 8, dmg: [3 + lvl, 6 + Math.round(lvl * 1.6)], spd: 150, r: 11, range: 26, atkCd: 0.9 };
@@ -1283,6 +1319,7 @@ function saveGame() {
     const p = G.p;
     localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
+      skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
       waypoints: G.waypoints, deepest: G.deepest,
@@ -1300,6 +1337,10 @@ function startGame(clsId, save, slot) {
       level: save.level, xp: save.xp, statPts: save.statPts, gold: save.gold,
       stats: save.stats, equip: save.equip, inv: save.inv || [], potions: save.potions,
       deaths: save.deaths || 0, bagSlots: save.bagSlots || 24,
+      // pre-skill-point saves get one point per level already earned
+      skillPts: save.skillPts !== undefined ? save.skillPts : Math.max(0, save.level - 1),
+      skillLvls: save.skillLvls || [1, 1, 1, 1],
+      passives: save.passives || [0, 0],
     });
     soundOn = save.soundOn !== false;
   }
@@ -1400,7 +1441,7 @@ function update(dt) {
       if (tgt) {
         const a = Math.atan2(tgt.y - p.y, tgt.x - p.x);
         p.dir = a; p.swingT = 0.1;
-        shoot(p.x, p.y, a + rand(-0.03, 0.03), 520, Math.round(playerAtk() * 0.8), 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(d) });
+        shoot(p.x, p.y, a + rand(-0.03, 0.03), 520, Math.round(playerAtk() * 0.8 * skillMult(p, 3)), 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(d) });
         sfx.shoot();
       }
       p.strafeN--;
@@ -1441,7 +1482,7 @@ function update(dt) {
   }
 
   /* --- player movement --- */
-  const spd = 175 * (p.rageT > 0 ? 1.25 : 1) * (G.buffSpd > 0 ? 1.25 : 1) * (p.chillT > 0 ? 0.65 : 1);
+  const spd = 175 * (d.spdMult || 1) * (p.rageT > 0 ? 1.25 : 1) * (G.buffSpd > 0 ? 1.25 : 1) * (p.chillT > 0 ? 0.65 : 1);
   let kx = (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0);
   let ky = (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0);
   if (kx || ky) { p.path = null; p.moveTo = null; p.target = null; const l = Math.hypot(kx, ky); moveCircle(p, kx / l * spd * dt, ky / l * spd * dt); p.dir = Math.atan2(ky, kx); }
@@ -1467,7 +1508,7 @@ function update(dt) {
           p.path = null; p.moveTo = null;
           p.dir = Math.atan2(p.target.y - p.y, p.target.x - p.x);
           if (p.atkT <= 0) {
-            p.atkT = c.atkCd; p.swingT = 0.2;
+            p.atkT = c.atkCd / (d.atkSpd || 1); p.swingT = 0.2;
             if (c.ranged) { shoot(p.x, p.y, p.dir, 460, playerAtk(), 'p', { kind: c.projKind, r: 4, ele: true, color: domEle(G.d) }); sfx.shoot(); }
             else hitMonster(p.target, playerAtk(), { ele: true });
           }
@@ -3201,7 +3242,7 @@ function updateHUD() {
   }
 }
 function updateBadge() {
-  $('charBadge').classList.toggle('hidden', !G || G.p.statPts <= 0);
+  $('charBadge').classList.toggle('hidden', !G || (G.p.statPts <= 0 && (G.p.skillPts || 0) <= 0));
 }
 
 /* panels */
@@ -3331,11 +3372,30 @@ function renderChar() {
   const row = (key, label) =>
     `<div class="statrow"><span class="sname">${label}${c.primary === key ? ' ★' : ''}</span><span class="sval">${d[key]}</span>
      <button class="statbtn" data-stat="${key}" ${p.statPts <= 0 ? 'disabled' : ''}>+</button></div>`;
+  const skillRow = (sk, i) => {
+    const locked = p.level < (sk.lvl || 1);
+    const rank = skillRank(p, i);
+    return `<div class="statrow"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : ''}</span>
+      <span class="sval">${locked ? '—' : rank + '/' + SKILL_MAX}</span>
+      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= SKILL_MAX ? 'disabled' : ''}>+</button></div>`;
+  };
+  const passiveRow = (pa, i) => {
+    const rank = (p.passives && p.passives[i]) || 0;
+    return `<div class="statrow"><span class="sname">${pa.icon} ${pa.name} <small>· ${pa.desc}</small></span>
+      <span class="sval">${rank}/${PASSIVE_MAX}</span>
+      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || rank >= PASSIVE_MAX ? 'disabled' : ''}>+</button></div>`;
+  };
+  const spent = p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
+  const respecCost = 100 * p.level;
   $('charPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">${c.icon} ${c.name} — Level ${p.level}</div>
-    <div class="ptsleft">${p.statPts > 0 ? p.statPts + ' stat points to spend' : 'No points to spend'}</div>
+    <div class="ptsleft">${p.statPts > 0 ? p.statPts + ' stat points to spend' : 'No stat points to spend'}</div>
     ${row('str', 'Strength')}${row('dex', 'Dexterity')}${row('vit', 'Vitality')}${row('ene', 'Energy')}
+    <div class="ptsleft" style="margin-top:10px">${p.skillPts > 0 ? p.skillPts + ' skill points to spend' : 'No skill points to spend'}</div>
+    ${c.skills.map(skillRow).join('')}
+    ${PASSIVES[p.cls].map(passiveRow).join('')}
+    ${spent > 0 ? `<div class="invactions"><button class="smallbtn" data-respec ${p.gold < respecCost ? 'disabled' : ''}>♻ Respec skills (${respecCost}g)</button></div>` : ''}
     <div class="derived">
       Damage: <b>${d.dmgLo}–${d.dmgHi}</b> · Armor: <b>${d.armor}</b> · Crit: <b>${Math.round(d.crit * 100)}%</b><br>
       Life: <b>${Math.ceil(p.hp)}/${d.maxHp}</b> · Mana: <b>${Math.ceil(p.mp)}/${d.maxMp}</b><br>
@@ -3345,11 +3405,32 @@ function renderChar() {
         : ''}
       Experience: <b>${p.xp} / ${xpNext(p.level)}</b> · Deaths: <b>${p.deaths}</b>
     </div>`;
-  $('charPanel').querySelectorAll('.statbtn').forEach(b => b.addEventListener('click', () => {
+  $('charPanel').querySelectorAll('[data-stat]').forEach(b => b.addEventListener('click', () => {
     if (G.p.statPts <= 0) return;
     G.p.statPts--; G.p.stats[b.dataset.stat]++;
     recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
+  $('charPanel').querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.skill, sk = c.skills[i];
+    if (p.skillPts <= 0 || p.level < (sk.lvl || 1) || skillRank(p, i) >= SKILL_MAX) return;
+    p.skillPts--; p.skillLvls[i]++;
+    sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  }));
+  $('charPanel').querySelectorAll('[data-passive]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.passive;
+    if (p.skillPts <= 0 || (p.passives[i] || 0) >= PASSIVE_MAX) return;
+    p.skillPts--; p.passives[i] = (p.passives[i] || 0) + 1;
+    sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  }));
+  const respecBtn = $('charPanel').querySelector('[data-respec]');
+  if (respecBtn) respecBtn.addEventListener('click', () => {
+    if (p.gold < respecCost) return;
+    p.gold -= respecCost;
+    p.skillPts += p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
+    p.skillLvls = [1, 1, 1, 1]; p.passives = [0, 0];
+    banner('Skills reset — points refunded');
+    sfx.level(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  });
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
