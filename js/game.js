@@ -5930,6 +5930,65 @@ function drawWorldGate(x, y, w, unlocked, s, label) {
       ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(0, -7); ctx.lineTo(2, 0); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
+  } else if (w === 10) {  // gilded marble arch wreathed in cloud
+    ctx.fillStyle = '#dde4ee';   // marble pillars
+    for (const sd of [-1, 1]) {
+      const g2 = ctx.createLinearGradient(sd * 17 - 3, 0, sd * 17 + 3, 0);
+      g2.addColorStop(0, '#aab4c8'); g2.addColorStop(0.5, '#f6f9fd'); g2.addColorStop(1, '#aab4c8');
+      ctx.fillStyle = g2;
+      ctx.fillRect(sd * 17 - 3, -16, 6, 27);
+      ctx.fillStyle = '#ffd76a';   // gold capitals & bases
+      ctx.fillRect(sd * 17 - 4, -18, 8, 3);
+      ctx.fillRect(sd * 17 - 4, 8, 8, 3);
+    }
+    ctx.strokeStyle = '#f6f9fd'; ctx.lineWidth = 4; ctx.lineCap = 'round';   // marble arch
+    ctx.beginPath(); ctx.moveTo(-16, -16); ctx.quadraticCurveTo(0, -30, 16, -16); ctx.stroke();
+    ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 1.4;   // gilt trim
+    ctx.beginPath(); ctx.moveTo(-15, -18); ctx.quadraticCurveTo(0, -31.5, 15, -18); ctx.stroke();
+    ctx.fillStyle = '#ffd76a';   // sun-disc keystone
+    ctx.beginPath(); ctx.arc(0, -26, 3.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = hexA('#ffd76a', 0.7); ctx.lineWidth = 1;
+    for (let k = 0; k < 6; k++) {
+      const a = k / 6 * Math.PI * 2 + t * 0.5;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * 4.4, -26 + Math.sin(a) * 4.4);
+      ctx.lineTo(Math.cos(a) * 6.4, -26 + Math.sin(a) * 6.4); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffffcc';   // clouds drifting through the arch
+    const cdx = Math.sin(t * 0.8 + w) * 3;
+    ctx.beginPath(); ctx.ellipse(-11 + cdx, -8, 7, 3, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(12 - cdx, 3, 6, 2.6, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(2 + cdx, -19, 5, 2.2, 0, 0, 7); ctx.fill();
+  } else if (w === 11) {  // blast-door gantry, neon-lit
+    ctx.fillStyle = '#343b46';   // steel uprights
+    ctx.fillRect(-19, -16, 7, 27);
+    ctx.fillRect(12, -16, 7, 27);
+    ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1;
+    ctx.strokeRect(-19, -16, 7, 27); ctx.strokeRect(12, -16, 7, 27);
+    ctx.fillStyle = '#5a6472';   // rivets
+    for (const sd of [-1, 1]) for (let k = 0; k < 3; k++) {
+      ctx.beginPath(); ctx.arc(sd * 15.5, -12 + k * 10, 1.3, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#262c34';   // lintel with hazard chevrons
+    ctx.fillRect(-19, -25, 38, 9);
+    ctx.strokeStyle = '#12151a'; ctx.strokeRect(-19, -25, 38, 9);
+    ctx.fillStyle = '#e8c05a';
+    for (let k = 0; k < 5; k++) {
+      ctx.beginPath();
+      ctx.moveTo(-16 + k * 8, -17); ctx.lineTo(-12 + k * 8, -24);
+      ctx.lineTo(-9 + k * 8, -24); ctx.lineTo(-13 + k * 8, -17);
+      ctx.closePath(); ctx.fill();
+    }
+    const neon = unlocked ? 0.6 + Math.sin(t * 3) * 0.3 : 0.22;   // neon door frame
+    ctx.strokeStyle = hexA('#4affd4', neon); ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(-11, 10); ctx.lineTo(-11, -15); ctx.lineTo(11, -15); ctx.lineTo(11, 10); ctx.stroke();
+    ctx.fillStyle = Math.sin(t * 4) > 0 ? '#ff5a3a' : '#4a1a12';   // warning beacons
+    ctx.beginPath(); ctx.arc(-15.5, -20.5, 1.6, 0, 7); ctx.fill();
+    ctx.fillStyle = Math.sin(t * 4) > 0 ? '#4a1a12' : '#ff5a3a';
+    ctx.beginPath(); ctx.arc(15.5, -20.5, 1.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#5a6472'; ctx.lineWidth = 1.4;   // antenna mast
+    ctx.beginPath(); ctx.moveTo(16, -25); ctx.lineTo(18, -33); ctx.stroke();
+    ctx.fillStyle = hexA('#4affd4', 0.4 + Math.max(0, Math.sin(t * 2.2)) * 0.5);
+    ctx.beginPath(); ctx.arc(18, -34, 1.5, 0, 7); ctx.fill();
   } else {                // two floating void monoliths
     const hover = Math.sin(t * 1.4) * 1.5;
     ctx.fillStyle = '#0e0e16';
