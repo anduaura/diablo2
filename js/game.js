@@ -3350,16 +3350,7 @@ function render() {
         ctx.fillStyle = '#6a5a3a';
         for (let s = 0; s < 3; s++) ctx.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
       }
-      if (t === T_DOWN && !bossGate) {
-        const locked = G.lvl.locked;
-        ctx.fillStyle = '#050302'; ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
-        ctx.strokeStyle = locked ? '#8a2c1a' : '#d9c65a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px + 4, py + 4, TILE - 8, TILE - 8);
-        ctx.fillStyle = locked ? '#8a2c1a' : '#d9c65a';
-        ctx.font = 'bold 20px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(locked ? '✖' : '▼', px + TILE / 2, py + TILE / 2 + (locked ? 0 : Math.sin(G.time * 3) * 2));
-      }
+      if (t === T_DOWN && !bossGate) drawExit(px, py, G.lvl.locked, wrld);
     }
   }
 
@@ -4661,6 +4652,135 @@ function drawPet(pet) {
 }
 
 const SHRINE_COLORS = { combat: '#ff5a3a', armor: '#c9b98a', speed: '#7ac8ff', healing: '#ff8a7a', gem: '#4ad46a', xp: '#b8a4e8' };
+/* per-world exit doorways: every realm descends through something else */
+function drawExit(px, py, locked, wrld) {
+  const cx = px + TILE / 2, cy = py + TILE / 2, t = G.time;
+  ctx.save();
+  switch (wrld.deco) {
+    case 'flowers': {   // wooden cellar trapdoor in the meadow
+      ctx.fillStyle = '#5a3f22';
+      ctx.fillRect(px + 5, py + 6, TILE - 10, TILE - 12);
+      ctx.strokeStyle = '#3a2812'; ctx.lineWidth = 1.4;
+      for (let k = 1; k < 4; k++) {
+        const lx = px + 5 + k * (TILE - 10) / 4;
+        ctx.beginPath(); ctx.moveTo(lx, py + 6); ctx.lineTo(lx, py + TILE - 6); ctx.stroke();
+      }
+      ctx.strokeStyle = '#8a909c'; ctx.lineWidth = 2;
+      ctx.strokeRect(px + 5, py + 6, TILE - 10, TILE - 12);
+      ctx.beginPath(); ctx.arc(cx, cy + 4, 4, 0, Math.PI); ctx.stroke();   // ring handle
+      break;
+    }
+    case 'snow': {   // jagged ice crevasse
+      ctx.fillStyle = '#0a1620';
+      ctx.beginPath();
+      ctx.moveTo(px + 6, cy - 4); ctx.lineTo(cx - 4, py + 6); ctx.lineTo(cx + 8, cy - 6);
+      ctx.lineTo(px + TILE - 6, cy + 2); ctx.lineTo(cx + 4, py + TILE - 6); ctx.lineTo(cx - 8, cy + 6);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#bfe8ff'; ctx.lineWidth = 1.6; ctx.stroke();
+      break;
+    }
+    case 'lava': {   // glowing magma vent
+      ctx.fillStyle = '#0c0604';
+      ctx.beginPath(); ctx.arc(cx, cy, 15, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#ff6a2a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, 15, 0, 7); ctx.stroke();
+      ctx.strokeStyle = hexA('#ff9a4a', 0.5 + Math.sin(t * 4) * 0.3);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 7); ctx.stroke();
+      break;
+    }
+    case 'graves': {   // open grave beneath a headstone
+      ctx.fillStyle = '#0a0810';
+      ctx.fillRect(px + 8, py + 12, TILE - 16, TILE - 18);
+      ctx.strokeStyle = '#6a6472'; ctx.lineWidth = 2;
+      ctx.strokeRect(px + 8, py + 12, TILE - 16, TILE - 18);
+      ctx.fillStyle = '#6a6472';
+      ctx.fillRect(cx - 7, py + 2, 14, 8);
+      ctx.beginPath(); ctx.arc(cx, py + 2, 7, Math.PI, 0); ctx.fill();
+      break;
+    }
+    case 'shells': {   // spinning whirlpool
+      for (let k = 0; k < 3; k++) {
+        ctx.strokeStyle = hexA('#4ad4c8', 0.9 - k * 0.25);
+        ctx.lineWidth = 2.4 - k * 0.5;
+        ctx.beginPath(); ctx.arc(cx, cy, 15 - k * 5, t * (1.5 + k), t * (1.5 + k) + 4.4); ctx.stroke();
+      }
+      ctx.fillStyle = '#06181c';
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 7); ctx.fill();
+      break;
+    }
+    case 'spores': {   // hollow glowing mushroom stump
+      ctx.fillStyle = '#4a3828';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 16, 12, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#0c1512';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 10, 7, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA('#6adfb8', 0.6 + Math.sin(t * 3) * 0.25);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 10, 7, 0, 0, 7); ctx.stroke();
+      break;
+    }
+    case 'sand': {   // sinkhole funnel
+      for (let k = 0; k < 3; k++) {
+        ctx.strokeStyle = ['#6a5a36', '#54462a', '#3e341e'][k];
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(cx, cy, 16 - k * 5, 12 - k * 4, 0, 0, 7); ctx.stroke();
+      }
+      ctx.fillStyle = '#181206';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 5, 3.6, 0, 0, 7); ctx.fill();
+      break;
+    }
+    case 'crystal': {   // shard-ringed fissure
+      ctx.fillStyle = '#0a0614';
+      ctx.beginPath(); ctx.ellipse(cx, cy + 2, 12, 8, 0.3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#c28aff';
+      for (const [dx, dy, hgt] of [[-12, 2, 9], [-4, 8, 7], [6, 7, 10], [12, 0, 7], [2, -8, 8], [-8, -6, 6]]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx - 2.4, cy + dy);
+        ctx.lineTo(cx + dx, cy + dy - hgt);
+        ctx.lineTo(cx + dx + 2.4, cy + dy);
+        ctx.closePath(); ctx.fill();
+      }
+      break;
+    }
+    case 'veins': {   // pulsing fleshy maw
+      const pulse = Math.sin(t * 2.4);
+      ctx.fillStyle = '#8a2432';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 16, 12 + pulse * 1.2, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#160608';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 10, 7 + pulse, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#e8e4da';
+      for (let k = 0; k < 6; k++) {
+        const a = k / 6 * Math.PI * 2 + 0.3;
+        const tx = cx + Math.cos(a) * 10, ty = cy + Math.sin(a) * 7;
+        ctx.beginPath();
+        ctx.moveTo(tx - 1.6, ty); ctx.lineTo(tx - Math.cos(a) * 3.4, ty - Math.sin(a) * 3); ctx.lineTo(tx + 1.6, ty);
+        ctx.closePath(); ctx.fill();
+      }
+      break;
+    }
+    default: {   // void rift
+      ctx.fillStyle = '#000006';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 6 + Math.sin(t * 1.8) * 1.5, 16, 0.5, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA('#8a9aff', 0.7);
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 7 + Math.sin(t * 1.8) * 1.5, 17, 0.5, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#c8d2ff';
+      ctx.fillRect(cx + Math.sin(t * 2.6) * 4, cy - 6, 1.6, 1.6);
+      ctx.fillRect(cx - 3, cy + 5 + Math.sin(t * 3.1) * 3, 1.3, 1.3);
+      break;
+    }
+  }
+  // shared marker so the way down stays recognizable in any realm
+  ctx.fillStyle = locked ? '#ff5a3a' : '#ffd76a';
+  ctx.font = 'bold 13px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(locked ? '✖' : '▼', cx, py - 6 + Math.sin(t * 3) * 2);
+  if (locked) {
+    ctx.strokeStyle = '#ff5a3a88'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, 19, 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawShrine(s) {
   ctx.fillStyle = '#00000055';
   ctx.beginPath(); ctx.ellipse(s.x, s.y + 8, 12, 4.5, 0, 0, 7); ctx.fill();
