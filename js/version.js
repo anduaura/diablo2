@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.11.0';
+const SANCTUARY_VERSION = '1.11.1';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.11.1', date: '2026-07-16', title: 'Roomier bags',
+    notes: [
+      'Bag upgrades are far cheaper: +6 slots now starts at just 100 gold (then 200, 400, 800 up to 48 slots)',
+    ],
+  },
   {
     v: '1.11.0', date: '2026-07-16', title: 'Beastmaster & Lord of Beasts',
     notes: [

@@ -7986,7 +7986,7 @@ function renderChar() {
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
-const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
+const BAG_COSTS = [100, 200, 400, 800];   // 24 → 30 → 36 → 42 → 48 slots
 const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
 // bulk-sellable: everything of the tier (gems included) except socketed
 // gem hosts, charms (their power is live from the bag) and quest sigils
