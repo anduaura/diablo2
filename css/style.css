@@ -232,6 +232,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 }
 .islot .socks i { font-style:normal; }
 .islot.eq .socks { bottom:auto; top:2px; }
+.islot .gradepip {
+  position:absolute; top:1px; right:3px; font-size:10px; line-height:1;
+  pointer-events:none; text-shadow:0 0 4px currentColor;
+}
 .shoprow .socks { font-size:11px; letter-spacing:1px; }
 .shoprow .socks i { font-style:normal; }
 .islot.eq { aspect-ratio:auto; height:52px; font-size:24px; }
