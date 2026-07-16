@@ -2769,10 +2769,11 @@ function drinkPotion(kind) {
 }
 
 /* ---------------- level flow ---------------- */
-function enterLevel(dlvl, fresh) {
+function enterLevel(dlvl, fresh, fromBelow) {
   G.cowLevel = false; G.goldenPasture = false;
   G.rift = null;
   G.petLair = null;
+  G.stairHint = false;
   if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
@@ -2800,7 +2801,18 @@ function enterLevel(dlvl, fresh) {
       });
   }
   const p = G.p;
-  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  if (fromBelow && dlvl > 0) {
+    // climbing up: emerge beside the floor's own way down, not its entrance
+    const e = G.lvl.exitTile;
+    let sx = e.x, sy = e.y + 1;
+    if (!walkable(sx, sy)) {
+      for (const [dx, dy] of [[0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1]])
+        if (walkable(e.x + dx, e.y + dy)) { sx = e.x + dx; sy = e.y + dy; break; }
+    }
+    p.x = sx * TILE + TILE / 2; p.y = sy * TILE + TILE / 2;
+  } else {
+    p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  }
   p.target = null; p.path = null; p.moveTo = null;
   p.strafeN = 0;
   for (const gp of G.lvl.goldPiles || []) {
@@ -3175,34 +3187,12 @@ function update(dt) {
       togglePanel('wpPanel');
     }
   } else G.onWp = false;
-  const onUpStairs = tileAt(ptx, pty) === T_UP && G.dlvl > 0 && !G.rift && !G.cowLevel && !G.petLair;
-  if (tileAt(ptx, pty) === T_DOWN) {
-    if (G.lvl.locked) {
-      if (!G.lockMsgT || G.time - G.lockMsgT > 3) { banner('The stairs are sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!'); G.lockMsgT = G.time; }
-      p.moveTo = null; p.path = null;
-      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
-    } else if (G.stairsHold) {
-      // chose to stay: ease the hero off the stairs
-      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
-    } else if (G.drops.length > 0) {
-      G.stairsDir = 'down';
-      togglePanel('stairsPanel');
-    } else {
-      enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
-      return;
-    }
-  } else if (onUpStairs) {
-    // stairs go both ways: climb back toward the surface
-    if (G.stairsHold) {
-      moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
-    } else if (G.drops.length > 0) {
-      G.stairsDir = 'up';
-      togglePanel('stairsPanel');
-    } else {
-      enterLevel(G.dlvl - 1, false);
-      return;
-    }
-  } else G.stairsHold = false;
+  // doors only answer a tap now — standing on one just earns a gentle hint
+  const tHere = tileAt(ptx, pty);
+  if ((tHere === T_DOWN || tHere === T_UP) && !G.stairHint) {
+    G.stairHint = true;
+    ftext(p.x, p.y - 42, 'tap the door to use it', '#c9b98a', 12);
+  }
 
   /* --- drop ceremony: fanfare when high-rarity loot hits the ground --- */
   for (const dr of G.drops) {
@@ -7577,7 +7567,6 @@ function renderStairs() {
       <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : up ? '⬆ Climb anyway' : '⬇ Descend anyway'}</button>
     </div>`;
   const stay = () => {
-    G.stairsHold = true;
     G.p.moveTo = null; G.p.path = null;
     closePanels();
   };
@@ -7585,7 +7574,8 @@ function renderStairs() {
   $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
   $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
     closePanels();
-    enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : up ? G.dlvl - 1 : G.dlvl + 1, false);
+    const leavingNow = G.cowLevel || G.rift || G.petLair;
+    enterLevel(leavingNow ? 0 : up ? G.dlvl - 1 : G.dlvl + 1, false, up && !leavingNow);
   });
 }
 
@@ -8581,6 +8571,29 @@ cvs.addEventListener('pointerup', e => {
           sfx.hurt();
         }
       } else setMoveTarget(gt.x, gt.y + 44);
+      return;
+    }
+  }
+  // a door? stairs answer only to a tap — never to walking over them
+  {
+    const tx2 = Math.floor(w.x / TILE), ty2 = Math.floor(w.y / TILE);
+    const t2 = tileAt(tx2, ty2);
+    const upOk = t2 === T_UP && G.dlvl > 0 && !G.rift && !G.cowLevel && !G.petLair;
+    if (t2 === T_DOWN || upOk) {
+      const cx2 = tx2 * TILE + TILE / 2, cy2 = ty2 * TILE + TILE / 2;
+      if (dist(p.x, p.y, cx2, cy2) < 95) {
+        if (t2 === T_DOWN && G.lvl.locked) {
+          banner('The door is sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!');
+          sfx.hurt();
+        } else if (G.drops.length > 0) {
+          G.stairsDir = t2 === T_UP ? 'up' : 'down';
+          togglePanel('stairsPanel');
+        } else if (t2 === T_UP) {
+          enterLevel(G.dlvl - 1, false, true);
+        } else {
+          enterLevel(G.cowLevel || G.rift || G.petLair ? 0 : G.dlvl + 1, false);
+        }
+      } else setMoveTarget(cx2, cy2 + 26);
       return;
     }
   }
