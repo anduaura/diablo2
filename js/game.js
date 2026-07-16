@@ -21,7 +21,7 @@ const thash = (x, y) => {
 /* ---------------- constants ---------------- */
 const TILE = 44, MAP_W = 52, MAP_H = 52;
 const T_WALL = 0, T_FLOOR = 1, T_UP = 2, T_DOWN = 3, T_WP = 4;
-const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40];
+const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 const AUTO_TARGET_R = 180;   // idle heroes lock onto monsters inside this radius
 const SAVE_KEY = 'sanctuary_save_v1';
 
@@ -42,8 +42,19 @@ const WORLDS = [
     pal: { f: ['#38323e', '#3c3642', '#342e3a'], w: '#2a2430', wt: '#38323e', m: '#120e16', acc: '#9adc8a' } },
   { name: 'Drowned Abyss', deco: 'shells', flame: '#4ad4c8',
     pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
+  { name: 'Fungal Depths', deco: 'spores', flame: '#6adfb8',
+    pal: { f: ['#243430', '#283a34', '#20302c'], w: '#1a2824', wt: '#28403a', m: '#0c1512', acc: '#6adfb8' } },
+  { name: 'Screaming Sands', deco: 'sand', flame: '#ffcf6a',
+    pal: { f: ['#5a4c30', '#625434', '#52442c'], w: '#44381e', wt: '#5a4c2a', m: '#241c0e', acc: '#e8c05a' } },
+  { name: 'Crystal Hollows', deco: 'crystal', flame: '#c28aff',
+    pal: { f: ['#2e2440', '#332948', '#2a203a'], w: '#241c34', wt: '#342a48', m: '#100c1a', acc: '#c28aff' } },
+  { name: 'The Blood Gardens', deco: 'veins', flame: '#ff5a6a',
+    pal: { f: ['#3c1e22', '#422226', '#361a1e'], w: '#2c1418', wt: '#3e2026', m: '#160a0c', acc: '#ff5a6a' } },
+  { name: 'Nullvoid', deco: 'void', flame: '#8a9aff',
+    pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
 ];
-const worldOf = dlvl => dlvl <= 0 ? 0 : Math.floor((dlvl - 1) / 5) % WORLDS.length;
+// worlds no longer cycle: past the last arc the deepest world holds forever
+const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 5), WORLDS.length - 1);
 /* world sections: world w spans floors 5w+1..5w+5; slaying its floor-5w+5
    boss conquers it and unlocks the next world's gate in town */
 const WORLD_START = w => w * 5 + 1;
@@ -130,7 +141,7 @@ function bellNote(freq, t, vol) {
     o.start(t); o.stop(t + 3.2);
   } catch (e) { }
 }
-const MUSIC_OFFS = [0, -2, -5, 3, -7];   // key offset per world (semitones)
+const MUSIC_OFFS = [0, -2, -5, 3, -7, -4, 1, 6, -9, -12];   // key offset per world (semitones)
 const PENTATONIC = [0, 3, 5, 7, 10, 12, 15];
 function musicTick() {
   if (!AC || AC.state !== 'running') return;
@@ -831,7 +842,6 @@ function genTown() {
     torches.push({ x: (R.x - 1) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
     torches.push({ x: (R.x + R.w) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
   }
-  for (let x = R.x + 2; x < R.x + R.w - 1; x += 5) torches.push({ x: x * TILE + TILE / 2, y: (R.y + R.h) * TILE + TILE * 0.9 });
   const ilvl = Math.max(1, ((G && G.deepest) || 1) + (G && G.ng || 0) * 8);
   const shopStock = [];
   for (let i = 0; i < 4; i++) shopStock.push(makeItem(choice(SLOTS), ilvl, Math.random() < 0.15 ? 'rare' : 'magic'));
@@ -845,14 +855,17 @@ function genTown() {
     vendor: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
     stash: { x: (R.x + 9) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
     stable: { x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
-    obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
-    // five world gates along the north wall, one per realm
+    obelisk: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
+    // world gates: first five realms along the north wall, the five
+    // realms beyond the Abyss along the south wall
     gates: Array.from({ length: WORLDS.length }, (_, i) => ({
-      w: i, x: (R.x + 2.5 + i * 3.5) * TILE, y: R.y * TILE + TILE * 0.9,
+      w: i,
+      x: (R.x + 2.5 + (i % 5) * 3.5) * TILE,
+      y: (i < 5 ? R.y : R.y + R.h) * TILE + TILE * 0.9,
     })),
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     npcs: [
-      { id: 'elder', x: (R.x + 15) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
+      { id: 'elder', x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
       { id: 'healer', x: (R.x + 2) * TILE + TILE / 2, y: (R.y + 4) * TILE + TILE / 2 },
     ],
     shopStock,
@@ -2613,6 +2626,121 @@ function drawWallTile(deco, px, py, tx, ty, h, pal) {
       ctx.quadraticCurveTo(kx + 5, py + 24, kx - 2 + Math.sin(G.time * 1.6 + tx) * 2.5, py + TILE + 8);
       ctx.stroke();
     }
+  } else if (deco === 'spores') {
+    /* ---- damp stone shelved with fungus, dusted in glowing spores ---- */
+    ctx.fillStyle = '#1a2824';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#0c1512'; ctx.lineWidth = 1.6;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 13 + 9;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // shelf fungi jutting from the face
+    for (let k = 0; k < 2; k++) {
+      const hh = thash(tx * 7 + k * 3, ty * 9 + k);
+      if (hh < 0.4) continue;
+      const fx = px + 6 + hh * 30, fy = py + 8 + thash(tx + k, ty * 3) * 28;
+      ctx.fillStyle = ['#6a5a44', '#7a6a50'][k % 2];
+      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#4a3e30';
+      ctx.fillRect(fx - 7, fy - 0.5, 14, 1.6);
+    }
+    // drifting spore glow
+    if (h > 0.55) {
+      ctx.fillStyle = hexA('#6adfb8', 0.35 + Math.sin(G.time * 1.8 + tx * 2 + ty) * 0.2);
+      ctx.beginPath(); ctx.arc(px + 8 + h2 * 28, py + 8 + h3 * 28, 1.8, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 30 - h3 * 20, py + 30 - h2 * 20, 1.3, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'sand') {
+    /* ---- layered sandstone strata, wind-carved ---- */
+    const bands = ['#5c4c2c', '#6a5834', '#52442a', '#74603a'];
+    for (let b = 0; b < 5; b++) {
+      ctx.fillStyle = bands[(b + tx + ty) % 4];
+      const by = py + b * 9;
+      ctx.beginPath();
+      ctx.moveTo(px, by + Math.sin(tx * 2 + b) * 2);
+      ctx.quadraticCurveTo(px + TILE / 2, by + 3 + Math.sin(ty + b) * 2, px + TILE, by + Math.sin(tx * 2 + b + 1) * 2);
+      ctx.lineTo(px + TILE, by + 12); ctx.lineTo(px, by + 12);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#00000033';
+    ctx.fillRect(px, py + TILE - 5, TILE, 5);
+    ctx.fillStyle = '#ffe9b022';
+    ctx.fillRect(px, py, TILE, 4);
+    if (h > 0.9) {   // wind-carved hollow
+      ctx.fillStyle = '#3a2e18';
+      ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * 0.5, 6, 9, 0, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'crystal') {
+    /* ---- amethyst rock studded with glowing shards ---- */
+    ctx.fillStyle = '#241c34';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#100c1a'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px + TILE * h3, py); ctx.lineTo(px + TILE * h2, py + TILE); ctx.stroke();
+    // protruding crystals catch the light
+    const glow = 0.5 + Math.sin(G.time * 2 + tx * 3 + ty * 2) * 0.25;
+    for (let k = 0; k < 2; k++) {
+      const hh = thash(tx * 5 + k * 11, ty * 7 + k);
+      if (hh < 0.35) continue;
+      const cxp = px + 8 + hh * 28, cyp = py + 10 + thash(tx + k * 3, ty) * 24;
+      ctx.fillStyle = hexA('#c28aff', k ? glow * 0.7 : glow);
+      ctx.beginPath();
+      ctx.moveTo(cxp, cyp - 9); ctx.lineTo(cxp + 4, cyp + 2); ctx.lineTo(cxp, cyp + 5); ctx.lineTo(cxp - 4, cyp + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f0e2ff';
+      ctx.fillRect(cxp - 0.8, cyp - 6, 1.6, 6);
+    }
+  } else if (deco === 'veins') {
+    /* ---- fleshy overgrowth crawling with dark veins ---- */
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#3e2026'); g.addColorStop(1, '#2c1418');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#1a0a0e'; ctx.lineWidth = 2.4;
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 3 + k * 5, ty * 7 + k);
+      ctx.beginPath();
+      ctx.moveTo(px + hh * TILE, py);
+      ctx.bezierCurveTo(px + hh * 30, py + 14, px + (1 - hh) * 30, py + 28, px + (1 - hh) * TILE, py + TILE);
+      ctx.stroke();
+    }
+    // a throbbing vein highlight
+    const pulse = 0.3 + Math.max(0, Math.sin(G.time * 2.6 + tx + ty * 2)) * 0.35;
+    ctx.strokeStyle = hexA('#ff5a6a', pulse); ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(px + h2 * TILE, py);
+    ctx.quadraticCurveTo(px + TILE / 2, py + TILE / 2, px + h3 * TILE, py + TILE);
+    ctx.stroke();
+    if (h > 0.88) {   // a blinking growth
+      ctx.fillStyle = hexA('#ff8a9a', pulse + 0.2);
+      ctx.beginPath(); ctx.arc(px + 10 + h2 * 24, py + 10 + h3 * 24, 3.4, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'void') {
+    /* ---- null slabs: black monoliths etched with drifting runes ---- */
+    ctx.fillStyle = '#0e0e16';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = hexA('#8a9aff', 0.28);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 3.5, py + 3.5, TILE - 7, TILE - 7);
+    // faint starfield inside the slab
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 7 + k * 13, ty * 11 + k);
+      ctx.fillStyle = hexA('#c8d2ff', 0.2 + hh * 0.5);
+      ctx.fillRect(px + 5 + hh * 34, py + 5 + thash(tx + k, ty * 5) * 34, 1.4, 1.4);
+    }
+    // a slow rune glyph fading in and out
+    if (h > 0.72) {
+      const a = 0.25 + Math.max(0, Math.sin(G.time * 1.2 + h * 20)) * 0.45;
+      ctx.strokeStyle = hexA('#8a9aff', a); ctx.lineWidth = 1.4;
+      const rx = px + TILE / 2, ry = py + TILE / 2;
+      ctx.beginPath();
+      ctx.moveTo(rx - 5, ry + 6); ctx.lineTo(rx, ry - 7); ctx.lineTo(rx + 5, ry + 6);
+      ctx.moveTo(rx - 3, ry + 1); ctx.lineTo(rx + 3, ry + 1);
+      ctx.stroke();
+    }
   } else {
     /* ---- classic brick (fallback) ---- */
     ctx.fillStyle = pal.w;
@@ -2776,6 +2904,116 @@ function drawFloorTile(deco, px, py, tx, ty, h, pal) {
       ctx.strokeStyle = '#bfe8ff66'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(px + h * 40, py + ((G.time * 6 + h2 * 44) % 44), 2, 0, 7); ctx.stroke();
     }
+  } else if (deco === 'spores') {
+    /* ---- mycelium beds threaded with glowing filaments ---- */
+    ctx.fillStyle = ['#243430', '#283a34', '#20302c'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // pale mycelium threads
+    ctx.strokeStyle = '#8aa89a44'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(px + h2 * TILE, py);
+    ctx.quadraticCurveTo(px + TILE / 2, py + TILE * h3, px + h3 * TILE, py + TILE);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px, py + h3 * TILE);
+    ctx.quadraticCurveTo(px + TILE * h2, py + TILE / 2, px + TILE, py + h2 * TILE);
+    ctx.stroke();
+    if (h > 0.78) {   // glowing mushroom cluster
+      const glow = 0.5 + Math.sin(G.time * 2.2 + tx + ty) * 0.2;
+      for (let k = 0; k < 3; k++) {
+        const mx = px + 14 + k * 7, my = py + 24 + (k % 2) * 5;
+        ctx.strokeStyle = '#3a5248'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx, my - 6 - k); ctx.stroke();
+        ctx.fillStyle = hexA('#6adfb8', glow);
+        ctx.beginPath(); ctx.ellipse(mx, my - 7 - k, 3.5 - k * 0.5, 2.4, 0, Math.PI, 0); ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#00000028';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h3, py + TILE * h2, 9, 5, h, 0, 7); ctx.fill();
+  } else if (deco === 'sand') {
+    /* ---- rolling dune sand, sun-bleached bones beneath ---- */
+    ctx.fillStyle = ['#5a4c30', '#625434', '#52442c'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#453a22'; ctx.lineWidth = 1.4;
+    for (let k = 0; k < 3; k++) {   // diagonal wind ripples
+      const off = k * 14 + h * 8;
+      ctx.beginPath();
+      ctx.moveTo(px + off - 8, py + TILE);
+      ctx.quadraticCurveTo(px + off + 6, py + TILE / 2, px + off - 2, py);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#74603a55';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 11, 5, 0.6, 0, 7); ctx.fill();
+    if (h < 0.05) {   // bleached bones surfacing
+      ctx.strokeStyle = '#c8bda4'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(px + 14, py + 24); ctx.lineTo(px + 26, py + 20); ctx.stroke();
+      ctx.fillStyle = '#c8bda4';
+      ctx.beginPath(); ctx.arc(px + 13, py + 24.5, 2.4, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'crystal') {
+    /* ---- polished cavern floor flecked with crystal ---- */
+    ctx.fillStyle = ['#2e2440', '#332948', '#2a203a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#100c1a66'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h3); ctx.stroke();
+    if (h > 0.8) {   // embedded shard cluster
+      const glow = 0.4 + Math.sin(G.time * 2 + tx * 2 + ty * 3) * 0.2;
+      ctx.fillStyle = hexA('#c28aff', glow);
+      const cxp = px + TILE / 2, cyp = py + TILE / 2;
+      ctx.beginPath();
+      ctx.moveTo(cxp, cyp - 6); ctx.lineTo(cxp + 3.4, cyp + 2); ctx.lineTo(cxp - 3.4, cyp + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cxp + 6, cyp - 2); ctx.lineTo(cxp + 8.5, cyp + 4); ctx.lineTo(cxp + 3.5, cyp + 4);
+      ctx.closePath(); ctx.fill();
+    }
+    if (h3 > 0.9) { ctx.fillStyle = '#f0e2ff88'; ctx.fillRect(px + h * 40, py + h2 * 40, 1.6, 1.6); }
+  } else if (deco === 'veins') {
+    /* ---- garden of flesh: tendrils weaving through dark loam ---- */
+    ctx.fillStyle = ['#3c1e22', '#422226', '#361a1e'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#26090e'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py + h2 * TILE);
+    ctx.bezierCurveTo(px + 14, py + h3 * 30, px + 30, py + (1 - h2) * 30, px + TILE, py + h3 * TILE);
+    ctx.stroke();
+    if (h > 0.74) {   // pulsing tendril
+      const pulse = 0.3 + Math.max(0, Math.sin(G.time * 2.6 + tx * 2 + ty)) * 0.35;
+      ctx.strokeStyle = hexA('#ff5a6a', pulse); ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(px + h3 * TILE, py);
+      ctx.quadraticCurveTo(px + TILE / 2, py + TILE * h2, px + h2 * TILE, py + TILE);
+      ctx.stroke();
+    }
+    if (h < 0.05) {   // bulbous seed pod
+      ctx.fillStyle = '#5a2830';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 7, 5.5, h * 9, 0, 7); ctx.fill();
+      ctx.fillStyle = hexA('#ff8a9a', 0.4 + Math.max(0, Math.sin(G.time * 2 + tx)) * 0.3);
+      ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 2.2, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'void') {
+    /* ---- void glass: a floor of near-nothing and cold stars ---- */
+    ctx.fillStyle = ['#14141e', '#181824', '#10101a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#8a9aff18'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    for (let k = 0; k < 3; k++) {   // starlight beneath the glass
+      const hh = thash(tx * 9 + k * 5, ty * 13 + k);
+      ctx.fillStyle = hexA('#c8d2ff', 0.15 + hh * 0.55);
+      ctx.fillRect(px + 3 + hh * 38, py + 3 + thash(tx + k * 2, ty * 7) * 38, 1.3, 1.3);
+    }
+    if (h > 0.86) {   // a drifting violet mote
+      const my = (G.time * 5 + h * 44) % 44;
+      ctx.fillStyle = hexA('#8a9aff', 0.6);
+      ctx.beginPath(); ctx.arc(px + h2 * 40, py + 44 - my, 1.6, 0, 7); ctx.fill();
+    }
+    if (h < 0.03) {   // hairline fracture in reality
+      ctx.strokeStyle = hexA('#8a9aff', 0.5); ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 8, py + 30);
+      ctx.lineTo(px + 18, py + 22); ctx.lineTo(px + 24, py + 26); ctx.lineTo(px + 36, py + 14);
+      ctx.stroke();
+    }
   } else {
     /* ---- classic flagstone (fallback) ---- */
     ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
@@ -2886,6 +3124,49 @@ function render() {
             ctx.fillStyle = '#b8ab8f';
             ctx.fillRect(cx3 - 6, cy3 - 2, 9, 2.4);
             ctx.fillRect(cx3 - 1, cy3 + 1, 6, 2);
+          }
+        } else if (wrld.deco === 'spores') {   // glowing mushrooms
+          ctx.strokeStyle = '#3a5248'; ctx.lineWidth = 1.6;
+          ctx.beginPath(); ctx.moveTo(cx3, cy3 + 3); ctx.lineTo(cx3, cy3 - 4); ctx.stroke();
+          ctx.fillStyle = '#6adfb8';
+          ctx.beginPath(); ctx.ellipse(cx3, cy3 - 5, 4.5, 2.6, 0, Math.PI, 0); ctx.fill();
+          if (h > 0.95) {
+            ctx.fillStyle = '#6adfb866';
+            ctx.beginPath(); ctx.arc(cx3 + 7, cy3 - 8 + Math.sin(G.time * 2 + cx3) * 2, 1.6, 0, 7); ctx.fill();
+          }
+        } else if (wrld.deco === 'sand') {   // dunes & sun-bleached skulls
+          ctx.strokeStyle = '#6a5a36'; ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.moveTo(cx3 - 9, cy3 + 2); ctx.quadraticCurveTo(cx3, cy3 - 3 + h * 4, cx3 + 9, cy3 + 2); ctx.stroke();
+          if (h > 0.96) {
+            ctx.fillStyle = '#d8ccb0';
+            ctx.beginPath(); ctx.arc(cx3, cy3 - 3, 3.2, 0, 7); ctx.fill();
+            ctx.fillStyle = '#241c0e';
+            ctx.fillRect(cx3 - 1.8, cy3 - 4, 1.3, 1.3); ctx.fillRect(cx3 + 0.6, cy3 - 4, 1.3, 1.3);
+          }
+        } else if (wrld.deco === 'crystal') {   // amethyst shards
+          ctx.fillStyle = '#c28aff';
+          ctx.beginPath();
+          ctx.moveTo(cx3 - 3, cy3 + 3); ctx.lineTo(cx3 - 1, cy3 - 7 - h * 4); ctx.lineTo(cx3 + 1.5, cy3 + 3);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#e8d4ff';
+          ctx.beginPath();
+          ctx.moveTo(cx3 + 2, cy3 + 3); ctx.lineTo(cx3 + 3.5, cy3 - 3); ctx.lineTo(cx3 + 5, cy3 + 3);
+          ctx.closePath(); ctx.fill();
+        } else if (wrld.deco === 'veins') {   // pulsing flesh-veins
+          ctx.strokeStyle = hexA('#ff5a6a', 0.35 + Math.sin(G.time * 2.2 + cx3 * 0.05) * 0.15);
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(cx3 - 10, cy3 - 4);
+          ctx.quadraticCurveTo(cx3 - 2, cy3 + 2 + h * 4, cx3 + 4, cy3 - 2);
+          ctx.quadraticCurveTo(cx3 + 8, cy3 - 5, cx3 + 11, cy3 + 3);
+          ctx.stroke();
+        } else if (wrld.deco === 'void') {   // starlike motes in the dark
+          ctx.fillStyle = hexA('#8a9aff', 0.5 + Math.sin(G.time * 3 + h * 30) * 0.3);
+          ctx.fillRect(cx3 - 1 + h * 10, cy3 - 6 + h * 8, 1.8, 1.8);
+          ctx.fillRect(cx3 - 8 + h * 4, cy3 + 2, 1.3, 1.3);
+          if (h > 0.97) {
+            ctx.strokeStyle = '#8a9aff44'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(cx3, cy3 - 2, 5 + Math.sin(G.time * 1.6) * 1.5, 0, 7); ctx.stroke();
           }
         } else {   // shells & bubbles
           ctx.strokeStyle = '#7ac8bc'; ctx.lineWidth = 1.4;
@@ -4415,7 +4696,7 @@ function drawWorldGate(x, y, w, unlocked, s, label) {
     ctx.fillRect(-3, -19.5, 6, 3);
     ctx.fillStyle = '#181018';
     ctx.fillRect(-3.2, -25, 2.4, 2.6); ctx.fillRect(0.8, -25, 2.4, 2.6);
-  } else {                // coral arch, bubbling
+  } else if (w === 4) {   // coral arch, bubbling
     ctx.strokeStyle = '#3f7a70'; ctx.lineWidth = 5; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-15, -16, 0, -25); ctx.quadraticCurveTo(15, -16, 14, 11); ctx.stroke();
     ctx.fillStyle = '#e87a6a';
@@ -4428,6 +4709,64 @@ function drawWorldGate(x, y, w, unlocked, s, label) {
       const by = 6 - ((t * 7 + w) % 26);
       ctx.beginPath(); ctx.arc(5, by, 2, 0, 7); ctx.stroke();
     }
+  } else if (w === 5) {   // one colossal mushroom, hollowed
+    ctx.fillStyle = '#7a6a50';
+    ctx.fillRect(-15, -14, 5, 25);
+    ctx.fillRect(10, -14, 5, 25);
+    ctx.fillStyle = '#6adfb8';
+    ctx.beginPath();
+    ctx.moveTo(-20, -13);
+    ctx.quadraticCurveTo(0, -34, 20, -13);
+    ctx.quadraticCurveTo(0, -20, -20, -13);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e8f4ee';
+    for (const [sx, sy] of [[-10, -22], [2, -26], [12, -20]]) {
+      ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 7); ctx.fill();
+    }
+  } else if (w === 6) {   // wind-carved sandstone arch
+    const bands = ['#74603a', '#5c4c2c', '#6a5834'];
+    for (let b = 0; b < 3; b++) {
+      ctx.strokeStyle = bands[b]; ctx.lineWidth = 6 - b * 1.4; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-15 + b, 11);
+      ctx.quadraticCurveTo(-16 + b, -14, 0, -24 + b * 2);
+      ctx.quadraticCurveTo(16 - b, -14, 15 - b, 11);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#3a2e18';
+    ctx.beginPath(); ctx.ellipse(-13, -4, 2, 3.4, 0.3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(12, -8, 1.8, 3, -0.3, 0, 7); ctx.fill();
+  } else if (w === 7) {   // jagged crystal arch
+    const glow = unlocked ? 0.85 : 0.4;
+    ctx.fillStyle = hexA('#c28aff', glow);
+    for (const [bx, by, tx2, ty2, s2] of [[-16, 11, -12, -12, 5], [16, 11, 12, -12, 5], [-12, -12, -4, -22, 4], [12, -12, 4, -22, 4], [-4, -22, 0, -27, 3], [4, -22, 0, -27, 3]]) {
+      ctx.beginPath();
+      ctx.moveTo(bx - s2, by); ctx.lineTo(tx2, ty2); ctx.lineTo(bx + s2, by);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#f0e2ff';
+    ctx.fillRect(-1, -26, 2, 5); ctx.fillRect(-13, -10, 1.6, 6); ctx.fillRect(11.5, -10, 1.6, 6);
+  } else if (w === 8) {   // arch of thorned flesh
+    ctx.strokeStyle = '#5a2830'; ctx.lineWidth = 5.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-16, -14, 0, -24); ctx.quadraticCurveTo(16, -14, 14, 11); ctx.stroke();
+    ctx.strokeStyle = hexA('#ff5a6a', 0.4 + Math.max(0, Math.sin(t * 2.6)) * 0.4);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-13, 8); ctx.quadraticCurveTo(-14, -12, 0, -21.5); ctx.quadraticCurveTo(14, -12, 13, 8); ctx.stroke();
+    ctx.fillStyle = '#3c1418';
+    for (const [thx, thy, a] of [[-14, -4, -0.6], [-10, -15, -0.3], [10, -15, 0.3], [14, -4, 0.6]]) {
+      ctx.save(); ctx.translate(thx, thy); ctx.rotate(a);
+      ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(0, -7); ctx.lineTo(2, 0); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  } else {                // two floating void monoliths
+    const hover = Math.sin(t * 1.4) * 1.5;
+    ctx.fillStyle = '#0e0e16';
+    ctx.strokeStyle = hexA('#8a9aff', unlocked ? 0.8 : 0.35); ctx.lineWidth = 1.2;
+    ctx.fillRect(-17, -16 + hover, 6, 24); ctx.strokeRect(-17, -16 + hover, 6, 24);
+    ctx.fillRect(11, -16 - hover, 6, 24); ctx.strokeRect(11, -16 - hover, 6, 24);
+    ctx.fillRect(-6, -28 + hover * 0.5, 12, 5); ctx.strokeRect(-6, -28 + hover * 0.5, 12, 5);
+    ctx.fillStyle = hexA('#c8d2ff', 0.6);
+    ctx.fillRect(-14.5, -8 + hover, 1.4, 1.4); ctx.fillRect(13.5, -2 - hover, 1.4, 1.4);
   }
   // chains & lock over sealed gates
   if (!unlocked) {
