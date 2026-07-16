@@ -199,13 +199,21 @@ const GEMS = {
   emerald: { name: 'Emerald', icon: '🟢', color: '#4ad46a', stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s` },
   skull: { name: 'Skull', icon: '💀', color: '#cfc9b8', stat: 'leech', txt: v => `${v}% Life Steal` },
 };
-function makeGem(ilvl) {
+function makeGem(ilvl, forceRarity) {
   const k = choice(Object.keys(GEMS));
   const q = ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2;
-  const v = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
+  const rarity = forceRarity || (() => {
+    const r = Math.random();
+    return r < 0.03 ? 'exotic' : r < 0.1 ? 'unique' : r < 0.25 ? 'rare' : r < 0.55 ? 'magic' : 'common';
+  })();
+  const rIdx = ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(rarity);
+  const base = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
+  let v = Math.max(1, Math.round(base * [1, 1.4, 1.9, 2.6, 3.5][rIdx]));
+  if (k === 'skull') v = Math.min(v, 15);   // life steal stays sane
   return {
-    slot: 'gem', g: k, v, icon: GEMS[k].icon, rarity: 'magic', mods: {},
-    name: ['Chipped ', '', 'Flawless '][q] + GEMS[k].name, base: 'gem', lvl: ilvl,
+    slot: 'gem', g: k, v, icon: GEMS[k].icon, rarity, mods: {},
+    name: ['Chipped ', '', 'Flawless '][q] + ['', '', 'Radiant ', 'Pristine ', 'Celestial '][rIdx] + GEMS[k].name,
+    base: 'gem', lvl: ilvl,
   };
 }
 /* two full sockets with matching gems awaken a runeword (either order) */
@@ -619,6 +627,7 @@ function makeItem(slot, ilvl, forceRarity) {
     };
     if (slot === 'weapon') it.dmg = [2 + ilvl * 2, 5 + ilvl * 3];
     else if (slot !== 'ring' && slot !== 'amulet') it.armor = 3 + Math.round(ilvl * 2.5);
+    if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
     return it;
   }
   if (rarity === 'unique') {
@@ -627,7 +636,10 @@ function makeItem(slot, ilvl, forceRarity) {
       const u = choice(pool);
       const it = { slot, base: u.name, name: u.name, icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot], rarity: 'unique', lvl: ilvl, mods: { ...u.mods } };
       if (slot === 'weapon') { it.dmg = [3 + ilvl * 2, 6 + ilvl * 3]; it.sockets = 1; it.gems = []; }
-      else if (slot !== 'ring' && slot !== 'amulet') it.armor = 4 + ilvl * 3;
+      else if (slot !== 'ring' && slot !== 'amulet') {
+        it.armor = 4 + ilvl * 3;
+        if (Math.random() < 0.2) { it.sockets = 1; it.gems = []; }
+      }
       return it;
     }
     rarity = 'rare';
@@ -3762,7 +3774,7 @@ function showItemPopup(it, ref, equipped) {
     return `<div class="setinfo"><b style="color:#4adf6a">◈ ${def.name}</b> · ${worn}/${Object.keys(def.pieces).length} worn<br>${lines.join('<br>')}</div>`;
   })() : '';
   pop.innerHTML = `
-    <div class="iname rc-${it.rarity}" ${it.g ? `style="color:${GEMS[it.g].color}"` : ''}>${it.icon} ${it.name}</div>
+    <div class="iname rc-${it.rarity}">${it.icon} ${it.name}</div>
     <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
     ${rwHtml}
     ${setHtml}
