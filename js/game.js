@@ -131,12 +131,12 @@ const PET_SPECIES = [
   { id: 'hound', name: 'Hound', icon: '🐕', price: 300, dmgMult: 0.3, kind: 'melee' },
   { id: 'wolf', name: 'Dire Wolf', icon: '🐺', price: 1200, dmgMult: 0.45, kind: 'melee' },
   { id: 'hawk', name: 'Hawk', icon: '🦅', price: 2500, dmgMult: 0.55, kind: 'fly' },
-  { id: 'familiar', name: 'Arcane Familiar', icon: '🔮', price: 5000, dmgMult: 0.65, kind: 'ranged' },
+  { id: 'tiger', name: 'Tiger', icon: '🐯', price: 5000, dmgMult: 0.65, kind: 'melee' },
   { id: 'drake', name: 'Ember Drake', icon: '🐉', price: 12000, dmgMult: 0.8, kind: 'rangedfly' },
   { id: 'dragon', name: 'Dragon', icon: '🐲', price: 30000, dmgMult: 1.1, kind: 'dragon' },
 ];
 const PET_RARITIES = ['common', 'magic', 'rare', 'unique', 'exotic'];
-const STARTER_PET = { warrior: 0, sorceress: 3, huntress: 2, necromancer: -1 };
+const STARTER_PET = { warrior: 0, sorceress: 1, huntress: 2, necromancer: -1 };
 function rollPetRarity() {
   const r = Math.random();
   return r < 0.05 ? 'exotic' : r < 0.15 ? 'unique' : r < 0.4 ? 'rare' : r < 0.75 ? 'magic' : 'common';
@@ -1068,6 +1068,86 @@ function shoot(x, y, ang, spd, dmg, from, o) {
   });
 }
 
+/* ---------------- loot collection (hero, pets & minions) ---------------- */
+function collectDropsAt(x, y) {
+  const p = G.p;
+  for (let i = G.drops.length - 1; i >= 0; i--) {
+    const dr = G.drops[i];
+    const dd = dist(x, y, dr.x, dr.y);
+    if (dr.kind === 'gold' && dd < 34) {
+      p.gold += dr.amt; ftext(dr.x, dr.y - 12, '+' + dr.amt + ' gold', '#e8c14d', 12);
+      G.drops.splice(i, 1); sfx.gold(); updateHUD(); saveDirty = true;
+    } else if ((dr.kind === 'hpPot' || dr.kind === 'mpPot') && dd < 34) {
+      p.potions[dr.kind === 'hpPot' ? 'hp' : 'mp']++;
+      ftext(dr.x, dr.y - 12, dr.kind === 'hpPot' ? 'Health Potion' : 'Mana Potion', dr.kind === 'hpPot' ? '#ff8a7a' : '#8fb3ff', 12);
+      G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
+    } else if (dr.kind === 'item' && dd < 30) {
+      const it = dr.item;
+      if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
+        // auto-equip upgrades; old piece goes to the bag (or the floor if full)
+        const old = p.equip[it.slot];
+        p.equip[it.slot] = it;
+        if (old) {
+          if (p.inv.length < p.bagSlots) p.inv.push(old);
+          else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
+        }
+        recalc();
+        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
+        spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
+      } else if (G.autoSell > 0 && !it.g && !(it.sockets >= 2) &&
+        (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
+        // auto-sell junk straight to gold (2-socket runeword bases are kept)
+        const gold = sellPrice(it);
+        p.gold += gold;
+        ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
+        G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
+      } else if (p.inv.length >= p.bagSlots) {
+        if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
+      } else {
+        p.inv.push(it);
+        ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
+      }
+      if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
+    }
+  }
+}
+function tryOpenChests(x, y, r) {
+  for (const ch of G.lvl.chests || []) {
+    if (!ch.opened && dist(x, y, ch.x, ch.y) < r) { ch.opened = true; openChest(ch); }
+  }
+}
+function findFetchTarget(x, y) {
+  // nearest drop or unopened chest, leashed to the hero's surroundings
+  const p = G.p;
+  let best = null, bd = 1e9;
+  for (const dr of G.drops) {
+    if (dr.kind === 'item' && p.inv.length >= p.bagSlots) continue;   // don't hover over unpickable items
+    if (dist(p.x, p.y, dr.x, dr.y) > 280) continue;
+    const d = dist(x, y, dr.x, dr.y);
+    if (d < bd) { bd = d; best = dr; }
+  }
+  for (const ch of G.lvl.chests || []) {
+    if (ch.opened) continue;
+    if (dist(p.x, p.y, ch.x, ch.y) > 280) continue;
+    const d = dist(x, y, ch.x, ch.y);
+    if (d < bd) { bd = d; best = ch; }
+  }
+  return best;
+}
+function blinkToMaster(e, flying) {
+  // helpers that fall out of sight teleport back to the hero
+  const p = G.p;
+  if (dist(e.x, e.y, p.x, p.y) < 460) return false;
+  burst(e.x, e.y, '#9adcff', 6, 90);
+  e.x = p.x + rand(-36, 36);
+  e.y = p.y + rand(-26, 26);
+  if (!flying && !circleFree(e.x, e.y, e.r || 10)) { e.x = p.x; e.y = p.y; }
+  spark(e.x, e.y, '#9adcff', 8, 140);
+  return true;
+}
+
 /* ---------------- minions & pets ---------------- */
 function makeMinion(kind) {
   const p = G.p, lvl = p.level;
@@ -1128,6 +1208,17 @@ function updateMinions(dt) {
         }
       } else moveCircle(mi, Math.cos(mi.dir) * mi.spd * dt, Math.sin(mi.dir) * mi.spd * dt);
     } else {
+      if (blinkToMaster(mi, false)) continue;
+      // idle skeletons haul loot and pry open chests
+      const fetch = findFetchTarget(mi.x, mi.y);
+      if (fetch) {
+        const a = Math.atan2(fetch.y - mi.y, fetch.x - mi.x);
+        mi.dir = a;
+        moveCircle(mi, Math.cos(a) * mi.spd * dt, Math.sin(a) * mi.spd * dt);
+        collectDropsAt(mi.x, mi.y);
+        tryOpenChests(mi.x, mi.y, 32);
+        continue;
+      }
       const fx = p.x - Math.cos(p.dir) * 40 + mi.off.x, fy = p.y - Math.sin(p.dir) * 24 + mi.off.y;
       if (dist(mi.x, mi.y, fx, fy) > 30) {
         const a = Math.atan2(fy - mi.y, fx - mi.x);
@@ -1195,6 +1286,20 @@ function updatePet(dt) {
       else moveCircle(pet, Math.cos(pet.dir) * mv, Math.sin(pet.dir) * mv);
     }
   } else {
+    if (blinkToMaster(pet, flying)) return;
+    // no enemies: fetch loot and crack open chests for the master
+    const fetch = findFetchTarget(pet.x, pet.y);
+    if (fetch) {
+      const a = Math.atan2(fetch.y - pet.y, fetch.x - pet.x);
+      pet.dir = a;
+      const dd2 = dist(pet.x, pet.y, fetch.x, fetch.y);
+      const mv = Math.min(spd * dt, dd2);
+      if (flying) { pet.x += Math.cos(a) * mv; pet.y += Math.sin(a) * mv; }
+      else moveCircle(pet, Math.cos(a) * mv, Math.sin(a) * mv);
+      collectDropsAt(pet.x, pet.y);
+      tryOpenChests(pet.x, pet.y, 32);
+      return;
+    }
     const fx = p.x - Math.cos(p.dir) * 36, fy = p.y - Math.sin(p.dir) * 20 + 12;
     const dd = dist(pet.x, pet.y, fx, fy);
     if (dd > 28) {
@@ -1356,9 +1461,7 @@ function update(dt) {
   for (const s of G.lvl.shrines || []) {
     if (!s.used && dist(p.x, p.y, s.x, s.y) < 36) { s.used = true; activateShrine(s); }
   }
-  for (const ch of G.lvl.chests || []) {
-    if (!ch.opened && dist(p.x, p.y, ch.x, ch.y) < 40) { ch.opened = true; openChest(ch); }
-  }
+  tryOpenChests(p.x, p.y, 40);
 
   // auto-potion: drink when life falls under the chosen threshold
   G.autoPotT = Math.max(0, (G.autoPotT || 0) - dt);
@@ -1516,48 +1619,8 @@ function update(dt) {
     }
   }
 
-  /* --- pickups --- */
-  for (let i = G.drops.length - 1; i >= 0; i--) {
-    const dr = G.drops[i];
-    const dd = dist(p.x, p.y, dr.x, dr.y);
-    if (dr.kind === 'gold' && dd < 34) {
-      p.gold += dr.amt; ftext(dr.x, dr.y - 12, '+' + dr.amt + ' gold', '#e8c14d', 12);
-      G.drops.splice(i, 1); sfx.gold(); updateHUD(); saveDirty = true;
-    } else if ((dr.kind === 'hpPot' || dr.kind === 'mpPot') && dd < 34) {
-      p.potions[dr.kind === 'hpPot' ? 'hp' : 'mp']++;
-      ftext(dr.x, dr.y - 12, dr.kind === 'hpPot' ? 'Health Potion' : 'Mana Potion', dr.kind === 'hpPot' ? '#ff8a7a' : '#8fb3ff', 12);
-      G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
-    } else if (dr.kind === 'item' && dd < 30) {
-      const it = dr.item;
-      if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
-        // auto-equip upgrades; old piece goes to the bag (or the floor if full)
-        const old = p.equip[it.slot];
-        p.equip[it.slot] = it;
-        if (old) {
-          if (p.inv.length < p.bagSlots) p.inv.push(old);
-          else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
-        }
-        recalc();
-        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
-        spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
-        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
-      } else if (G.autoSell > 0 && !it.g && !(it.sockets >= 2) &&
-        (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
-        // auto-sell junk straight to gold (2-socket runeword bases are kept)
-        const gold = sellPrice(it);
-        p.gold += gold;
-        ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
-        G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
-      } else if (p.inv.length >= p.bagSlots) {
-        if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
-      } else {
-        p.inv.push(it);
-        ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
-        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
-      }
-      if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
-    }
-  }
+  /* --- pickups (the hero, pets and minions all use the same logic) --- */
+  collectDropsAt(p.x, p.y);
 
   /* --- monsters --- */
   const ms = G.lvl.monsters;
@@ -2934,10 +2997,12 @@ function drawPet(pet) {
     ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 15, 5.5, 0, 0, 7); ctx.stroke();
   }
-  if (pet.kind === 'hound' || pet.kind === 'wolf') {
-    const wolf = pet.kind === 'wolf';
-    const cBody = wolf ? '#78828e' : '#6a5238', cDark = wolf ? '#4e5762' : '#3a2c1c', cLeg = wolf ? '#565f6a' : '#4a3826';
-    const s = wolf ? 1.18 : 1;
+  if (pet.kind === 'hound' || pet.kind === 'wolf' || pet.kind === 'tiger') {
+    const wolf = pet.kind === 'wolf', tiger = pet.kind === 'tiger';
+    const cBody = tiger ? '#d8863a' : wolf ? '#78828e' : '#6a5238';
+    const cDark = tiger ? '#2c1c10' : wolf ? '#4e5762' : '#3a2c1c';
+    const cLeg = tiger ? '#b8702e' : wolf ? '#565f6a' : '#4a3826';
+    const s = tiger ? 1.32 : wolf ? 1.18 : 1;
     ctx.fillStyle = '#00000060';
     ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11 * s, 4 * s, 0, 0, 7); ctx.fill();
     ctx.save();
@@ -2959,7 +3024,15 @@ function drawPet(pet) {
     ctx.fillRect(15, -3.6 + bob * 0.3, 1.8, 2);
     ctx.beginPath(); ctx.moveTo(7, -8); ctx.lineTo(9, -11.5); ctx.lineTo(10.5, -7.6); ctx.closePath(); ctx.fill();
     if (wolf) { ctx.beginPath(); ctx.moveTo(4.5, -8.4); ctx.lineTo(6, -11.8); ctx.lineTo(7.8, -7.9); ctx.closePath(); ctx.fill(); }
-    ctx.fillStyle = wolf ? '#9adcff' : '#ffd76a';
+    if (tiger) {   // stripes + pale muzzle
+      ctx.strokeStyle = cDark; ctx.lineWidth = 1.6;
+      for (const sx2 of [-5, -1.5, 2]) {
+        ctx.beginPath(); ctx.moveTo(sx2, -4.5 + bob * 0.3); ctx.lineTo(sx2 + 1, 3 + bob * 0.3); ctx.stroke();
+      }
+      ctx.fillStyle = '#e8d9c0';
+      ctx.fillRect(11, -2.2 + bob * 0.3, 4.5, 1.6);
+    }
+    ctx.fillStyle = tiger ? '#ffe14d' : wolf ? '#9adcff' : '#ffd76a';
     ctx.fillRect(9.6, -5.6 + bob * 0.3, 1.6, 1.6);
     ctx.restore();
   } else if (pet.kind === 'drake' || pet.kind === 'dragon') {
