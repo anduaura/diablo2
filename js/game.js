@@ -21,7 +21,7 @@ const thash = (x, y) => {
 /* ---------------- constants ---------------- */
 const TILE = 44, MAP_W = 52, MAP_H = 52;
 const T_WALL = 0, T_FLOOR = 1, T_UP = 2, T_DOWN = 3, T_WP = 4;
-const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40];
+const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 const AUTO_TARGET_R = 180;   // idle heroes lock onto monsters inside this radius
 const SAVE_KEY = 'sanctuary_save_v1';
 
@@ -42,8 +42,19 @@ const WORLDS = [
     pal: { f: ['#38323e', '#3c3642', '#342e3a'], w: '#2a2430', wt: '#38323e', m: '#120e16', acc: '#9adc8a' } },
   { name: 'Drowned Abyss', deco: 'shells', flame: '#4ad4c8',
     pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
+  { name: 'Fungal Depths', deco: 'spores', flame: '#6adfb8',
+    pal: { f: ['#243430', '#283a34', '#20302c'], w: '#1a2824', wt: '#28403a', m: '#0c1512', acc: '#6adfb8' } },
+  { name: 'Screaming Sands', deco: 'sand', flame: '#ffcf6a',
+    pal: { f: ['#5a4c30', '#625434', '#52442c'], w: '#44381e', wt: '#5a4c2a', m: '#241c0e', acc: '#e8c05a' } },
+  { name: 'Crystal Hollows', deco: 'crystal', flame: '#c28aff',
+    pal: { f: ['#2e2440', '#332948', '#2a203a'], w: '#241c34', wt: '#342a48', m: '#100c1a', acc: '#c28aff' } },
+  { name: 'The Blood Gardens', deco: 'veins', flame: '#ff5a6a',
+    pal: { f: ['#3c1e22', '#422226', '#361a1e'], w: '#2c1418', wt: '#3e2026', m: '#160a0c', acc: '#ff5a6a' } },
+  { name: 'Nullvoid', deco: 'void', flame: '#8a9aff',
+    pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
 ];
-const worldOf = dlvl => dlvl <= 0 ? 0 : Math.floor((dlvl - 1) / 5) % WORLDS.length;
+// worlds no longer cycle: past the last arc the deepest world holds forever
+const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 5), WORLDS.length - 1);
 
 /* ---------------- audio (tiny synth) ---------------- */
 let AC = null, soundOn = true;
@@ -2522,6 +2533,49 @@ function render() {
             ctx.fillStyle = '#b8ab8f';
             ctx.fillRect(cx3 - 6, cy3 - 2, 9, 2.4);
             ctx.fillRect(cx3 - 1, cy3 + 1, 6, 2);
+          }
+        } else if (wrld.deco === 'spores') {   // glowing mushrooms
+          ctx.strokeStyle = '#3a5248'; ctx.lineWidth = 1.6;
+          ctx.beginPath(); ctx.moveTo(cx3, cy3 + 3); ctx.lineTo(cx3, cy3 - 4); ctx.stroke();
+          ctx.fillStyle = '#6adfb8';
+          ctx.beginPath(); ctx.ellipse(cx3, cy3 - 5, 4.5, 2.6, 0, Math.PI, 0); ctx.fill();
+          if (h > 0.95) {
+            ctx.fillStyle = '#6adfb866';
+            ctx.beginPath(); ctx.arc(cx3 + 7, cy3 - 8 + Math.sin(G.time * 2 + cx3) * 2, 1.6, 0, 7); ctx.fill();
+          }
+        } else if (wrld.deco === 'sand') {   // dunes & sun-bleached skulls
+          ctx.strokeStyle = '#6a5a36'; ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.moveTo(cx3 - 9, cy3 + 2); ctx.quadraticCurveTo(cx3, cy3 - 3 + h * 4, cx3 + 9, cy3 + 2); ctx.stroke();
+          if (h > 0.96) {
+            ctx.fillStyle = '#d8ccb0';
+            ctx.beginPath(); ctx.arc(cx3, cy3 - 3, 3.2, 0, 7); ctx.fill();
+            ctx.fillStyle = '#241c0e';
+            ctx.fillRect(cx3 - 1.8, cy3 - 4, 1.3, 1.3); ctx.fillRect(cx3 + 0.6, cy3 - 4, 1.3, 1.3);
+          }
+        } else if (wrld.deco === 'crystal') {   // amethyst shards
+          ctx.fillStyle = '#c28aff';
+          ctx.beginPath();
+          ctx.moveTo(cx3 - 3, cy3 + 3); ctx.lineTo(cx3 - 1, cy3 - 7 - h * 4); ctx.lineTo(cx3 + 1.5, cy3 + 3);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#e8d4ff';
+          ctx.beginPath();
+          ctx.moveTo(cx3 + 2, cy3 + 3); ctx.lineTo(cx3 + 3.5, cy3 - 3); ctx.lineTo(cx3 + 5, cy3 + 3);
+          ctx.closePath(); ctx.fill();
+        } else if (wrld.deco === 'veins') {   // pulsing flesh-veins
+          ctx.strokeStyle = hexA('#ff5a6a', 0.35 + Math.sin(G.time * 2.2 + cx3 * 0.05) * 0.15);
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(cx3 - 10, cy3 - 4);
+          ctx.quadraticCurveTo(cx3 - 2, cy3 + 2 + h * 4, cx3 + 4, cy3 - 2);
+          ctx.quadraticCurveTo(cx3 + 8, cy3 - 5, cx3 + 11, cy3 + 3);
+          ctx.stroke();
+        } else if (wrld.deco === 'void') {   // starlike motes in the dark
+          ctx.fillStyle = hexA('#8a9aff', 0.5 + Math.sin(G.time * 3 + h * 30) * 0.3);
+          ctx.fillRect(cx3 - 1 + h * 10, cy3 - 6 + h * 8, 1.8, 1.8);
+          ctx.fillRect(cx3 - 8 + h * 4, cy3 + 2, 1.3, 1.3);
+          if (h > 0.97) {
+            ctx.strokeStyle = '#8a9aff44'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(cx3, cy3 - 2, 5 + Math.sin(G.time * 1.6) * 1.5, 0, 7); ctx.stroke();
           }
         } else {   // shells & bubbles
           ctx.strokeStyle = '#7ac8bc'; ctx.lineWidth = 1.4;
