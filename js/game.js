@@ -3670,6 +3670,10 @@ function renderChar() {
 }
 
 const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
+const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
+// bulk-sellable: never gems, never anything with sockets (gem hosts)
+const sellListUpTo = (p, tier) =>
+  p.inv.filter(i => !i.g && !(i.sockets > 0) && RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
 
 function sockBadge(it) {
   if (!it || !it.sockets) return '';
@@ -3703,8 +3707,16 @@ function renderInv() {
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
-      <button class="smallbtn" data-sellall ${!p.inv.some(i => !i.g) ? 'disabled' : ''}>💰 Sell all (${p.inv.filter(i => !i.g).reduce((s, i) => s + sellPrice(i), 0)}g)</button>
     </div>
+    <div class="invactions" style="margin-top:-4px">
+      ${['common', 'magic', 'rare', 'exotic'].map(tier => {
+        const list = sellListUpTo(p, tier);
+        const total = list.reduce((s, i) => s + sellPrice(i), 0);
+        const label = tier === 'common' ? 'commons' : tier === 'exotic' ? 'everything' : '≤ ' + tier;
+        return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
+      }).join('')}
+    </div>
+    <div class="derived" style="text-align:center; margin:2px 0 8px">Selling skips gems and socketed items.</div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {
@@ -3720,17 +3732,18 @@ function renderInv() {
     p.gold -= potCost; p.potions[b.dataset.buy]++;
     sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
   }));
-  const sellAllBtn = $('invPanel').querySelector('[data-sellall]');
-  if (sellAllBtn) sellAllBtn.addEventListener('click', () => {
-    const sellables = p.inv.filter(i => !i.g);
-    if (!sellables.length) return;
-    const total = sellables.reduce((s, i) => s + sellPrice(i), 0);
-    if (!confirm('Sell all ' + sellables.length + ' items for ' + total + ' gold? Gems stay in the bag.')) return;
-    p.inv = p.inv.filter(i => i.g);
+  $('invPanel').querySelectorAll('[data-sellup]').forEach(b => b.addEventListener('click', () => {
+    const tier = b.dataset.sellup;
+    const list = sellListUpTo(p, tier);
+    if (!list.length) return;
+    const total = list.reduce((s, i) => s + sellPrice(i), 0);
+    const label = tier === 'exotic' ? 'every rarity' : 'rarities up to ' + tier;
+    if (!confirm('Sell ' + list.length + ' items (' + label + ') for ' + total + ' gold?\nGems and socketed items always stay.')) return;
+    p.inv = p.inv.filter(i => !list.includes(i));
     p.gold += total;
     ftext(p.x, p.y - 30, '+' + total + 'g', '#e8c14d', 14);
     sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
-  });
+  }));
   const bagBtn = $('invPanel').querySelector('[data-bag]');
   if (bagBtn) bagBtn.addEventListener('click', () => {
     const cost = BAG_COSTS[(p.bagSlots - 24) / 6];
