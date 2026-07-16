@@ -33,9 +33,9 @@ const BOSS_NAMES = ['Gharok the Flayed', 'Mistress Vex', 'Korlath, Tomb Warden',
    acc = accent · deco picks the floor decoration set · flame = torch color */
 const WORLDS = [
   { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a',
-    pal: { f: ['#39482b', '#3f4e31', '#354427'], w: '#2c3a22', wt: '#3c4c30', m: '#141c0e', acc: '#d8b84a' } },
+    pal: { f: ['#3d5a2e', '#446234', '#37522a'], w: '#4c5a3e', wt: '#66755a', m: '#242e1a', acc: '#d8b84a' } },
   { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff',
-    pal: { f: ['#6f7988', '#77818f', '#67717f'], w: '#4a5462', wt: '#5e6876', m: '#2a323e', acc: '#bfe8ff' } },
+    pal: { f: ['#aebdca', '#b6c5d2', '#a6b5c2'], w: '#6f9cc0', wt: '#b8d8ee', m: '#2f5a78', acc: '#bfe8ff' } },
   { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a',
     pal: { f: ['#2c2422', '#302826', '#282020'], w: '#221a18', wt: '#322624', m: '#100a08', acc: '#ff6a2a' } },
   { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a',
@@ -2398,6 +2398,348 @@ let cam = { x: 0, y: 0 };
 function worldToScreen(wx, wy) { return { x: (wx - cam.x) * ZOOM + VW / 2, y: (wy - cam.y) * ZOOM + VH / 2 }; }
 function screenToWorld(sx, sy) { return { x: (sx - VW / 2) / ZOOM + cam.x, y: (sy - VH / 2) / ZOOM + cam.y }; }
 
+/* ---------------- per-world wall & floor painters ----------------
+   Every world gets its own construction, not just a palette swap:
+   fieldstone & ivy, ice blocks & icicles, basalt columns & lava seams,
+   stacked bones & skulls, coral crust & kelp. All variation is driven
+   by the deterministic tile hash so tiles never flicker. */
+function drawWallTile(deco, px, py, tx, ty, h, pal) {
+  const h2 = thash(tx * 7 + 3, ty * 11 + 5), h3 = thash(tx * 13 + 9, ty * 5 + 1);
+  const floorBelow = tileAt(tx, ty + 1) >= T_FLOOR;
+  if (deco === 'snow') {
+    /* ---- ice blocks: glassy slabs, frost mortar, icicles ---- */
+    const g = ctx.createLinearGradient(px, py, px + TILE, py + TILE);
+    g.addColorStop(0, '#8fb8d8'); g.addColorStop(0.5, '#6f9cc0'); g.addColorStop(1, '#54809f');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#2f5a78'; ctx.lineWidth = 2;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 2 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 19); ctx.lineTo(px + TILE, ry + 19); ctx.stroke();
+      const off = ((tx + ty * 3 + row) % 2) * 14 + 8;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 19); ctx.stroke();
+    }
+    // diagonal glassy glints
+    ctx.strokeStyle = '#dff2ffaa'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(px + 6 + h * 10, py + 30); ctx.lineTo(px + 20 + h * 10, py + 8); ctx.stroke();
+    if (h2 > 0.5) { ctx.beginPath(); ctx.moveTo(px + 24 + h2 * 8, py + 36); ctx.lineTo(px + 36 + h2 * 6, py + 18); ctx.stroke(); }
+    // snow cap
+    ctx.fillStyle = '#e8f2fa';
+    ctx.fillRect(px, py, TILE, 4.5);
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + 4.5, 8, 2.5, 0, 0, 7); ctx.fill();
+    // icicles hanging over the passage below
+    if (floorBelow) {
+      ctx.fillStyle = '#cfe8f8';
+      for (let k = 0; k < 3; k++) {
+        const ix = px + 6 + k * 14 + h3 * 6, len = 5 + thash(tx * 3 + k, ty) * 9;
+        ctx.beginPath();
+        ctx.moveTo(ix - 2.4, py + TILE - 1); ctx.lineTo(ix, py + TILE + len); ctx.lineTo(ix + 2.4, py + TILE - 1);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  } else if (deco === 'flowers') {
+    /* ---- mossy fieldstone: rounded boulders and creeping ivy ---- */
+    ctx.fillStyle = '#3a4430';
+    ctx.fillRect(px, py, TILE, TILE);
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
+      const hh = thash(tx * 9 + col, ty * 9 + row);
+      const sx = px + 7 + col * 15 + (row % 2) * 6, sy = py + 7 + row * 15;
+      ctx.fillStyle = ['#5c6a4a', '#66755a', '#525f42'][Math.floor(hh * 3) % 3];
+      ctx.beginPath(); ctx.ellipse(sx, sy, 8.5, 6.5, hh * 3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff14';
+      ctx.beginPath(); ctx.ellipse(sx - 2, sy - 2, 4, 2.6, hh * 3, 0, 7); ctx.fill();
+    }
+    // moss patches
+    if (h > 0.35) {
+      ctx.fillStyle = '#4a7a3466';
+      ctx.beginPath(); ctx.ellipse(px + TILE * h, py + TILE * h2, 9, 6, h * 4, 0, 7); ctx.fill();
+    }
+    // ivy trailing down the face
+    if (h2 > 0.55) {
+      ctx.strokeStyle = '#4a7a34'; ctx.lineWidth = 1.4;
+      for (let k = 0; k < 2; k++) {
+        const ix = px + 10 + k * 20 + h * 8;
+        ctx.beginPath();
+        ctx.moveTo(ix, py);
+        ctx.quadraticCurveTo(ix + 4, py + 14, ix - 2, py + 24 + h3 * 14);
+        ctx.stroke();
+        ctx.fillStyle = '#5c8a44';
+        ctx.beginPath(); ctx.ellipse(ix - 1, py + 12 + k * 8, 2.6, 1.8, 0.6, 0, 7); ctx.fill();
+      }
+    }
+  } else if (deco === 'lava') {
+    /* ---- basalt columns with glowing lava seams ---- */
+    ctx.fillStyle = '#181210';
+    ctx.fillRect(px, py, TILE, TILE);
+    for (let col = 0; col < 4; col++) {
+      const hh = thash(tx * 5 + col, ty * 7);
+      const cxp = px + col * 11;
+      const g = ctx.createLinearGradient(cxp, 0, cxp + 11, 0);
+      g.addColorStop(0, '#120c0a'); g.addColorStop(0.5, ['#2c2220', '#342826', '#241c1a'][Math.floor(hh * 3) % 3]); g.addColorStop(1, '#0e0806');
+      ctx.fillStyle = g;
+      ctx.fillRect(cxp + 0.5, py, 10, TILE);
+      // column cap line at varying height
+      ctx.fillStyle = '#3c2e2a';
+      ctx.fillRect(cxp + 1, py + 4 + hh * 10, 9, 2);
+    }
+    // molten seam glowing between columns
+    if (h > 0.55) {
+      const sx = px + 11 * (1 + Math.floor(h2 * 3));
+      const g2 = ctx.createLinearGradient(sx - 3, 0, sx + 3, 0);
+      g2.addColorStop(0, '#ff6a2a00'); g2.addColorStop(0.5, h > 0.85 ? '#ffb03add' : '#ff6a2a88'); g2.addColorStop(1, '#ff6a2a00');
+      ctx.fillStyle = g2;
+      ctx.fillRect(sx - 3, py + TILE * 0.2, 6, TILE * 0.8);
+    }
+    ctx.fillStyle = '#00000066';
+    ctx.fillRect(px, py + TILE - 4, TILE, 4);
+  } else if (deco === 'graves') {
+    /* ---- catacomb walls: stacked bones with the odd staring skull ---- */
+    ctx.fillStyle = '#2a2430';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.lineCap = 'round';
+    for (let row = 0; row < 4; row++) {
+      const hh = thash(tx * 11 + row, ty * 13);
+      const ry = py + 6 + row * 11;
+      ctx.strokeStyle = ['#a89e88', '#b8ab8f', '#968b76'][Math.floor(hh * 3) % 3];
+      ctx.lineWidth = 5.5;
+      const off = (row % 2) * 8 - 4 + hh * 4;
+      ctx.beginPath(); ctx.moveTo(px + 5 + off, ry); ctx.lineTo(px + 18 + off, ry); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px + 25 + off, ry); ctx.lineTo(px + 38 + off, ry); ctx.stroke();
+      // bone knobs
+      ctx.fillStyle = '#c8bda4';
+      ctx.beginPath(); ctx.arc(px + 5 + off, ry, 3.2, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 18 + off, ry, 3.2, 0, 7); ctx.fill();
+    }
+    if (h > 0.82) {   // an embedded skull watches you
+      const sx = px + 10 + h2 * 22, sy = py + 10 + h3 * 22;
+      ctx.fillStyle = '#d8cdb4';
+      ctx.beginPath(); ctx.arc(sx, sy, 6, 0, 7); ctx.fill();
+      ctx.fillRect(sx - 3.4, sy + 3.6, 6.8, 3);
+      ctx.fillStyle = '#181018';
+      ctx.fillRect(sx - 3.6, sy - 2, 2.6, 2.8); ctx.fillRect(sx + 1, sy - 2, 2.6, 2.8);
+    }
+    ctx.fillStyle = '#00000055';
+    ctx.fillRect(px, py + TILE - 4, TILE, 4);
+  } else if (deco === 'shells') {
+    /* ---- drowned masonry crusted in coral, barnacles and kelp ---- */
+    ctx.fillStyle = '#16333a';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#0a161a'; ctx.lineWidth = 1.6;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 12 + 10;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // coral clumps
+    if (h > 0.3) {
+      const cxp = px + 8 + h2 * 28, cyp = py + 8 + h3 * 28;
+      ctx.fillStyle = h > 0.75 ? '#e87a6a' : '#3f7a70';
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.arc(cxp + k * 5 - 5, cyp + (k % 2) * 4, 3.4 - k * 0.5, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#ffffff22';
+      ctx.beginPath(); ctx.arc(cxp - 6, cyp - 1, 1.2, 0, 7); ctx.fill();
+    }
+    // barnacle dots
+    ctx.fillStyle = '#7ac8bc55';
+    ctx.beginPath(); ctx.arc(px + 6 + h * 30, py + 34 - h2 * 24, 2, 0, 7); ctx.fill();
+    // kelp swaying down the face
+    if (h2 > 0.6 && floorBelow) {
+      ctx.strokeStyle = '#2e6a4a'; ctx.lineWidth = 2;
+      const kx = px + 8 + h * 26;
+      ctx.beginPath();
+      ctx.moveTo(kx, py + 8);
+      ctx.quadraticCurveTo(kx + 5, py + 24, kx - 2 + Math.sin(G.time * 1.6 + tx) * 2.5, py + TILE + 8);
+      ctx.stroke();
+    }
+  } else {
+    /* ---- classic brick (fallback) ---- */
+    ctx.fillStyle = pal.w;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = pal.m; ctx.lineWidth = 1.4;
+    for (let row = 0; row < 3; row++) {
+      const ry = py + 5 + row * 13;
+      ctx.beginPath(); ctx.moveTo(px, ry); ctx.lineTo(px + TILE, ry); ctx.stroke();
+      const off = ((tx * 3 + ty * 7 + row) % 2) * 11 + 8;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 13); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px + off + 22, ry); ctx.lineTo(px + off + 22, ry + 13); ctx.stroke();
+    }
+    ctx.fillStyle = pal.wt;
+    ctx.fillRect(px, py, TILE, 5);
+    ctx.fillStyle = '#00000055';
+    ctx.fillRect(px, py + TILE - 5, TILE, 5);
+  }
+}
+
+function drawFloorTile(deco, px, py, tx, ty, h, pal) {
+  const h2 = thash(tx * 5 + 1, ty * 3 + 2), h3 = thash(tx * 17 + 5, ty * 7 + 11);
+  if (deco === 'snow') {
+    /* ---- packed snow with frozen-over patches ---- */
+    ctx.fillStyle = ['#aebdca', '#b6c5d2', '#a6b5c2'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // wind-blown drift shading
+    ctx.fillStyle = '#8fa2b422';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * 0.6, 16, 6, 0.3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8f2fa66';
+    ctx.beginPath(); ctx.ellipse(px + TILE * (1 - h2), py + TILE * h3, 10, 4, -0.2, 0, 7); ctx.fill();
+    if (h > 0.62 && h < 0.8) {   // frozen pond patch with cracks
+      ctx.fillStyle = '#7fb0d0';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 15, 11, h * 2, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#dff2ff'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 12, py + 18 + h * 8);
+      ctx.lineTo(px + 22, py + 22); ctx.lineTo(px + 33, py + 16 + h2 * 10);
+      ctx.stroke();
+    }
+    // sparkle
+    if (h3 > 0.9) { ctx.fillStyle = '#ffffffcc'; ctx.fillRect(px + h * 40, py + h2 * 40, 1.8, 1.8); }
+    // footstep-sized shadow speckles
+    ctx.fillStyle = '#8fa2b433';
+    ctx.beginPath(); ctx.arc(px + 8 + h3 * 28, py + 8 + h * 28, 2.2, 0, 7); ctx.fill();
+  } else if (deco === 'flowers') {
+    /* ---- meadow grass ---- */
+    ctx.fillStyle = ['#3d5a2e', '#446234', '#37522a'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // mottled light/dark grass patches (no stone grid)
+    ctx.fillStyle = '#2c421f55';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 13, 7, h * 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#5a7a4233';
+    ctx.beginPath(); ctx.ellipse(px + TILE * (1 - h3), py + TILE * h2, 9, 5, h, 0, 7); ctx.fill();
+    // grass blades
+    ctx.strokeStyle = '#55743d'; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+    for (let k = 0; k < 4; k++) {
+      const hh = thash(tx * 3 + k * 7, ty * 5 + k);
+      const gx = px + 4 + hh * 36, gy = py + 6 + thash(tx + k, ty * 9 + k) * 32;
+      ctx.beginPath(); ctx.moveTo(gx, gy + 4); ctx.quadraticCurveTo(gx + 1.5, gy, gx + (hh - 0.5) * 5, gy - 4); ctx.stroke();
+    }
+    // worn dirt path spots
+    if (h < 0.08) {
+      ctx.fillStyle = '#5a4a30';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 13, 8, h * 20, 0, 7); ctx.fill();
+      ctx.fillStyle = '#4a3c26';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2 + 3, py + TILE / 2 + 2, 7, 4, h * 20, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'lava') {
+    /* ---- charred basalt plates over living lava ---- */
+    ctx.fillStyle = ['#2c2422', '#302826', '#282020'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // irregular plate borders
+    ctx.strokeStyle = '#100a08'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py + TILE * h2);
+    ctx.lineTo(px + TILE * 0.4, py + TILE * h2 + (h - 0.5) * 8);
+    ctx.lineTo(px + TILE, py + TILE * h3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px + TILE * h3, py);
+    ctx.lineTo(px + TILE * h3 + (h2 - 0.5) * 8, py + TILE * 0.5);
+    ctx.lineTo(px + TILE * h2, py + TILE);
+    ctx.stroke();
+    // glowing lava seams in the cracks
+    if (h > 0.7) {
+      const glow = 0.55 + Math.sin(G.time * 2 + tx * 2 + ty) * 0.25;
+      ctx.strokeStyle = hexA('#ff6a2a', glow); ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(px + 6 + h * 20, py + 8);
+      ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
+      ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
+      ctx.stroke();
+      if (h > 0.93) {   // open lava pool
+        ctx.fillStyle = hexA('#ff8a3a', glow);
+        ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 9, 6, h, 0, 7); ctx.fill();
+        ctx.fillStyle = '#ffd27a';
+        ctx.beginPath(); ctx.ellipse(px + TILE / 2 - 2, py + TILE / 2 - 1, 3, 2, h, 0, 7); ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#00000030';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h3, py + TILE * h2, 8, 5, h * 3, 0, 7); ctx.fill();
+  } else if (deco === 'graves') {
+    /* ---- grave earth: turned soil, roots and remains ---- */
+    ctx.fillStyle = ['#38303c', '#3e3542', '#332b38'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // mounded soil ridges
+    ctx.strokeStyle = '#241e2a'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(px + 2, py + 8 + h * 10);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 2 + h2 * 14, px + TILE - 2, py + 10 + h3 * 10);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px + 2, py + 26 + h2 * 8);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 22 + h3 * 12, px + TILE - 2, py + 28 + h * 8);
+    ctx.stroke();
+    ctx.fillStyle = '#4a4052';
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2, py + TILE * h3, 7, 4, h * 3, 0, 7); ctx.fill();
+    // pale roots / clawed furrows
+    if (h > 0.55 && h < 0.7) {
+      ctx.strokeStyle = '#5a5264'; ctx.lineWidth = 1.2;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.moveTo(px + 8 + k * 6, py + 12 + h * 12);
+        ctx.lineTo(px + 12 + k * 6, py + 30 + h2 * 6);
+        ctx.stroke();
+      }
+    }
+    if (h < 0.04) {   // a half-buried ribcage
+      ctx.strokeStyle = '#8a8070'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2 + k * 4 - 4, 8 - k, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      }
+    }
+  } else if (deco === 'shells') {
+    /* ---- rippled wet sand with glinting puddles ---- */
+    ctx.fillStyle = ['#25444c', '#294a52', '#214048'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    // sand ripples
+    ctx.strokeStyle = '#1a333a'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      const ry = py + 8 + k * 13 + h * 5;
+      ctx.beginPath();
+      ctx.moveTo(px, ry);
+      ctx.quadraticCurveTo(px + TILE * 0.3, ry - 4, px + TILE * 0.55, ry);
+      ctx.quadraticCurveTo(px + TILE * 0.8, ry + 4, px + TILE, ry - 1);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#3f6a7233'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(px, py + 14 + h2 * 8);
+    ctx.quadraticCurveTo(px + TILE / 2, py + 10 + h3 * 8, px + TILE, py + 15 + h * 6);
+    ctx.stroke();
+    if (h > 0.68 && h < 0.82) {   // still puddle catching the light
+      ctx.fillStyle = '#3f7a8a88';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 13, 8, h, 0, 7); ctx.fill();
+      ctx.fillStyle = hexA('#bfe8ff', 0.4 + Math.sin(G.time * 1.8 + tx * 3) * 0.2);
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2 - 4, py + TILE / 2 - 2, 4, 2, h, 0, 7); ctx.fill();
+    }
+    // drifting bubbles
+    if (h3 > 0.93) {
+      ctx.strokeStyle = '#bfe8ff66'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(px + h * 40, py + ((G.time * 6 + h2 * 44) % 44), 2, 0, 7); ctx.stroke();
+    }
+  } else {
+    /* ---- classic flagstone (fallback) ---- */
+    ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = pal.m + '99'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    ctx.strokeStyle = pal.m + '55';
+    if (h2 < 0.35) { ctx.beginPath(); ctx.moveTo(px + TILE * (0.3 + h2), py); ctx.lineTo(px + TILE * (0.3 + h2), py + TILE); ctx.stroke(); }
+    else if (h2 < 0.7) { ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h2); ctx.stroke(); }
+    if (h > 0.84 && h < 0.93) {
+      ctx.strokeStyle = pal.m + 'cc'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 6 + h * 20, py + 8);
+      ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
+      ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
+      ctx.stroke();
+    }
+    if (h < 0.05) {
+      ctx.fillStyle = '#00000030';
+      ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.5, 12 + h * 100, 8, h * 40, 0, 7); ctx.fill();
+    }
+  }
+}
+
 function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#070404';
@@ -2445,50 +2787,10 @@ function render() {
         ctx.fillStyle = '#00000044';
         ctx.fillRect(px + 11, py - 15, TILE - 22, 3);
       } else {
-        // brick wall
-        ctx.fillStyle = pal.w;
-        ctx.fillRect(px, py, TILE, TILE);
-        ctx.strokeStyle = pal.m; ctx.lineWidth = 1.4;
-        for (let row = 0; row < 3; row++) {
-          const ry = py + 5 + row * 13;
-          ctx.beginPath(); ctx.moveTo(px, ry); ctx.lineTo(px + TILE, ry); ctx.stroke();
-          const off = ((tx * 3 + ty * 7 + row) % 2) * 11 + 8;
-          ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 13); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(px + off + 22, ry); ctx.lineTo(px + off + 22, ry + 13); ctx.stroke();
-        }
-        ctx.fillStyle = pal.wt;
-        ctx.fillRect(px, py, TILE, 5);
-        ctx.fillStyle = '#00000055';
-        ctx.fillRect(px, py + TILE - 5, TILE, 5);
-        if (h > 0.9 && pal.acc) {   // moss / seep stain
-          ctx.fillStyle = pal.acc + '26';
-          ctx.beginPath(); ctx.ellipse(px + TILE * h, py + TILE * 0.55, 7, 12, 0, 0, 7); ctx.fill();
-        }
+        drawWallTile(wrld.deco, px, py, tx, ty, h, pal);
       }
     } else {
-      // flagstone floor
-      ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
-      ctx.fillRect(px, py, TILE, TILE);
-      ctx.strokeStyle = pal.m + '99'; ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
-      const h2 = thash(tx * 5 + 1, ty * 3 + 2);
-      ctx.strokeStyle = pal.m + '55';
-      if (h2 < 0.35) { ctx.beginPath(); ctx.moveTo(px + TILE * (0.3 + h2), py); ctx.lineTo(px + TILE * (0.3 + h2), py + TILE); ctx.stroke(); }
-      else if (h2 < 0.7) { ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h2); ctx.stroke(); }
-      if (h > 0.84 && h < 0.93) {   // cracks (ember-lit in the Molten Warrens)
-        const molten = wrld.deco === 'lava';
-        ctx.strokeStyle = molten ? pal.acc + 'aa' : pal.m + 'cc';
-        ctx.lineWidth = molten ? 1.6 : 1;
-        ctx.beginPath();
-        ctx.moveTo(px + 6 + h * 20, py + 8);
-        ctx.lineTo(px + 14 + h2 * 16, py + 18 + h * 10);
-        ctx.lineTo(px + 8 + h * 24, py + 32 + h2 * 8);
-        ctx.stroke();
-      }
-      if (h < 0.05) {   // dark stain
-        ctx.fillStyle = '#00000030';
-        ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.5, 12 + h * 100, 8, h * 40, 0, 7); ctx.fill();
-      }
+      drawFloorTile(wrld.deco, px, py, tx, ty, h, pal);
       if (h > 0.9) { // per-world floor decoration
         const cx3 = px + TILE * 0.5, cy3 = py + TILE * 0.55;
         if (wrld.deco === 'flowers') {
