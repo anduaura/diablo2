@@ -71,7 +71,78 @@ const sfx = {
   die: () => blip(160, 0.9, 'sawtooth', 0.08, -120),
   boss: () => blip(70, 0.9, 'sawtooth', 0.09, -20),
   stairs: () => blip(240, 0.4, 'sine', 0.06, -160),
+  moo: () => blip(150, 0.4, 'sawtooth', 0.06, -55),
+  rare: () => { blip(784, 0.12, 'triangle', 0.06, 0); setTimeout(() => blip(1046, 0.22, 'triangle', 0.06, 0), 110); },
+  epic: () => { blip(659, 0.12, 'triangle', 0.065, 0); setTimeout(() => blip(880, 0.12, 'triangle', 0.065, 0), 110); setTimeout(() => blip(1318, 0.35, 'triangle', 0.07, 0), 220); },
 };
+
+/* ---------------- ambient music (tiny procedural score) ----------------
+   A low drone in each world's key plus sparse minor-pentatonic bells,
+   scheduled a second ahead from the frame loop. No audio assets. */
+let musicOn = true;
+const music = { drone: null, key: null, nextBell: 0 };
+function stopDrone() {
+  if (!music.drone) return;
+  try {
+    music.drone.g.gain.setTargetAtTime(0, AC.currentTime, 0.4);
+    const oscs = music.drone.oscs;
+    setTimeout(() => oscs.forEach(o => { try { o.stop(); } catch (e) { } }), 2000);
+  } catch (e) { }
+  music.drone = null; music.key = null;
+}
+function startDrone(rootHz) {
+  stopDrone();
+  try {
+    const g = AC.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(0.05, AC.currentTime, 3);
+    const filt = AC.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 340;
+    g.connect(filt); filt.connect(AC.destination);
+    const oscs = [];
+    for (const [ratio, type, det] of [[1, 'sine', 0], [1.5, 'sine', 3], [2, 'triangle', -4]]) {
+      const o = AC.createOscillator();
+      o.type = type; o.frequency.value = rootHz * ratio; o.detune.value = det;
+      o.connect(g); o.start();
+      oscs.push(o);
+    }
+    music.drone = { oscs, g };
+  } catch (e) { }
+}
+function bellNote(freq, t, vol) {
+  try {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 3);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t + 3.2);
+  } catch (e) { }
+}
+const MUSIC_OFFS = [0, -2, -5, 3, -7];   // key offset per world (semitones)
+const PENTATONIC = [0, 3, 5, 7, 10, 12, 15];
+function musicTick() {
+  if (!AC || AC.state !== 'running') return;
+  if (!musicOn || !G) { stopDrone(); return; }
+  const key = G.dlvl === 0 ? 'town' : 'w' + (G.world || 0);
+  const off = G.dlvl === 0 ? 5 : MUSIC_OFFS[G.world || 0] || 0;
+  const root = 55 * Math.pow(2, off / 12);
+  if (music.key !== key) {
+    startDrone(root);
+    music.key = key;
+    music.nextBell = AC.currentTime + 2;
+  }
+  while (music.nextBell < AC.currentTime + 1) {
+    const t = Math.max(music.nextBell, AC.currentTime + 0.05);
+    const step = choice(PENTATONIC);
+    const freq = root * 4 * Math.pow(2, step / 12);
+    const vol = G.dlvl === 0 ? 0.022 : 0.03;
+    bellNote(freq, t, vol);
+    if (Math.random() < 0.3) bellNote(freq * 1.5, t + 0.3, vol * 0.5);   // faint echo a fifth up
+    music.nextBell = t + rand(2.2, G.dlvl === 0 ? 7 : 5);
+  }
+}
 
 /* ---------------- class data ---------------- */
 const CLASSES = {
@@ -157,6 +228,30 @@ function makePetData(spIdx, rarity) {
   return { sp: spIdx, rarity, mods, price: Math.round(sp.price * (1 + rIdx * 0.6)) };
 }
 
+/* class passives: two per class, up to 5 ranks each, bought with skill points */
+const SKILL_MAX = 10, PASSIVE_MAX = 5;
+const PASSIVES = {
+  warrior: [
+    { id: 'mastery', name: 'Weapon Mastery', icon: '⚔️', desc: '+4% damage per rank' },
+    { id: 'juggernaut', name: 'Juggernaut', icon: '🛡️', desc: '+5% life per rank' }],
+  sorceress: [
+    { id: 'attune', name: 'Elemental Attunement', icon: '🌀', desc: '+8% elemental damage per rank' },
+    { id: 'focus', name: 'Arcane Focus', icon: '🔮', desc: '+6% mana & regen per rank' }],
+  huntress: [
+    { id: 'precision', name: 'Precision', icon: '🎯', desc: '+2% crit chance per rank' },
+    { id: 'fleet', name: 'Fleetfoot', icon: '🌬️', desc: '+3% move & attack speed per rank' }],
+  necromancer: [
+    { id: 'gravemight', name: 'Grave Might', icon: '💀', desc: '+8% minion damage & life per rank' },
+    { id: 'occult', name: 'Occult Focus', icon: '🕯️', desc: '+6% mana & regen per rank' }],
+};
+const skillRank = (p, i) => (p.skillLvls && p.skillLvls[i]) || 1;
+const skillMult = (p, i) => 1 + 0.15 * (skillRank(p, i) - 1);
+const passiveRank = (p, id) => {
+  const defs = PASSIVES[p.cls];
+  const i = defs.findIndex(d => d.id === id);
+  return i >= 0 && p.passives ? (p.passives[i] || 0) : 0;
+};
+
 /* ---------------- monster data ---------------- */
 const MTYPES = [
   { id: 'fallen', name: 'Fallen Imp', hp: 15, dmg: [2, 4], spd: 118, r: 11, xp: 8, gold: [2, 6], atkCd: 1.0, range: 26, minL: 1, w: 3, color: '#c0392b' },
@@ -166,6 +261,9 @@ const MTYPES = [
   { id: 'ghoul', name: 'Ghoul', hp: 46, dmg: [7, 12], spd: 108, r: 14, xp: 24, gold: [5, 13], atkCd: 0.9, range: 32, minL: 5, w: 2, color: '#7a5a8a' },
   { id: 'brute', name: 'Hell Brute', hp: 100, dmg: [11, 18], spd: 66, r: 20, xp: 45, gold: [10, 24], atkCd: 1.5, range: 42, minL: 7, w: 1, color: '#8a2c1a' },
 ];
+/* hell bovines only graze in the secret pasture — never in the dungeon pool */
+const COW_TYPE = { id: 'cow', name: 'Hell Bovine', hp: 42, dmg: [6, 11], spd: 108, r: 14, xp: 22, gold: [8, 18], atkCd: 1.0, range: 34, minL: 1, w: 0, color: '#e8e4da' };
+const COW_KING = { id: 'cowking', name: 'THE COW KING', hp: 320, dmg: [14, 22], spd: 84, r: 24, xp: 260, gold: [150, 280], atkCd: 1.1, range: 52, minL: 1, w: 0, color: '#e8e4da' };
 
 /* ---------------- item data ---------------- */
 const SLOTS = ['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet'];
@@ -199,9 +297,7 @@ const GEMS = {
   emerald: { name: 'Emerald', icon: '🟢', color: '#4ad46a', stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s` },
   skull: { name: 'Skull', icon: '💀', color: '#cfc9b8', stat: 'leech', txt: v => `${v}% Life Steal` },
 };
-function makeGem(ilvl, forceRarity) {
-  const k = choice(Object.keys(GEMS));
-  const q = ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2;
+function gemItem(k, q, ilvl, forceRarity) {
   const rarity = forceRarity || (() => {
     const r = Math.random();
     return r < 0.03 ? 'exotic' : r < 0.1 ? 'unique' : r < 0.25 ? 'rare' : r < 0.55 ? 'magic' : 'common';
@@ -211,11 +307,64 @@ function makeGem(ilvl, forceRarity) {
   let v = Math.max(1, Math.round(base * [1, 1.4, 1.9, 2.6, 3.5][rIdx]));
   if (k === 'skull') v = Math.min(v, 15);   // life steal stays sane
   return {
-    slot: 'gem', g: k, v, icon: GEMS[k].icon, rarity, mods: {},
+    slot: 'gem', g: k, q, v, icon: GEMS[k].icon, rarity, mods: {},
     name: ['Chipped ', '', 'Flawless '][q] + ['', '', 'Radiant ', 'Pristine ', 'Celestial '][rIdx] + GEMS[k].name,
     base: 'gem', lvl: ilvl,
   };
 }
+function makeGem(ilvl, forceRarity) {
+  return gemItem(choice(Object.keys(GEMS)), ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2, ilvl, forceRarity);
+}
+/* quality tier of a gem; older saves lack .q so fall back to the name */
+function gemQ(it) {
+  if (it.q !== undefined) return it.q;
+  return it.name.startsWith('Chipped') ? 0 : it.name.startsWith('Flawless') ? 2 : 1;
+}
+/* first triple of same-kind, same-quality gems below Flawless in the bag */
+function fusableGems(inv) {
+  const groups = {};
+  for (let i = 0; i < inv.length; i++) {
+    const it = inv[i];
+    if (!it.g || gemQ(it) >= 2) continue;
+    const key = it.g + ':' + gemQ(it);
+    (groups[key] = groups[key] || []).push(i);
+    if (groups[key].length === 3) return groups[key];
+  }
+  return null;
+}
+/* charms: power that lives in your bag — the slot it occupies is the cost */
+const CHARM_SUFFIX = {
+  str: 'of the Bear', dex: 'of the Fox', vit: 'of the Oak', ene: 'of the Mind',
+  hp: 'of Life', mp: 'of Spirit', dmgPct: 'of Wrath', armor: 'of Warding',
+  leech: 'of the Leech', mf: 'of Fortune', fireDmg: 'of Embers',
+  coldDmg: 'of Frost', lightDmg: 'of Storms', poisonDmg: 'of Venom',
+};
+function makeCharm(ilvl) {
+  const grand = Math.random() < 0.3;
+  const it = {
+    slot: 'charm', base: 'charm', icon: grand ? '🧿' : '🔶',
+    rarity: grand ? 'rare' : 'magic', lvl: ilvl, mods: {},
+  };
+  const used = new Set();
+  for (let i = 0; i < (grand ? 2 : 1); i++) {
+    const a = choice(AFFIXES);
+    if (used.has(a.stat)) continue;
+    used.add(a.stat);
+    it.mods[a.stat] = Math.max(1, Math.round(a.roll(ilvl) * (grand ? 0.75 : 0.5)));
+  }
+  const first = Object.keys(it.mods)[0];
+  it.name = (grand ? 'Grand Charm ' : 'Small Charm ') + (CHARM_SUFFIX[first] || 'of Power');
+  return it;
+}
+
+/* the key to the secret pasture — floor bosses sometimes carry one */
+function makeSigil(ilvl) {
+  return {
+    slot: 'sigil', base: 'sigil', name: 'Bovine Sigil', icon: '🐮',
+    rarity: 'unique', lvl: ilvl || 1, mods: {},
+  };
+}
+
 /* two full sockets with matching gems awaken a runeword (either order) */
 const RUNEWORDS = {
   'ruby+ruby': { name: 'Inferno', mods: { dmgPct: 15, fireDmg: 10 } },
@@ -290,6 +439,35 @@ window.addEventListener('resize', resize); resize();
 let G = null;              // active game (null = menu)
 let paused = false;        // panel open → world frozen
 let saveDirty = false;
+let hardcoreNext = false;  // menu toggle: forge the next hero as hardcore
+
+/* challenge runs: a modifier chosen at hero creation, active for that
+   hero's whole life — beating Malgoroth under one earns a trophy */
+const CHALLENGES = [
+  { id: 'gauntlet', name: "Champion's Gauntlet", icon: '👑', desc: 'half of all monsters are champions' },
+  { id: 'ascetic', name: 'Ascetic', icon: '🚱', desc: 'potions never drop and cannot be bought' },
+  { id: 'glass', name: 'Glass Cannon', icon: '💥', desc: '+50% damage, half life' },
+  { id: 'swift', name: 'Swift Death', icon: '⚡', desc: 'monsters are faster and hit harder' },
+];
+let challengeNext = null;   // menu toggle: modifier for the next forged hero
+const BADGE_KEY = 'sanctuary_badges';
+function loadBadges() { try { return JSON.parse(localStorage.getItem(BADGE_KEY)) || []; } catch (e) { return []; } }
+function addBadge(b) {
+  const badges = loadBadges();
+  if (badges.some(x => x.challenge === b.challenge)) return;   // one trophy per challenge
+  badges.push(b);
+  try { localStorage.setItem(BADGE_KEY, JSON.stringify(badges)); } catch (e) { }
+}
+const challengeOf = id => CHALLENGES.find(c => c.id === id) || null;
+
+/* graveyard: hall of fame for fallen hardcore heroes */
+const GRAVE_KEY = 'sanctuary_graveyard';
+function loadGraves() { try { return JSON.parse(localStorage.getItem(GRAVE_KEY)) || []; } catch (e) { return []; } }
+function addGrave(g) {
+  const graves = loadGraves();
+  graves.unshift(g);
+  try { localStorage.setItem(GRAVE_KEY, JSON.stringify(graves.slice(0, 20))); } catch (e) { }
+}
 
 function newPlayer(clsId) {
   const c = CLASSES[clsId];
@@ -298,6 +476,8 @@ function newPlayer(clsId) {
     pets: starter, activePet: starter.length ? 0 : -1,
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
+    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
+    hardcore: false, challenge: null,
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
@@ -322,6 +502,11 @@ function derived(p) {
     const rw = runewordOf(it);
     if (rw) for (const k in rw.mods) m[k] = (m[k] || 0) + rw.mods[k];
   }
+  // charms grant their mods straight from the bag
+  for (const it of p.inv) {
+    if (it.slot !== 'charm') continue;
+    for (const k in it.mods) m[k] = (m[k] || 0) + it.mods[k];
+  }
   // active companion's aura buffs the hero
   const actPet = p.pets && p.pets[p.activePet];
   if (actPet) for (const k in actPet.mods) m[k] = (m[k] || 0) + actPet.mods[k];
@@ -342,18 +527,29 @@ function derived(p) {
   const str = p.stats.str + m.str, dex = p.stats.dex + m.dex,
     vit = p.stats.vit + m.vit, ene = p.stats.ene + m.ene;
   const prim = { str, dex, ene }[c.primary] ?? str;
+  // class passives
+  m.dmgPct += 4 * passiveRank(p, 'mastery');
+  if (p.challenge === 'glass') m.dmgPct += 50;   // Glass Cannon challenge
+  const hpMult = (1 + 0.05 * passiveRank(p, 'juggernaut')) * (p.challenge === 'glass' ? 0.5 : 1);
+  const mpMult = 1 + 0.06 * (passiveRank(p, 'focus') + passiveRank(p, 'occult'));
+  const eleMult = 1 + 0.08 * passiveRank(p, 'attune');
+  const fleet = passiveRank(p, 'fleet');
   const mult = (1 + prim * 0.012) * (1 + m.dmgPct / 100);
   return {
     str, dex, vit, ene,
-    maxHp: Math.round(40 + vit * 3.5 + p.level * 8 + m.hp),
-    maxMp: Math.round(20 + ene * 2.5 + p.level * 3 + m.mp),
+    maxHp: Math.round((40 + vit * 3.5 + p.level * 8 + m.hp) * hpMult),
+    maxMp: Math.round((20 + ene * 2.5 + p.level * 3 + m.mp) * mpMult),
     dmgLo: Math.max(1, Math.round(wdmg[0] * mult)),
     dmgHi: Math.max(2, Math.round(wdmg[1] * mult)),
     armor: Math.round(warmor + m.armor + dex * 0.25),
-    crit: Math.min(0.5, 0.05 + dex * 0.002),
+    crit: Math.min(0.6, 0.05 + dex * 0.002 + 0.02 * passiveRank(p, 'precision')),
     leech: m.leech / 100, mf: m.mf,
-    fire: m.fireDmg, cold: m.coldDmg, light: m.lightDmg, poison: m.poisonDmg,
-    hpRegen: 1 + vit * 0.03, mpRegen: 1.6 + ene * 0.06,
+    fire: Math.round(m.fireDmg * eleMult), cold: Math.round(m.coldDmg * eleMult),
+    light: Math.round(m.lightDmg * eleMult), poison: Math.round(m.poisonDmg * eleMult),
+    hpRegen: 1 + vit * 0.03,
+    mpRegen: (1.6 + ene * 0.06) * mpMult,
+    spdMult: 1 + 0.03 * fleet, atkSpd: 1 + 0.03 * fleet,
+    minionMult: 1 + 0.08 * passiveRank(p, 'gravemight'),
   };
 }
 function domEle(d) {   // dominant elemental color, or null
@@ -365,7 +561,7 @@ function recalc() { G.d = derived(G.p); G.p.hp = Math.min(G.p.hp, G.d.maxHp); G.
 const xpNext = lvl => Math.round(80 * Math.pow(lvl, 1.6));
 
 /* ---------------- dungeon generation ---------------- */
-function genLevel(dlvl) {
+function genLevel(dlvl, riftMode) {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
   const rooms = [];
   for (let i = 0; i < 60 && rooms.length < 11; i++) {
@@ -403,7 +599,7 @@ function genLevel(dlvl) {
 
   // waypoint room on designated floors
   let wp = null;
-  if (WP_FLOORS.includes(dlvl)) {
+  if (WP_FLOORS.includes(dlvl) && !riftMode) {
     const wpRoom = rooms.find(r => r !== r0 && r !== exit) || r0;
     const wx = wpRoom.cx + 1 < wpRoom.x + wpRoom.w ? wpRoom.cx + 1 : wpRoom.cx - 1;
     if (map[wpRoom.cy][wx] === T_FLOOR) {
@@ -421,7 +617,7 @@ function genLevel(dlvl) {
 
   // monsters
   const monsters = [];
-  const isBossFloor = dlvl % 5 === 0;
+  const isBossFloor = dlvl % 5 === 0 && !riftMode;
   const pool = MTYPES.filter(t => t.minL <= dlvl);
   const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
   const scaleHp = (1 + 0.4 * (dlvl - 1) + 0.05 * (dlvl - 1) * (dlvl - 1)) * ngm;
@@ -436,10 +632,10 @@ function genLevel(dlvl) {
   for (let i = 1; i < rooms.length; i++) {
     const room = rooms[i];
     if (isBossFloor && room === exit) continue;         // boss room kept clear for the boss
-    const n = Math.min(7, ri(2, 3) + Math.floor(dlvl / 3));
+    const n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
     for (let k = 0; k < n; k++) {
       const t = wpick();
-      const champ = Math.random() < 0.08;
+      const champ = Math.random() < (G && G.p.challenge === 'gauntlet' ? 0.5 : 0.08);
       let mx, my, tries = 0;
       do {
         mx = room.x + rand(0.8, room.w - 0.8);
@@ -479,10 +675,135 @@ function genLevel(dlvl) {
   return {
     map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles,
     seen: new Uint8Array(MAP_W * MAP_H),
-    locked: isBossFloor,
+    locked: isBossFloor || !!riftMode,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
     exitTile: { x: exit.cx, y: exit.cy },
   };
+}
+
+/* -------- rifts: timed one-floor challenges opened from the town obelisk -- */
+const RIFT_TIME = 150;   // seconds on the clock
+const RIFT_GUARDIAN = { id: 'riftguardian', name: 'RIFT GUARDIAN', hp: 280, dmg: [13, 21], spd: 82, r: 26, xp: 220, gold: [120, 220], atkCd: 1.0, range: 56, minL: 1, w: 0, color: '#b86adf' };
+const riftDepth = tier => 3 + tier * 2;
+function enterRift(tier) {
+  G.cowLevel = false;
+  const depth = riftDepth(tier);
+  G.dlvl = depth;                        // drives monster & loot scaling
+  G.rift = { tier, t: RIFT_TIME, elapsed: 0, kills: 0, need: 0, guardian: false, done: false };
+  G.lvl = genLevel(depth, true);
+  G.rift.need = Math.min(30, Math.max(10, Math.floor(G.lvl.monsters.length * 0.75)));
+  G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
+  const actPet2 = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet2 ? spawnPet(actPet2) : null;
+  const p = G.p;
+  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  G.world = worldOf(depth);
+  $('floorLabel').textContent = '🌀 Rift · Tier ' + tier + (p.hardcore ? ' ☠' : '');
+  banner('RIFT TIER ' + tier + ' — slay ' + G.rift.need + ' to summon the Guardian!');
+  sfx.boss();
+}
+function spawnRiftGuardian() {
+  const ex = G.lvl.exitTile;
+  const guard = makeMonster(RIFT_GUARDIAN,
+    ex.x * TILE + TILE / 2, ex.y * TILE - TILE,
+    (1 + 0.4 * (G.dlvl - 1) + 0.05 * (G.dlvl - 1) * (G.dlvl - 1)),
+    (1 + 0.22 * (G.dlvl - 1)),
+    (1 + 0.3 * (G.dlvl - 1)),
+    false, true, G.dlvl);
+  guard.aggro = true;
+  G.lvl.monsters.push(guard);
+  G.lvl.boss = guard;
+  G.rift.guardian = true;
+  banner('⚔ THE RIFT GUARDIAN EMERGES ⚔');
+  shake(0.3); sfx.boss();
+}
+function riftComplete(m) {
+  const r = G.rift;
+  r.done = true;
+  const took = Math.max(1, Math.round(r.elapsed));
+  G.riftBest = G.riftBest || {};
+  if (!G.riftBest[r.tier] || took < G.riftBest[r.tier]) G.riftBest[r.tier] = took;
+  let msg = 'Rift conquered in ' + fmtTime(took) + '!';
+  if (r.tier >= (G.maxRiftTier || 1)) { G.maxRiftTier = r.tier + 1; msg += '  Tier ' + (r.tier + 1) + ' unlocked!'; }
+  banner(msg);
+  // loot shower on top of the guardian's own drops
+  const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8);
+  for (let i = 0; i < 2; i++) {
+    const rr = Math.random();
+    G.drops.push({
+      kind: 'item',
+      item: makeItem(choice(SLOTS), ilvl, rr < 0.12 ? 'exotic' : rr < 0.3 ? 'unique' : rr < 0.5 ? 'set' : 'rare'),
+      x: m.x + rand(-30, 30), y: m.y + rand(-20, 30),
+    });
+  }
+  G.drops.push({ kind: 'item', item: makeGem(ilvl), x: m.x + rand(-24, 24), y: m.y + 30 });
+  G.drops.push({ kind: 'gold', amt: Math.round(120 * (1 + G.dlvl * 0.3)), x: m.x, y: m.y + 40 });
+  sfx.level(); saveDirty = true;
+}
+const fmtTime = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+
+/* -------- the secret cow level: one huge pasture, many angry bovines ----- */
+function genCowLevel(depth) {
+  const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
+  const R = { x: 6, y: 6, w: 40, h: 40, cx: 26, cy: 26 };
+  for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
+  // scattered rocks & fence posts for cover
+  for (let i = 0; i < 46; i++) {
+    const x = ri(R.x + 2, R.x + R.w - 3), y = ri(R.y + 2, R.y + R.h - 3);
+    if (Math.abs(x - R.cx) + Math.abs(y - (R.y + R.h - 4)) > 6) map[y][x] = T_WALL;
+  }
+  const ex = R.cx, ey = R.y + R.h - 3;   // entrance at the south edge
+  map[ey][ex] = T_FLOOR; map[ey][ex - 2] = T_DOWN;   // portal home right beside it
+  const torches = [];
+  for (let i = 0; i < 14; i++) torches.push({ x: ri(R.x + 1, R.x + R.w - 2) * TILE + TILE / 2, y: ri(R.y + 1, R.y + R.h - 2) * TILE + TILE * 0.9 });
+  // the herd
+  const ngm = 1 + (G && G.ng || 0) * 0.8;
+  const scaleHp = (1 + 0.4 * (depth - 1) + 0.05 * (depth - 1) * (depth - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (depth - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (depth - 1)) * ngm;
+  const monsters = [];
+  for (let i = 0; i < 52; i++) {
+    let mx, my, tries = 0;
+    do {
+      mx = ri(R.x + 1, R.x + R.w - 2); my = ri(R.y + 1, R.y + R.h - 2);
+    } while ((map[my][mx] !== T_FLOOR || dist(mx, my, ex, ey) < 6) && ++tries < 20);
+    if (map[my][mx] !== T_FLOOR) continue;
+    monsters.push(makeMonster(COW_TYPE, mx * TILE + TILE / 2, my * TILE + TILE / 2, scaleHp, scaleDmg, scaleXp, Math.random() < 0.06, false, depth));
+  }
+  const boss = makeMonster(COW_KING, R.cx * TILE + TILE / 2, (R.y + 4) * TILE, scaleHp, scaleDmg, scaleXp, false, true, depth);
+  monsters.push(boss);
+  const shrines = [{ x: (R.cx + 4) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2, kind: 'gem', used: false }];
+  const chests = [{ x: (R.cx - 5) * TILE + TILE / 2, y: (R.cy - 3) * TILE + TILE / 2, opened: false }];
+  return {
+    map, rooms: [R], torches, monsters, boss, wp: null, shrines, chests, goldPiles: [],
+    seen: new Uint8Array(MAP_W * MAP_H),
+    locked: false,
+    entrance: { x: ex * TILE + TILE / 2, y: ey * TILE + TILE / 2 },
+    exitTile: { x: ex - 2, y: ey },
+  };
+}
+function enterCowLevel() {
+  const depth = Math.max(5, G.deepest || 5);
+  G.dlvl = depth;                       // drives loot & damage scaling
+  G.cowLevel = true;
+  G.lvl = genCowLevel(depth);
+  G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
+  const actPet2 = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet2 ? spawnPet(actPet2) : null;
+  const p = G.p;
+  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  G.world = 0;   // sunny Verdant Fields palette
+  $('floorLabel').textContent = 'The Secret Pasture 🐄' + (G.p.hardcore ? ' ☠' : '');
+  banner('MOO?! The herd senses an intruder…');
+  sfx.boss();
 }
 
 /* -------- town: safe hub with merchant, waypoint and stairs down -------- */
@@ -508,6 +829,7 @@ function genTown() {
     exitTile: { x: R.x + R.w - 2, y: R.cy },
     vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
+    obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
     stable: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + 8) * TILE + TILE / 2 },
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     shopStock,
@@ -529,12 +851,13 @@ const CHAMP_AFFIXES = {
 function makeMonster(t, x, y, sh, sd, sx, champ, isBoss, dlvl) {
   const hp = Math.round(t.hp * sh * (champ ? 2.2 : 1) * (isBoss ? 1 : 1));
   const affix = champ ? choice(Object.keys(CHAMP_AFFIXES)) : null;
+  const swift = G && G.p.challenge === 'swift' ? 1.25 : 1;   // Swift Death challenge
   return {
     affix, stormT: rand(1, 3),
     type: t, x, y, r: t.r * (champ ? 1.25 : 1),
     hp, maxHp: hp,
-    dmg: [Math.round(t.dmg[0] * sd * (champ ? 1.5 : 1)), Math.round(t.dmg[1] * sd * (champ ? 1.5 : 1))],
-    spd: t.spd * rand(0.9, 1.1), xp: Math.round(t.xp * sx * (champ ? 2.5 : 1)),
+    dmg: [Math.round(t.dmg[0] * sd * swift * (champ ? 1.5 : 1)), Math.round(t.dmg[1] * sd * swift * (champ ? 1.5 : 1))],
+    spd: t.spd * swift * rand(0.9, 1.1), xp: Math.round(t.xp * sx * (champ ? 2.5 : 1)),
     gold: t.gold, atkCd: t.atkCd, range: t.range, ranged: !!t.ranged,
     champ, boss: isBoss, name: champ ? CHAMP_AFFIXES[affix].name + ' ' + t.name : t.name, dlvl,
     aggro: false, atkT: rand(0, 0.5), stunT: 0, slowT: 0, hurtT: 0, hitT: 99,
@@ -704,6 +1027,8 @@ function modLines(it) {
     const a = AFFIXES.find(a => a.stat === k);
     if (a) lines.push(a.txt(it.mods[k]));
   }
+  if (it.slot === 'charm') lines.push('Works from your bag');
+  if (it.slot === 'sigil') { lines.push('It smells faintly of hay…'); lines.push('Use in town to open a strange portal'); }
   return lines;
 }
 
@@ -772,8 +1097,9 @@ function grantLevelUps() {
   const p = G.p;
   while (p.xp >= xpNext(p.level)) {
     p.xp -= xpNext(p.level); p.level++; p.statPts += 5;
+    p.skillPts = (p.skillPts || 0) + 1;
     recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
-    banner('LEVEL ' + p.level + '!  +5 stat points');
+    banner('LEVEL ' + p.level + '!  +5 stats · +1 skill point');
     burst(p.x, p.y, '#ffd76a', 30, 200);
     spark(p.x, p.y, '#ffd76a', 30, 260);
     G.rings.push({ x: p.x, y: p.y, r: 8, max: 70, color: '#ffd76a', life: 0.5 });
@@ -839,9 +1165,18 @@ function killMonster(m) {
     G.rings.push({ x: m.x, y: m.y, r: 6, max: 62, color: '#ff8a3a', life: 0.25 });
     sfx.fire();
   }
+  if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
+  if (G.rift && !G.rift.done) {
+    if (m.type.id === 'riftguardian') {
+      riftComplete(m);
+    } else {
+      G.rift.kills++;
+      if (!G.rift.guardian && G.rift.kills >= G.rift.need) spawnRiftGuardian();
+    }
+  }
   if (m.boss) {
     G.lvl.locked = false;
-    banner(m.name + ' has fallen! The stairs open…');
+    banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
     sfx.boss();
     if (m.final) showVictory();
   }
@@ -850,9 +1185,16 @@ function killMonster(m) {
 
 function showVictory() {
   const p = G.p;
+  let extra = '';
+  const ch = challengeOf(p.challenge);
+  if (ch) {
+    const isNew = !loadBadges().some(b => b.challenge === ch.id);
+    addBadge({ challenge: ch.id, cls: p.cls, level: p.level, hardcore: !!p.hardcore, t: Date.now() });
+    extra = isNew ? ' 🏆 The ' + ch.name + ' trophy is yours forever!' : '';
+  }
   $('victoryInfo').textContent =
     'Malgoroth is no more. ' + CLASSES[p.cls].name + ' of level ' + p.level +
-    (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.';
+    (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.' + extra;
   $('victoryScreen').classList.remove('hidden');
   saveGame();
 }
@@ -871,7 +1213,8 @@ function newGamePlus() {
 function dropLoot(m) {
   const x = m.x, y = m.y, dlvl = G.dlvl;
   const scatter = () => ({ x: x + rand(-22, 22), y: y + rand(-22, 22) });
-  const rGold = m.boss ? 1 : 0.62, rPot = m.boss ? 1 : 0.16, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const rGold = m.boss ? 1 : 0.62, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const rPot = G.p.challenge === 'ascetic' ? 0 : m.boss ? 1 : 0.16;   // Ascetic: no potions, ever
   const ngb = (G.ng || 0);
   if (Math.random() < rGold) {
     const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25) * (1 + ngb * 0.6));
@@ -885,7 +1228,11 @@ function dropLoot(m) {
       m.boss ? (r3 < 0.12 ? 'exotic' : r3 < 0.35 ? 'unique' : r3 < 0.55 ? 'set' : 'rare') : null);
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
-  if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  const isCow = m.type.id === 'cow';
+  if (Math.random() < (m.boss ? 0.8 : isCow ? 0.18 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  if (Math.random() < (m.boss ? 0.35 : 0.04)) G.drops.push({ kind: 'item', item: makeCharm(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  if (m.boss && m.type.id !== 'cowking' && Math.random() < 0.2)
+    G.drops.push({ kind: 'item', item: makeSigil(dlvl), ...scatter() });
 }
 
 function hurtPlayer(dmg, mlvl) {
@@ -899,12 +1246,24 @@ function hurtPlayer(dmg, mlvl) {
   sfx.hurt();
   if (p.hp <= 0) {
     p.hp = 0; p.deaths++;
-    const lost = Math.floor(p.gold * 0.1);
-    p.gold -= lost;
-    $('deathInfo').textContent = (lost > 0 ? 'The darkness claims ' + lost + ' gold. ' : '') + 'Your body lies on floor ' + G.dlvl + '.';
+    if (p.hardcore) {
+      // death is final: the hero joins the graveyard and the save is erased
+      G.hardcoreDead = true;
+      addGrave({ cls: p.cls, level: p.level, dlvl: G.dlvl, ng: G.ng || 0, t: Date.now() });
+      localStorage.removeItem(SLOT_KEY(G.slot || 0));
+      $('deathInfo').textContent = 'Death is final for hardcore heroes. ' +
+        CLASSES[p.cls].name + ' of level ' + p.level + ' fell on floor ' + G.dlvl +
+        (G.ng ? ' in NG+' + G.ng : '') + ', never to rise again.';
+      $('btnRespawn').textContent = '⚰ Rest in the Graveyard';
+    } else {
+      const lost = Math.floor(p.gold * 0.1);
+      p.gold -= lost;
+      $('deathInfo').textContent = (lost > 0 ? 'The darkness claims ' + lost + ' gold. ' : '') + 'Your body lies on floor ' + G.dlvl + '.';
+      $('btnRespawn').textContent = 'Rise Again';
+      saveDirty = true; saveGame();
+    }
     $('deathScreen').classList.remove('hidden');
     sfx.die();
-    saveDirty = true; saveGame();
   }
 }
 
@@ -920,7 +1279,7 @@ function castSkill(i) {
   let aim = p.dir;
   const t = p.target && p.target.hp > 0 ? p.target : nearestMonster(p.x, p.y, 420);
   if (t) { aim = Math.atan2(t.y - p.y, t.x - p.x); p.dir = aim; }
-  const atk = playerAtk();
+  const atk = Math.round(playerAtk() * skillMult(p, i));
   switch (sk.id) {
     case 'cleave':
       for (const m of G.lvl.monsters) {
@@ -1124,7 +1483,7 @@ function collectDropsAt(x, y) {
         ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' socketed!', GEMS[it.g].color, 13);
         spark(p.x, p.y - 10, GEMS[it.g].color, 8, 140);
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
-      } else if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
+      } else if (G.autoEquip && !it.g && SLOTS.includes(it.slot) && itemScore(it) > itemScore(p.equip[it.slot])) {
         // auto-equip upgrades; old piece goes to the bag (or the floor if full)
         const old = p.equip[it.slot];
         p.equip[it.slot] = it;
@@ -1136,7 +1495,7 @@ function collectDropsAt(x, y) {
         ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
         spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
-      } else if (G.autoSell > 0 && !it.g && !(it.sockets >= 2) &&
+      } else if (G.autoSell > 0 && !it.g && it.slot !== 'charm' && !(it.sockets >= 2) &&
         (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
         // auto-sell junk straight to gold (2-socket runeword bases are kept)
         const gold = sellPrice(it);
@@ -1148,6 +1507,7 @@ function collectDropsAt(x, y) {
       } else {
         p.inv.push(it);
         ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
+        if (it.slot === 'charm') recalc();
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
       }
       if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
@@ -1192,7 +1552,7 @@ function blinkToMaster(e, flying) {
 /* ---------------- minions & pets ---------------- */
 function makeMinion(kind) {
   const p = G.p, lvl = p.level;
-  const mult = 1 + G.d.ene * 0.008;
+  const mult = (1 + G.d.ene * 0.008) * (G.d.minionMult || 1);
   const base = kind === 'golem'
     ? { hp: 120 + lvl * 22, dmg: [8 + lvl * 2, 14 + lvl * 3], spd: 100, r: 17, range: 34, atkCd: 1.2 }
     : { hp: 30 + lvl * 8, dmg: [3 + lvl, 6 + Math.round(lvl * 1.6)], spd: 150, r: 11, range: 26, atkCd: 0.9 };
@@ -1206,6 +1566,39 @@ function makeMinion(kind) {
     off: { x: rand(-30, 30), y: rand(-22, 22) },
   };
 }
+/* ---------------- mercenary: a hireling with weapon & armor slots ------- */
+const MERC_HIRE_COST = 500;
+const mercReviveCost = () => 50 + G.p.level * 10;
+function mercStats() {
+  const lvl = G.p.level, w = G.merc.weapon, a = G.merc.armor;
+  const base = w && w.dmg ? w.dmg : [2 + lvl, 5 + Math.round(lvl * 1.8)];
+  const mult = 1 + lvl * 0.04;
+  return {
+    hp: Math.round(70 + lvl * 16 + (a && a.armor ? a.armor * 2.5 : 0)),
+    dmg: [Math.round(base[0] * mult), Math.round(base[1] * mult)],
+  };
+}
+function makeMercEntity() {
+  const p = G.p, st = mercStats();
+  return {
+    isMinion: true, kind: 'merc',
+    x: p.x + rand(-30, 30), y: p.y + rand(-24, 24),
+    hp: st.hp, maxHp: st.hp, dmg: st.dmg,
+    spd: 160, r: 13, range: 32, atkCd: 0.8,
+    atkT: rand(0, 0.4), dir: 0, swingT: 0, hurtT: 0,
+    off: { x: rand(-32, 32), y: rand(-24, 24) },
+  };
+}
+/* refresh the live merc entity after gear or level changes */
+function refreshMercEntity() {
+  const mi = G.minions.find(m => m.kind === 'merc');
+  if (!mi || !G.merc) return;
+  const st = mercStats();
+  const ratio = mi.hp / mi.maxHp;
+  mi.maxHp = st.hp; mi.hp = Math.max(1, Math.round(st.hp * ratio));
+  mi.dmg = st.dmg;
+}
+
 function spawnPet(data) {
   const p = G.p;
   return { isPet: true, kind: PET_SPECIES[data.sp].id, data, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
@@ -1225,10 +1618,17 @@ function updateMinions(dt) {
     const mi = G.minions[i];
     if (mi.hp <= 0) {
       burst(mi.x, mi.y, '#cfc9b8', 12, 130);
-      ftext(mi.x, mi.y - 14, mi.kind === 'golem' ? 'Golem crumbles' : 'Skeleton falls', '#9aa8b8', 11);
+      if (mi.kind === 'merc') {
+        if (G.merc) G.merc.alive = false;
+        banner('Your mercenary has fallen! Revive them at the merchant.');
+        sfx.die(); saveDirty = true;
+      } else {
+        ftext(mi.x, mi.y - 14, mi.kind === 'golem' ? 'Golem crumbles' : 'Skeleton falls', '#9aa8b8', 11);
+      }
       G.minions.splice(i, 1);
       continue;
     }
+    if (mi.kind === 'merc') mi.hp = Math.min(mi.maxHp, mi.hp + (2 + G.p.level * 0.2) * dt);
     mi.atkT -= dt;
     mi.swingT = Math.max(0, mi.swingT - dt);
     mi.hurtT = Math.max(0, mi.hurtT - dt);
@@ -1366,6 +1766,7 @@ function nearestMonster(x, y, maxD) {
 function drinkPotion(kind) {
   const p = G.p;
   if (p.hp <= 0 || !G) return;
+  if (p.challenge === 'ascetic') { ftext(p.x, p.y - 30, 'The Ascetic drinks nothing', '#c9b98a', 12); return; }
   if (kind === 'hp' && p.potions.hp > 0 && p.hp < G.d.maxHp) {
     p.potions.hp--; p.hp = Math.min(G.d.maxHp, p.hp + Math.round(G.d.maxHp * 0.45) + 15);
     burst(p.x, p.y - 10, '#ff6a5a', 10, 90); sfx.potion();
@@ -1378,6 +1779,8 @@ function drinkPotion(kind) {
 
 /* ---------------- level flow ---------------- */
 function enterLevel(dlvl, fresh) {
+  G.cowLevel = false;
+  G.rift = null;
   if (dlvl !== 0) G.anchor = null;   // entering a floor by stairs/waypoint burns the portal anchor
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
@@ -1385,6 +1788,7 @@ function enterLevel(dlvl, fresh) {
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
   const actPet = G.p.pets && G.p.pets[G.p.activePet];
   G.pet = actPet ? spawnPet(actPet) : null;
   const p = G.p;
@@ -1406,6 +1810,9 @@ function enterLevel(dlvl, fresh) {
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
   }
+  if (G.p.hardcore) $('floorLabel').textContent += ' ☠';
+  const ch = challengeOf(G.p.challenge);
+  if (ch) $('floorLabel').textContent += ' ' + ch.icon;
   saveDirty = true; saveGame();
 }
 
@@ -1421,17 +1828,20 @@ function firstFreeSlot() { for (let i = 0; i < 3; i++) if (!loadSlot(i)) return 
   } catch (e) { }
 })();
 function saveGame() {
-  if (!G) return;
+  if (!G || G.hardcoreDead) return;   // a dead hardcore hero must stay dead
   try {
     const p = G.p;
     localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
+      skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
+      hardcore: p.hardcore || false, challenge: p.challenge || null,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
-      hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
+      hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn, musicOn,
       waypoints: G.waypoints, deepest: G.deepest,
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
-      bagSlots: p.bagSlots || 24,
+      bagSlots: p.bagSlots || 24, merc: G.merc || null,
+      maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
       pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
@@ -1444,11 +1854,22 @@ function startGame(clsId, save, slot) {
       level: save.level, xp: save.xp, statPts: save.statPts, gold: save.gold,
       stats: save.stats, equip: save.equip, inv: save.inv || [], potions: save.potions,
       deaths: save.deaths || 0, bagSlots: save.bagSlots || 24,
+      // pre-skill-point saves get one point per level already earned
+      skillPts: save.skillPts !== undefined ? save.skillPts : Math.max(0, save.level - 1),
+      skillLvls: save.skillLvls || [1, 1, 1, 1],
+      passives: save.passives || [0, 0],
+      hardcore: !!save.hardcore,
+      challenge: save.challenge || null,
       pets: save.pets || (STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : []),
       activePet: save.pets ? (save.activePet !== undefined ? save.activePet : -1)
         : (STARTER_PET[clsId] >= 0 ? 0 : -1),
     });
     soundOn = save.soundOn !== false;
+    musicOn = save.musicOn !== false;
+  } else {
+    p.hardcore = hardcoreNext;
+    p.challenge = challengeNext;
+    if (p.challenge === 'ascetic') p.potions = { hp: 0, mp: 0 };
   }
   G = {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
@@ -1462,6 +1883,9 @@ function startGame(clsId, save, slot) {
     autoEquip: save && save.autoEquip !== undefined ? save.autoEquip : true,
     autoSell: save && save.autoSell !== undefined ? save.autoSell : 1,
     portalFloor: (save && save.portalFloor) || 0,
+    merc: (save && save.merc) || null,
+    maxRiftTier: (save && save.maxRiftTier) || 1,
+    riftBest: (save && save.riftBest) || {},
     anchor: null, offPortal: true,
   };
   recalc();
@@ -1499,6 +1923,17 @@ function update(dt) {
   G.buffDmg = Math.max(0, (G.buffDmg || 0) - dt);
   G.buffArmor = Math.max(0, (G.buffArmor || 0) - dt);
   G.buffSpd = Math.max(0, (G.buffSpd || 0) - dt);
+
+  // rift clock
+  if (G.rift && !G.rift.done) {
+    G.rift.t -= dt; G.rift.elapsed += dt;
+    if (G.rift.t <= 0) {
+      enterLevel(0, false);
+      banner('The rift collapses — too slow!');
+      sfx.die();
+      return;
+    }
+  }
 
   // shrines & treasure chests
   for (const s of G.lvl.shrines || []) {
@@ -1546,7 +1981,7 @@ function update(dt) {
       if (tgt) {
         const a = Math.atan2(tgt.y - p.y, tgt.x - p.x);
         p.dir = a; p.swingT = 0.1;
-        shoot(p.x, p.y, a + rand(-0.03, 0.03), 520, Math.round(playerAtk() * 0.8), 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(d) });
+        shoot(p.x, p.y, a + rand(-0.03, 0.03), 520, Math.round(playerAtk() * 0.8 * skillMult(p, 3)), 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(d) });
         sfx.shoot();
       }
       p.strafeN--;
@@ -1587,7 +2022,7 @@ function update(dt) {
   }
 
   /* --- player movement --- */
-  const spd = 175 * (p.rageT > 0 ? 1.25 : 1) * (G.buffSpd > 0 ? 1.25 : 1) * (p.chillT > 0 ? 0.65 : 1);
+  const spd = 175 * (d.spdMult || 1) * (p.rageT > 0 ? 1.25 : 1) * (G.buffSpd > 0 ? 1.25 : 1) * (p.chillT > 0 ? 0.65 : 1);
   let kx = (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0);
   let ky = (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0);
   if (kx || ky) { p.path = null; p.moveTo = null; p.target = null; const l = Math.hypot(kx, ky); moveCircle(p, kx / l * spd * dt, ky / l * spd * dt); p.dir = Math.atan2(ky, kx); }
@@ -1613,7 +2048,7 @@ function update(dt) {
           p.path = null; p.moveTo = null;
           p.dir = Math.atan2(p.target.y - p.y, p.target.x - p.x);
           if (p.atkT <= 0) {
-            p.atkT = c.atkCd; p.swingT = 0.2;
+            p.atkT = c.atkCd / (d.atkSpd || 1); p.swingT = 0.2;
             if (c.ranged) { shoot(p.x, p.y, p.dir, 460, playerAtk(), 'p', { kind: c.projKind, r: 4, ele: true, color: domEle(G.d) }); sfx.shoot(); }
             else hitMonster(p.target, playerAtk(), { ele: true });
           }
@@ -1682,10 +2117,22 @@ function update(dt) {
     } else if (G.drops.length > 0) {
       togglePanel('stairsPanel');
     } else {
-      enterLevel(G.dlvl + 1, false);
+      enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
       return;
     }
   } else G.stairsHold = false;
+
+  /* --- drop ceremony: fanfare when high-rarity loot hits the ground --- */
+  for (const dr of G.drops) {
+    if (dr.ann || dr.kind !== 'item') continue;
+    dr.ann = true;
+    const rr2 = dr.item.rarity;
+    if (dr.item.g || rr2 === 'common' || rr2 === 'magic') continue;
+    const col = rarityColor(rr2);
+    G.rings.push({ x: dr.x, y: dr.y, r: 4, max: 46, color: col, life: 0.45 });
+    spark(dr.x, dr.y - 6, col, rr2 === 'rare' ? 8 : 16, 200);
+    if (rr2 === 'rare') sfx.rare(); else sfx.epic();
+  }
 
   /* --- pickups (the hero, pets and minions all use the same logic) --- */
   collectDropsAt(p.x, p.y);
@@ -2106,6 +2553,23 @@ function render() {
       ctx.fillStyle = '#c9b98a'; ctx.fillRect(dr.x - 2, dr.y - 10 + bob * 0.5, 4, 5);
     } else {
       const col = dr.item.g ? GEMS[dr.item.g].color : rarityColor(dr.item.rarity);
+      // beacon of light over rare+ loot so a big drop reads from across the room
+      if (!dr.item.g && dr.item.rarity !== 'common' && dr.item.rarity !== 'magic') {
+        const pulse2 = 0.5 + Math.sin(G.time * 2.6 + dr.x) * 0.18;
+        const bh = 88, bw = 7;
+        const bg2 = ctx.createLinearGradient(0, dr.y - bh, 0, dr.y);
+        bg2.addColorStop(0, hexA(col, 0));
+        bg2.addColorStop(1, hexA(col, 0.4 * pulse2));
+        ctx.fillStyle = bg2;
+        ctx.beginPath();
+        ctx.moveTo(dr.x - 1.5, dr.y - bh);
+        ctx.lineTo(dr.x + 1.5, dr.y - bh);
+        ctx.lineTo(dr.x + bw, dr.y);
+        ctx.lineTo(dr.x - bw, dr.y);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = hexA(col, 0.22 * pulse2);
+        ctx.beginPath(); ctx.ellipse(dr.x, dr.y + 4, 13, 5.5, 0, 0, 7); ctx.fill();
+      }
       ctx.save(); ctx.translate(dr.x, dr.y + bob); ctx.rotate(Math.PI / 4);
       ctx.fillStyle = col; ctx.fillRect(-6, -6, 12, 12);
       ctx.strokeStyle = '#00000088'; ctx.strokeRect(-6, -6, 12, 12);
@@ -2150,10 +2614,11 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
-  /* town vendor, stash trunk & stable */
+  /* town vendor, stash trunk, stable & rift obelisk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
   if (G.lvl.stable) drawStable(G.lvl.stable);
+  if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
 
   /* portals: town-side return + dungeon-side anchor */
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
@@ -2274,6 +2739,20 @@ function render() {
   /* darkness + lights */
   drawLights();
 
+  /* rift clock (screen space) */
+  if (G.rift && !G.rift.done) {
+    const r = G.rift;
+    const low = r.t < 20;
+    ctx.font = 'bold 15px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = '⏳ ' + fmtTime(Math.ceil(r.t)) + '  ·  ' +
+      (r.guardian ? 'SLAY THE GUARDIAN' : r.kills + ' / ' + r.need);
+    ctx.fillStyle = '#000000b0';
+    const lw = ctx.measureText(label).width;
+    ctx.fillRect(VW / 2 - lw / 2 - 10, 33, lw + 20, 22);
+    ctx.fillStyle = low && Math.floor(G.time * 2) % 2 ? '#ff5a3a' : '#e8d9a8';
+    ctx.fillText(label, VW / 2, 44);
+  }
+
   /* boss bar (screen space) */
   const boss = G.lvl.boss;
   if (boss && boss.hp > 0 && boss.aggro) {
@@ -2305,9 +2784,14 @@ function drawLights() {
   for (const t of G.lvl.torches) hole(t.x, t.y - 12, 110 + Math.sin(G.time * 8 + t.x) * 8, 0.9);
   for (const pr of G.projs) if (pr.kind === 'fireball' || pr.kind === 'fire') hole(pr.x, pr.y, 70, 0.8);
   if (G.lvl.wp) hole(G.lvl.wp.x, G.lvl.wp.y, 100, 0.85);
+  for (const dr of G.drops) {
+    if (dr.kind === 'item' && !dr.item.g && dr.item.rarity !== 'common' && dr.item.rarity !== 'magic')
+      hole(dr.x, dr.y - 20, 70, 0.6);
+  }
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
+  if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
   if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) hole(G.anchor.x, G.anchor.y - 6, 90, 0.85);
@@ -2870,6 +3354,76 @@ function drawMonster(m) {
     ctx.fillStyle = '#e8e4da';
     for (let i = 0; i < 3; i++) ctx.fillRect(2.4 + i * 1.7, -9.8, 0.8, 1);
 
+  } else if (t.id === 'cow' || t.id === 'cowking') {
+    /* -------- hell bovine: an upright cow with a halberd -------- */
+    const king = t.id === 'cowking';
+    ctx.scale(rr / 14, rr / 14);
+    ctx.strokeStyle = W('#d8d4c8'); ctx.lineWidth = 3.2;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2.8, 3); ctx.lineTo(sd * 2.8 + stride * 3.8 * sd, 10.5); ctx.stroke();
+    }
+    ctx.strokeStyle = W('#e8e4da'); ctx.lineWidth = 1.6;   // swishing tail
+    ctx.beginPath();
+    ctx.moveTo(-4, 1);
+    ctx.quadraticCurveTo(-9, 3 + Math.sin(time * 5 + ph) * 2, -8, 8 + Math.sin(time * 5 + ph) * 2);
+    ctx.stroke();
+    // white body with black patches
+    const g = ctx.createLinearGradient(0, -9, 0, 6);
+    g.addColorStop(0, W('#f0ece0')); g.addColorStop(1, W('#c4c0b4'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-6.5, 5.5);
+    ctx.quadraticCurveTo(-8.5, -6, 0, -9);
+    ctx.quadraticCurveTo(8.5, -6, 6.5, 5.5);
+    ctx.quadraticCurveTo(0, 8, -6.5, 5.5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#2a2a2e');
+    ctx.beginPath(); ctx.ellipse(-2.5, -3.5, 2.6, 3.2, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(3.5, 1.5, 2.2, 2.6, -0.4, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8b4c0');   // pink belly patch
+    ctx.beginPath(); ctx.ellipse(0.5, 4.2, 3, 2, 0, 0, 7); ctx.fill();
+    // head with snout & horns
+    ctx.fillStyle = W('#f0ece0');
+    ctx.beginPath(); ctx.arc(1, -13, 4.6, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8b4c0');   // snout
+    ctx.beginPath(); ctx.ellipse(3.2, -11.2, 3, 2.2, 0.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7a3a4a';
+    ctx.fillRect(2.2, -11.6, 1, 1); ctx.fillRect(4.2, -11.4, 1, 1);
+    ctx.fillStyle = king ? '#ff3a2a' : '#20140a';   // eyes (the king's burn red)
+    ctx.fillRect(-0.6, -14.4, 1.6, 1.6); ctx.fillRect(2.6, -14.6, 1.6, 1.6);
+    ctx.fillStyle = W('#e8d9a8');   // horns
+    for (const sd of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(1 + sd * 3, -16);
+      ctx.quadraticCurveTo(1 + sd * 7, -18.5, 1 + sd * 7.5, -21.5);
+      ctx.quadraticCurveTo(1 + sd * 4.5, -19, 1 + sd * 2, -17);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = W('#2a2a2e');   // floppy ear
+    ctx.beginPath(); ctx.ellipse(-3.6, -13.6, 2, 1.2, 0.6, 0, 7); ctx.fill();
+    if (king) {   // golden crown between the horns
+      ctx.fillStyle = '#ffd76a';
+      ctx.beginPath();
+      ctx.moveTo(-2.4, -17.2); ctx.lineTo(-2.4, -20.4); ctx.lineTo(-0.8, -18.4);
+      ctx.lineTo(1, -21); ctx.lineTo(2.8, -18.4); ctx.lineTo(4.4, -20.4); ctx.lineTo(4.4, -17.2);
+      ctx.closePath(); ctx.fill();
+    }
+    // halberd arm
+    ctx.save();
+    ctx.translate(6, -5);
+    ctx.rotate(-0.35 + (m.hurtT > 0 ? 0.3 : 0) + stride * 0.12);
+    ctx.strokeStyle = W('#d8d4c8'); ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(3.5, 1.5); ctx.stroke();
+    ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(2, 9); ctx.lineTo(5, -12); ctx.stroke();
+    ctx.fillStyle = W('#ccd2da');
+    ctx.beginPath();
+    ctx.moveTo(4.4, -12.5);
+    ctx.quadraticCurveTo(11, -11, 11.5, -5.5);
+    ctx.quadraticCurveTo(7.5, -8.5, 4.7, -9);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+
   } else {
     /* -------- hell brute / boss demon -------- */
     ctx.scale(rr / 20, rr / 20);
@@ -2997,7 +3551,51 @@ function drawMinion(mi) {
   ctx.save();
   ctx.translate(mi.x, mi.y - bob);
   ctx.scale(face, 1);
-  if (mi.kind === 'golem') {
+  if (mi.kind === 'merc') {
+    /* man-at-arms: mail tunic, kettle helm, sword & round buckler */
+    ctx.scale(mi.r / 13, mi.r / 13);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = W('#4a3826'); ctx.lineWidth = 3.4;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2.6, 2); ctx.lineTo(sd * 2.6 + stride * 3.8 * sd, 10); ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -9, 0, 6);
+    g.addColorStop(0, W('#8a8f9a')); g.addColorStop(1, W('#565c66'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-5.5, 5.5);
+    ctx.quadraticCurveTo(-7.5, -6, 0, -9);
+    ctx.quadraticCurveTo(7.5, -6, 5.5, 5.5);
+    ctx.quadraticCurveTo(0, 7.5, -5.5, 5.5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a4048'; ctx.lineWidth = 0.7;   // mail rows
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(0, -6 + i * 3.6, 5.4 - i * 0.6, 0.3, Math.PI - 0.3); ctx.stroke();
+    }
+    ctx.fillStyle = '#3c2c1a'; ctx.fillRect(-5.4, 3.2, 10.8, 2.6);   // belt
+    /* buckler on the off-hand */
+    ctx.fillStyle = W('#5a3a22');
+    ctx.beginPath(); ctx.arc(-7.5, -1.5, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#8a909c'; ctx.lineWidth = 1.4; ctx.stroke();
+    /* head + kettle helm */
+    ctx.fillStyle = mi.hurtT > 0 ? '#ffb0a0' : '#d8b890';
+    ctx.beginPath(); ctx.arc(0, -13.5, 4.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(-2.5, -13.6, 1.6, 1.6); ctx.fillRect(1, -13.6, 1.6, 1.6);
+    ctx.fillStyle = W('#7a808c');
+    ctx.beginPath(); ctx.arc(0, -14.5, 5, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+    ctx.fillRect(-6.4, -15, 12.8, 1.8);   // brim
+    /* sword arm */
+    ctx.save();
+    ctx.translate(5.5, -5);
+    ctx.rotate(-0.45 + (mi.swingT > 0 ? Math.sin((0.2 - mi.swingT) / 0.2 * Math.PI) * 1.5 : 0));
+    ctx.strokeStyle = mi.hurtT > 0 ? '#ffb0a0' : '#d8b890'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(4, 1.5); ctx.stroke();
+    ctx.fillStyle = '#c9a45a'; ctx.fillRect(3, 0, 1.6, 3.4);
+    ctx.fillStyle = W('#ccd2da');
+    ctx.beginPath(); ctx.moveTo(4.5, 1.2); ctx.lineTo(15, 0.2); ctx.lineTo(4.8, 2.6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else if (mi.kind === 'golem') {
     ctx.scale(mi.r / 17, mi.r / 17);
     ctx.strokeStyle = W('#a8a294'); ctx.lineWidth = 4.5; ctx.lineCap = 'round';
     for (const sd of [-1, 1]) {
@@ -3329,6 +3927,39 @@ function drawTrunk(s) {
   ctx.fillText('🧳 Trunk', s.x, s.y - 26);
 }
 
+function drawObelisk(o) {
+  const t = G.time;
+  const pulse = 0.5 + Math.sin(t * 2.2) * 0.25;
+  ctx.fillStyle = '#00000060';
+  ctx.beginPath(); ctx.ellipse(o.x, o.y + 8, 14, 5, 0, 0, 7); ctx.fill();
+  // violet halo
+  const g = ctx.createRadialGradient(o.x, o.y - 18, 0, o.x, o.y - 18, 32);
+  g.addColorStop(0, hexA('#b86adf', 0.3 * pulse + 0.1));
+  g.addColorStop(1, hexA('#b86adf', 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(o.x, o.y - 18, 32, 0, 7); ctx.fill();
+  // the monolith
+  const mg = ctx.createLinearGradient(o.x - 8, 0, o.x + 8, 0);
+  mg.addColorStop(0, '#241a30'); mg.addColorStop(0.5, '#4a3a5e'); mg.addColorStop(1, '#1a1224');
+  ctx.fillStyle = mg;
+  ctx.beginPath();
+  ctx.moveTo(o.x - 9, o.y + 8);
+  ctx.lineTo(o.x - 6, o.y - 34);
+  ctx.lineTo(o.x, o.y - 42);
+  ctx.lineTo(o.x + 6, o.y - 34);
+  ctx.lineTo(o.x + 9, o.y + 8);
+  ctx.closePath(); ctx.fill();
+  // glowing runes
+  ctx.fillStyle = hexA('#d9a8ff', 0.5 + pulse * 0.5);
+  for (const [rx, ry] of [[0, -32], [-2, -22], [2, -13], [-1, -4]]) {
+    ctx.fillRect(o.x + rx - 1.5, o.y + ry, 3, 5);
+  }
+  if (Math.random() < 0.15) G.parts.push({ x: o.x + rand(-6, 6), y: o.y - rand(0, 34), vx: rand(-4, 4), vy: rand(-18, -8), r: rand(1, 2), color: '#b86adf', life: 0.5, glow: true });
+  ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🌀 Rift Obelisk', o.x, o.y - 52);
+}
+
 function drawVendor(v) {
   const bob = Math.sin(G.time * 2) * 0.8;
   ctx.fillStyle = '#00000066';
@@ -3383,6 +4014,12 @@ function drawMinimap() {
   // aggroed monsters
   mmCtx.fillStyle = '#ff5a3a';
   for (const m of G.lvl.monsters) if (m.hp > 0 && m.aggro) mmCtx.fillRect(m.x / TILE * s - 1.5, m.y / TILE * s - 1.5, 3, 3);
+  // high-rarity loot pings
+  for (const dr of G.drops) {
+    if (dr.kind !== 'item' || dr.item.g || dr.item.rarity === 'common' || dr.item.rarity === 'magic') continue;
+    mmCtx.fillStyle = rarityColor(dr.item.rarity);
+    mmCtx.fillRect(dr.x / TILE * s - 1.5, dr.y / TILE * s - 1.5, 3, 3);
+  }
 }
 
 /* ---------------- HUD & panels ---------------- */
@@ -3419,15 +4056,15 @@ function updateHUD() {
   }
 }
 function updateBadge() {
-  $('charBadge').classList.toggle('hidden', !G || G.p.statPts <= 0);
+  $('charBadge').classList.toggle('hidden', !G || (G.p.statPts <= 0 && (G.p.skillPts || 0) <= 0));
 }
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3441,6 +4078,7 @@ function togglePanel(id) {
     if (id === 'wpPanel') renderWp();
     if (id === 'shopPanel') renderShop();
     if (id === 'stashPanel') renderStash();
+    if (id === 'riftPanel') renderRift();
     if (id === 'stablePanel') renderStable();
     if (id === 'stairsPanel') renderStairs();
     paused = true;
@@ -3455,16 +4093,17 @@ function renderStairs() {
   if (items) bits.push(items + ' item' + (items > 1 ? 's' : ''));
   if (gold) bits.push(gold + ' gold pile' + (gold > 1 ? 's' : ''));
   if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
+  const leaving = G.cowLevel || G.rift;   // these stairs lead back to town
   $('stairsPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">⬇ Descend?</div>
+    <div class="ptitle">${leaving ? '🌀 Return to town?' : '⬇ Descend?'}</div>
     <div class="derived" style="text-align:center; font-size:14px">
       Still lying on this floor:<br><b style="color:#e8c14d">${bits.join(' · ')}</b><br>
       Loot left behind is lost forever.
     </div>
     <div class="invactions" style="margin-top:12px">
       <button class="smallbtn" data-stay>↩ Stay & collect</button>
-      <button class="smallbtn" data-descend style="border-color:#d9c65a">⬇ Descend anyway</button>
+      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : '⬇ Descend anyway'}</button>
     </div>`;
   const stay = () => {
     G.stairsHold = true;
@@ -3475,7 +4114,7 @@ function renderStairs() {
   $('stairsPanel').querySelector('[data-stay]').addEventListener('click', stay);
   $('stairsPanel').querySelector('[data-descend]').addEventListener('click', () => {
     closePanels();
-    enterLevel(G.dlvl + 1, false);
+    enterLevel(G.cowLevel || G.rift ? 0 : G.dlvl + 1, false);
   });
 }
 
@@ -3558,25 +4197,48 @@ function renderStash() {
     if (!it || p.inv.length >= p.bagSlots) return;
     s2.splice(+b.dataset.st, 1);
     p.inv.push(it);
-    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.pickup(); renderStash();
   }));
   $('stashPanel').querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => {
     const s2 = loadStash(), it = p.inv[+b.dataset.bg];
     if (!it || s2.length >= STASH_MAX) return;
     p.inv.splice(+b.dataset.bg, 1);
     s2.push(it);
-    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.pickup(); renderStash();
   }));
   $('stashPanel').querySelector('[data-all-in]').addEventListener('click', () => {
     const s2 = loadStash();
     while (p.inv.length && s2.length < STASH_MAX) s2.push(p.inv.shift());
-    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
   $('stashPanel').querySelector('[data-all-out]').addEventListener('click', () => {
     const s2 = loadStash();
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
-    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
+}
+
+function renderRift() {
+  const max = G.maxRiftTier || 1;
+  const best = G.riftBest || {};
+  const rows = [];
+  for (let t = 1; t <= max; t++) {
+    rows.push(`<button class="smallbtn" data-rift="${t}">🌀 Tier ${t} <small>· foes lvl ${riftDepth(t)}${best[t] ? ' · best ' + fmtTime(best[t]) : ''}</small></button>`);
+  }
+  $('riftPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🌀 Rift Obelisk</div>
+    <div class="invactions" style="flex-direction:column">${rows.join('')}</div>
+    <div class="derived" style="text-align:center">
+      A rift is a single timed floor: slay enough denizens to summon the
+      Rift Guardian, then fell it before ${fmtTime(RIFT_TIME)} runs out.<br>
+      Conquer your highest tier to unlock the next.
+    </div>`;
+  $('riftPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('riftPanel').querySelectorAll('[data-rift]').forEach(b => b.addEventListener('click', () => {
+    closePanels();
+    enterRift(+b.dataset.rift);
+  }));
 }
 
 function renderWp() {
@@ -3614,16 +4276,41 @@ function renderShop() {
       <span class="snm"><span class="rc-${it.rarity}">${it.name}</span> ${sockBadge(it)}<br><small>${modLines(it).slice(0, 2).join(' · ') || it.slot}</small></span>
       <button class="smallbtn" data-buy-item="${i}" ${p.gold < sellPrice(it) * 3 || p.inv.length >= p.bagSlots ? 'disabled' : ''}>${sellPrice(it) * 3}g</button>
     </div>` : '').join('');
+  const mercHtml = !G.merc
+    ? `<div class="invactions"><button class="smallbtn" data-hire ${p.gold < MERC_HIRE_COST ? 'disabled' : ''}>🛡 Hire Mercenary (${MERC_HIRE_COST}g)</button></div>`
+    : `<div class="derived" style="text-align:center">🛡 Mercenary${G.merc.alive ? '' : ' — <span style="color:#ff8a7a">fallen</span>'}
+        · ⚔ ${G.merc.weapon ? G.merc.weapon.name : 'bare hands'} · 🥋 ${G.merc.armor ? G.merc.armor.name : 'no armor'}<br>
+        <small>Hand them weapons & armor from your inventory.</small></div>` +
+      (!G.merc.alive ? `<div class="invactions"><button class="smallbtn" data-revive ${p.gold < mercReviveCost() ? 'disabled' : ''}>⛑ Revive Mercenary (${mercReviveCost()}g)</button></div>` : '');
   $('shopPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">⚖ Merchant · 🪙 ${p.gold}</div>
     <div class="invactions">
-      <button class="smallbtn" data-pot="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-pot="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-pot="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-pot="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
     </div>
+    ${mercHtml}
     ${rows || '<div class="derived" style="text-align:center">Sold out — return after your next descent.</div>'}
     <div class="derived" style="text-align:center">Sell your loot from the inventory 🎒</div>`;
   $('shopPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  const hireBtn = $('shopPanel').querySelector('[data-hire]');
+  if (hireBtn) hireBtn.addEventListener('click', () => {
+    if (p.gold < MERC_HIRE_COST || G.merc) return;
+    p.gold -= MERC_HIRE_COST;
+    G.merc = { alive: true, weapon: null, armor: null };
+    G.minions.push(makeMercEntity());
+    banner('🛡 A mercenary joins you!');
+    sfx.level(); renderShop(); updateHUD(); saveDirty = true;
+  });
+  const revBtn = $('shopPanel').querySelector('[data-revive]');
+  if (revBtn) revBtn.addEventListener('click', () => {
+    if (!G.merc || G.merc.alive || p.gold < mercReviveCost()) return;
+    p.gold -= mercReviveCost();
+    G.merc.alive = true;
+    G.minions.push(makeMercEntity());
+    banner('⛑ Your mercenary stands again!');
+    sfx.level(); renderShop(); updateHUD(); saveDirty = true;
+  });
   $('shopPanel').querySelectorAll('[data-pot]').forEach(b => b.addEventListener('click', () => {
     if (p.gold < potCost) return;
     p.gold -= potCost; p.potions[b.dataset.pot]++;
@@ -3644,11 +4331,30 @@ function renderChar() {
   const row = (key, label) =>
     `<div class="statrow"><span class="sname">${label}${c.primary === key ? ' ★' : ''}</span><span class="sval">${d[key]}</span>
      <button class="statbtn" data-stat="${key}" ${p.statPts <= 0 ? 'disabled' : ''}>+</button></div>`;
+  const skillRow = (sk, i) => {
+    const locked = p.level < (sk.lvl || 1);
+    const rank = skillRank(p, i);
+    return `<div class="statrow"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : ''}</span>
+      <span class="sval">${locked ? '—' : rank + '/' + SKILL_MAX}</span>
+      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= SKILL_MAX ? 'disabled' : ''}>+</button></div>`;
+  };
+  const passiveRow = (pa, i) => {
+    const rank = (p.passives && p.passives[i]) || 0;
+    return `<div class="statrow"><span class="sname">${pa.icon} ${pa.name} <small>· ${pa.desc}</small></span>
+      <span class="sval">${rank}/${PASSIVE_MAX}</span>
+      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || rank >= PASSIVE_MAX ? 'disabled' : ''}>+</button></div>`;
+  };
+  const spent = p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
+  const respecCost = 100 * p.level;
   $('charPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">${c.icon} ${c.name} — Level ${p.level}</div>
-    <div class="ptsleft">${p.statPts > 0 ? p.statPts + ' stat points to spend' : 'No points to spend'}</div>
+    <div class="ptsleft">${p.statPts > 0 ? p.statPts + ' stat points to spend' : 'No stat points to spend'}</div>
     ${row('str', 'Strength')}${row('dex', 'Dexterity')}${row('vit', 'Vitality')}${row('ene', 'Energy')}
+    <div class="ptsleft" style="margin-top:10px">${p.skillPts > 0 ? p.skillPts + ' skill points to spend' : 'No skill points to spend'}</div>
+    ${c.skills.map(skillRow).join('')}
+    ${PASSIVES[p.cls].map(passiveRow).join('')}
+    ${spent > 0 ? `<div class="invactions"><button class="smallbtn" data-respec ${p.gold < respecCost ? 'disabled' : ''}>♻ Respec skills (${respecCost}g)</button></div>` : ''}
     <div class="derived">
       Damage: <b>${d.dmgLo}–${d.dmgHi}</b> · Armor: <b>${d.armor}</b> · Crit: <b>${Math.round(d.crit * 100)}%</b><br>
       Life: <b>${Math.ceil(p.hp)}/${d.maxHp}</b> · Mana: <b>${Math.ceil(p.mp)}/${d.maxMp}</b><br>
@@ -3661,19 +4367,42 @@ function renderChar() {
         : ''}
       Experience: <b>${p.xp} / ${xpNext(p.level)}</b> · Deaths: <b>${p.deaths}</b>
     </div>`;
-  $('charPanel').querySelectorAll('.statbtn').forEach(b => b.addEventListener('click', () => {
+  $('charPanel').querySelectorAll('[data-stat]').forEach(b => b.addEventListener('click', () => {
     if (G.p.statPts <= 0) return;
     G.p.statPts--; G.p.stats[b.dataset.stat]++;
     recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
+  $('charPanel').querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.skill, sk = c.skills[i];
+    if (p.skillPts <= 0 || p.level < (sk.lvl || 1) || skillRank(p, i) >= SKILL_MAX) return;
+    p.skillPts--; p.skillLvls[i]++;
+    sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  }));
+  $('charPanel').querySelectorAll('[data-passive]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.passive;
+    if (p.skillPts <= 0 || (p.passives[i] || 0) >= PASSIVE_MAX) return;
+    p.skillPts--; p.passives[i] = (p.passives[i] || 0) + 1;
+    sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  }));
+  const respecBtn = $('charPanel').querySelector('[data-respec]');
+  if (respecBtn) respecBtn.addEventListener('click', () => {
+    if (p.gold < respecCost) return;
+    p.gold -= respecCost;
+    p.skillPts += p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
+    p.skillLvls = [1, 1, 1, 1]; p.passives = [0, 0];
+    banner('Skills reset — points refunded');
+    sfx.level(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  });
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
 const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
 const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
-// bulk-sellable: everything of the tier (gems included) except socketed gem hosts
+// bulk-sellable: everything of the tier (gems included) except socketed
+// gem hosts, charms (their power is live from the bag) and quest sigils
 const sellListUpTo = (p, tier) =>
-  p.inv.filter(i => !(i.sockets > 0) && RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
+  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' &&
+    RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
 
 function sockBadge(it) {
   if (!it || !it.sockets) return '';
@@ -3701,9 +4430,10 @@ function renderInv() {
     <div class="ptitle">🎒 Inventory · 🪙 ${p.gold}</div>
     <div class="equipgrid">${SLOTS.map(eqSlot).join('')}</div>
     <div class="invactions">
-      <button class="smallbtn" data-buy="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-buy="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-buy="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
+      <button class="smallbtn" data-fuse ${fusableGems(p.inv) ? '' : 'disabled'} title="Combine 3 matching gems into 1 of the next quality">⚗ Fuse 3 gems</button>
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
@@ -3716,7 +4446,7 @@ function renderInv() {
         return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
       }).join('')}
     </div>
-    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items always stay.</div>
+    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms and sigils always stay.</div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {
@@ -3755,6 +4485,21 @@ function renderInv() {
     p.bagSlots += 6;
     banner('Bag expanded — ' + p.bagSlots + ' slots!');
     sfx.level(); renderInv(); updateHUD(); saveDirty = true;
+  });
+  $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
+    const idx = fusableGems(p.inv);
+    if (!idx) return;
+    const src = p.inv[idx[0]];
+    // the fused gem keeps the best rarity grade among the three
+    const order = ['common', 'magic', 'rare', 'unique', 'exotic'];
+    const bestRarity = idx.reduce((best, i) =>
+      order.indexOf(p.inv[i].rarity) > order.indexOf(best) ? p.inv[i].rarity : best, 'common');
+    const fused = gemItem(src.g, gemQ(src) + 1, src.lvl, bestRarity);
+    for (let k = idx.length - 1; k >= 0; k--) p.inv.splice(idx[k], 1);
+    p.inv.push(fused);
+    banner('⚗ ' + fused.name + ' — gems fused!');
+    spark(p.x, p.y - 10, GEMS[fused.g].color, 14, 180);
+    sfx.level(); renderInv(); saveDirty = true;
   });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
@@ -3844,7 +4589,11 @@ function showItemPopup(it, ref, equipped) {
         : it.g
           ? gemTargets.map(s => `<button class="smallbtn" data-embed="${s}">◆ ${p.equip[s].name}</button>`).join('') +
             `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
-          : `<button class="smallbtn" data-act="equip">Equip</button>
+          : !SLOTS.includes(it.slot)
+            ? `${it.slot === 'sigil' ? '<button class="smallbtn" data-act="cow">🐄 Use the sigil</button>' : ''}
+               <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
+            : `<button class="smallbtn" data-act="equip">Equip</button>
+             ${G.merc && (it.slot === 'weapon' || it.slot === 'armor') ? '<button class="smallbtn" data-act="merc">🛡 Give to merc</button>' : ''}
              <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
@@ -3889,9 +4638,32 @@ function showItemPopup(it, ref, equipped) {
     } else if (act === 'unequip') {
       if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
       else { p.inv.push(it); p.equip[ref] = null; recalc(); }
+    } else if (act === 'cow') {
+      if (G.dlvl !== 0) {
+        ftext(p.x, p.y - 30, 'The sigil only stirs in town…', '#c9b98a', 12);
+        pop.classList.add('hidden');
+        return;
+      }
+      p.inv.splice(ref, 1);
+      pop.classList.add('hidden');
+      closePanels();
+      spark(p.x, p.y, '#c8281e', 30, 260);
+      enterCowLevel();
+      saveDirty = true;
+      updateHUD();
+      return;
+    } else if (act === 'merc') {
+      const old = G.merc[it.slot];
+      G.merc[it.slot] = it;
+      p.inv.splice(ref, 1);
+      if (old) p.inv.push(old);
+      refreshMercEntity();
+      ftext(p.x, p.y - 30, 'Mercenary takes ' + it.name, rarityColor(it.rarity), 12);
+      sfx.pickup();
     } else if (act === 'sell') {
       p.gold += sellPrice(it);
       p.inv.splice(ref, 1);
+      if (it.slot === 'charm') recalc();
       sfx.gold();
     }
     pop.classList.add('hidden');
@@ -3907,6 +4679,7 @@ function renderPause() {
     <div class="invactions" style="flex-direction:column">
       <button class="smallbtn" data-close>▶ Resume</button>
       <button class="smallbtn" data-snd>${soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF'}</button>
+      <button class="smallbtn" data-music>${musicOn ? '🎵 Music: ON' : '🎵 Music: OFF'}</button>
       <button class="smallbtn" data-autopot>🧪 Auto-Potion: ${G.autoPot > 0 ? 'below ' + Math.round(G.autoPot * 100) + '% life' : 'OFF'}</button>
       <button class="smallbtn" data-autoskill>🤖 Auto-Skills: ${G.autoSkill ? 'ON' : 'OFF'}</button>
       <button class="smallbtn" data-autoequip>⬆ Auto-Equip upgrades: ${G.autoEquip ? 'ON' : 'OFF'}</button>
@@ -3919,6 +4692,7 @@ function renderPause() {
     </div>`;
   $('pausePanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
   $('pausePanel').querySelector('[data-snd]').addEventListener('click', () => { soundOn = !soundOn; saveDirty = true; renderPause(); });
+  $('pausePanel').querySelector('[data-music]').addEventListener('click', () => { musicOn = !musicOn; saveDirty = true; renderPause(); });
   $('pausePanel').querySelector('[data-autopot]').addEventListener('click', () => {
     const steps = [0, 0.25, 0.35, 0.5];
     G.autoPot = steps[(steps.indexOf(G.autoPot) + 1) % steps.length];
@@ -3966,8 +4740,9 @@ function refreshMenu() {
     if (!s) continue;
     const row = document.createElement('div');
     row.className = 'slotrow';
+    const chIcon = s.challenge && challengeOf(s.challenge) ? challengeOf(s.challenge).icon + ' ' : '';
     row.innerHTML = `
-      <button class="slotbtn">▶ ${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
+      <button class="slotbtn">▶ ${s.hardcore ? '☠ ' : ''}${chIcon}${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
         <small>· ${s.dlvl === 0 ? 'town' : 'floor ' + s.dlvl}${s.ng ? ' · NG+' + s.ng : ''} · 🪙${s.gold}</small></button>
       <button class="slotdel" title="Delete hero">✕</button>`;
     row.querySelector('.slotbtn').addEventListener('click', () => { audioInit(); startGame(s.cls, s, i); });
@@ -3982,7 +4757,38 @@ function refreshMenu() {
   const free = firstFreeSlot();
   document.querySelectorAll('.classcard').forEach(c => c.classList.toggle('disabled', free < 0));
   $('slotsFull').classList.toggle('hidden', free >= 0);
+  // trophies earned by finished challenge runs
+  const badges = loadBadges();
+  const tr = $('trophies');
+  tr.classList.toggle('hidden', !badges.length);
+  if (badges.length) {
+    tr.innerHTML = '<div class="pick">— trophies —</div>' + badges.map(b => {
+      const ch = challengeOf(b.challenge);
+      return ch ? `<div class="graverow">🏆 ${ch.icon} ${ch.name} <small>· ${CLASSES[b.cls] ? CLASSES[b.cls].name : '?'} Lv.${b.level}${b.hardcore ? ' ☠' : ''}</small></div>` : '';
+    }).join('');
+  }
+  // graveyard of fallen hardcore heroes
+  const graves = loadGraves();
+  const gy = $('graveyard');
+  gy.classList.toggle('hidden', !graves.length);
+  if (graves.length) {
+    gy.innerHTML = '<div class="pick">— graveyard —</div>' + graves.slice(0, 6).map(g =>
+      `<div class="graverow">🪦 ${CLASSES[g.cls] ? CLASSES[g.cls].icon + ' ' + CLASSES[g.cls].name : '?'} Lv.${g.level}
+       <small>fell on floor ${g.dlvl}${g.ng ? ' · NG+' + g.ng : ''}</small></div>`).join('');
+  }
 }
+$('hcToggle').addEventListener('click', () => {
+  hardcoreNext = !hardcoreNext;
+  $('hcToggle').textContent = hardcoreNext ? '☠ Hardcore: ON — death is forever' : '☠ Hardcore: OFF';
+  $('hcToggle').style.color = hardcoreNext ? '#ff8a7a' : '';
+});
+$('chToggle').addEventListener('click', () => {
+  const i = CHALLENGES.findIndex(c => c.id === challengeNext);
+  const next = i + 1 < CHALLENGES.length ? CHALLENGES[i + 1] : null;   // …last one wraps to OFF
+  challengeNext = next ? next.id : null;
+  $('chToggle').textContent = next ? `🏆 ${next.icon} ${next.name} — ${next.desc}` : '🏆 Challenge: OFF';
+  $('chToggle').style.color = next ? '#e8d45a' : '';
+});
 
 /* ---------------- input ---------------- */
 const pointer = { down: false, drag: false, x: 0, y: 0, sx: 0, sy: 0, t: 0 };
@@ -4030,6 +4836,12 @@ cvs.addEventListener('pointerup', e => {
   if (G.lvl.stash && dist(w.x, w.y, G.lvl.stash.x, G.lvl.stash.y) < 44) {
     if (dist(p.x, p.y, G.lvl.stash.x, G.lvl.stash.y) < 95) togglePanel('stashPanel');
     else setMoveTarget(G.lvl.stash.x, G.lvl.stash.y + 34);
+    return;
+  }
+  // rift obelisk?
+  if (G.lvl.obelisk && dist(w.x, w.y, G.lvl.obelisk.x, G.lvl.obelisk.y - 16) < 48) {
+    if (dist(p.x, p.y, G.lvl.obelisk.x, G.lvl.obelisk.y) < 95) togglePanel('riftPanel');
+    else setMoveTarget(G.lvl.obelisk.x, G.lvl.obelisk.y + 34);
     return;
   }
   // stable?
@@ -4126,6 +4938,7 @@ $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
 $('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
 $('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
 $('btnRespawn').addEventListener('click', () => {
+  if (G && G.hardcoreDead) { toMenu(); return; }
   const p = G.p;
   p.hp = G.d.maxHp * 0.6; p.mp = G.d.maxMp * 0.6;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
@@ -4163,6 +4976,7 @@ function frame(now) {
   try {
     if (G && !paused && !anyPanelOpen()) update(dt);
     render();
+    musicTick();
   } catch (err) {
     console.error(err);
   }
@@ -4175,4 +4989,10 @@ window.addEventListener('pagehide', saveGame);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
 
 /* expose for debugging / tests */
-window.__sanctuary = { get G() { return G; }, startGame, CLASSES, MTYPES, makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false) };
+window.__sanctuary = {
+  get G() { return G; }, startGame, CLASSES, MTYPES,
+  makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false),
+  enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
+  killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES,
+  CHALLENGES, showVictory, loadBadges,
+};
