@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.13.0';
+const SANCTUARY_VERSION = '1.14.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.14.0', date: '2026-07-16', title: 'Doors answer to a tap',
+    notes: [
+      'Stairs and doors now activate only when you tap them — walking over them never whisks you away mid-fight',
+      'Climbing back up lands you beside the previous floor\'s down-door, not back at its entrance',
+    ],
+  },
   {
     v: '1.13.0', date: '2026-07-16', title: 'Set grades, visible & fusable',
     notes: [
