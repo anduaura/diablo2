@@ -43,9 +43,13 @@ python3 -m http.server 8000
 - **4 classes** — Warrior (melee bruiser), Sorceress (fire & frost),
   Huntress (bow volleys), Necromancer (skeletal army), each with four
   skills, two passives, and skill points to rank them up (respec for gold)
-- **Endless procedurally generated dungeon** — five themed worlds, rooms,
-  corridors, torch-lit darkness, fog-of-war minimap; every 5th floor holds
-  a **boss** who seals the stairs until slain
+- **Five themed worlds** — each with its own construction (meadow &
+  fieldstone, ice blocks & icicles, basalt & lava seams, bone catacombs,
+  coral & wet sand), each a 5-floor section ending in a **boss**; conquer
+  a world to unlock the next realm's **gate** in town
+- **A living town** — merchant, stash, stable, rift obelisk, five world
+  gates, and townsfolk: Elder Maro trades lore & hints, Sister Amara
+  heals for free and sells blessings for the road
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
