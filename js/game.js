@@ -834,6 +834,7 @@ function saveGame() {
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
       waypoints: G.waypoints, deepest: G.deepest,
+      autoPot: G.autoPot, autoSkill: G.autoSkill,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -855,6 +856,8 @@ function startGame(clsId, save) {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
     beams: [], meteors: [], clouds: [], time: 0, mmT: 0, tier: 0, shakeT: 0, onWp: false,
     waypoints: (save && save.waypoints) || [], deepest: (save && save.deepest) || 1,
+    autoPot: save && save.autoPot !== undefined ? save.autoPot : 0.35,
+    autoSkill: !!(save && save.autoSkill), autoPotT: 0, autoSkillT: 0,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -864,6 +867,7 @@ function startGame(clsId, save) {
   $('deathScreen').classList.add('hidden');
   $('topbar').classList.remove('hidden');
   $('hud').classList.remove('hidden');
+  $('btnAuto').classList.toggle('on', G.autoSkill);
   buildSkillbar(); updateHUD(); updateBadge();
   paused = false;
 }
@@ -885,6 +889,35 @@ function update(dt) {
 
   p.rageT = Math.max(0, p.rageT - dt);
   p.spinT = Math.max(0, p.spinT - dt);
+
+  // auto-potion: drink when life falls under the chosen threshold
+  G.autoPotT = Math.max(0, (G.autoPotT || 0) - dt);
+  if (G.autoPot > 0 && p.hp / d.maxHp < G.autoPot && p.potions.hp > 0 && G.autoPotT <= 0) {
+    G.autoPotT = 1.2;
+    drinkPotion('hp');
+    ftext(p.x, p.y - 42, 'auto potion', '#ff8a7a', 11);
+  }
+
+  // auto-skills: cast whatever is ready when enemies are in range
+  if (G.autoSkill) {
+    G.autoSkillT = Math.max(0, (G.autoSkillT || 0) - dt);
+    if (G.autoSkillT <= 0) {
+      const ranges = { cleave: 110, warcry: 130, whirlwind: 115, rage: 220, fireball: 320, frostnova: 140, chain: 300, meteor: 300, multishot: 320, skewer: 320, poisoncloud: 240, strafe: 350 };
+      const cc = CLASSES[p.cls];
+      for (let i = 0; i < 4; i++) {
+        const sk = cc.skills[i];
+        if (p.level < (sk.lvl || 1) || p.cd[i] > 0 || p.mp < sk.mana) continue;
+        if (sk.id === 'rage' && p.rageT > 0) continue;
+        const R = ranges[sk.id] || 300;
+        const tgt = (p.target && p.target.hp > 0 && dist(p.x, p.y, p.target.x, p.target.y) < R + p.target.r)
+          ? p.target : nearestMonster(p.x, p.y, R);
+        if (!tgt) continue;
+        castSkill(i);
+        G.autoSkillT = 0.35;
+        break;
+      }
+    }
+  }
 
   // strafe: rapid-fire auto-aimed arrows
   if (p.strafeN > 0) {
@@ -2463,6 +2496,8 @@ function renderPause() {
     <div class="invactions" style="flex-direction:column">
       <button class="smallbtn" data-close>▶ Resume</button>
       <button class="smallbtn" data-snd>${soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF'}</button>
+      <button class="smallbtn" data-autopot>🧪 Auto-Potion: ${G.autoPot > 0 ? 'below ' + Math.round(G.autoPot * 100) + '% life' : 'OFF'}</button>
+      <button class="smallbtn" data-autoskill>🤖 Auto-Skills: ${G.autoSkill ? 'ON' : 'OFF'}</button>
       <button class="smallbtn" data-quit>💾 Save & Main Menu</button>
       <button class="smallbtn" data-newchar style="color:#ff8a7a">☠ Abandon Hero (new character)</button>
     </div>
@@ -2471,6 +2506,16 @@ function renderPause() {
     </div>`;
   $('pausePanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
   $('pausePanel').querySelector('[data-snd]').addEventListener('click', () => { soundOn = !soundOn; saveDirty = true; renderPause(); });
+  $('pausePanel').querySelector('[data-autopot]').addEventListener('click', () => {
+    const steps = [0, 0.25, 0.35, 0.5];
+    G.autoPot = steps[(steps.indexOf(G.autoPot) + 1) % steps.length];
+    saveDirty = true; renderPause();
+  });
+  $('pausePanel').querySelector('[data-autoskill]').addEventListener('click', () => {
+    G.autoSkill = !G.autoSkill;
+    $('btnAuto').classList.toggle('on', G.autoSkill);
+    saveDirty = true; renderPause();
+  });
   $('pausePanel').querySelector('[data-quit]').addEventListener('click', () => { saveGame(); toMenu(); });
   $('pausePanel').querySelector('[data-newchar]').addEventListener('click', () => {
     if (confirm('Abandon this hero forever? Your save will be deleted.')) {
@@ -2573,6 +2618,14 @@ $('btnSkill3').addEventListener('pointerdown', e => { e.preventDefault(); audioI
 $('btnSkill4').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); castSkill(3); });
 $('btnHpPot').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); drinkPotion('hp'); });
 $('btnMpPot').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); drinkPotion('mp'); });
+$('btnAuto').addEventListener('click', () => {
+  if (!G) return;
+  audioInit();
+  G.autoSkill = !G.autoSkill;
+  $('btnAuto').classList.toggle('on', G.autoSkill);
+  banner(G.autoSkill ? 'Auto-skills ON' : 'Auto-skills OFF');
+  saveDirty = true;
+});
 $('btnInv').addEventListener('click', () => togglePanel('invPanel'));
 $('btnChar').addEventListener('click', () => togglePanel('charPanel'));
 $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
