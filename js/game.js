@@ -124,8 +124,38 @@ const CLASSES = {
       { id: 'golem', name: 'Bone Golem', icon: '🗿', mana: 25, cd: 10, lvl: 12, desc: 'Summon a hulking golem to tank for you' }],
   },
 };
-/* companion pets — the necromancer's companions are his minions */
-const PETS = { warrior: 'hound', sorceress: 'familiar', huntress: 'hawk', necromancer: null };
+/* companion pets: six species from humble hound to DRAGON. Each pet also
+   rolls a rarity grade (like items) that scales its random aura buffs and
+   combat power. Only one travels with you; the rest wait at the stable. */
+const PET_SPECIES = [
+  { id: 'hound', name: 'Hound', icon: '🐕', price: 300, dmgMult: 0.3, kind: 'melee' },
+  { id: 'wolf', name: 'Dire Wolf', icon: '🐺', price: 1200, dmgMult: 0.45, kind: 'melee' },
+  { id: 'hawk', name: 'Hawk', icon: '🦅', price: 2500, dmgMult: 0.55, kind: 'fly' },
+  { id: 'familiar', name: 'Arcane Familiar', icon: '🔮', price: 5000, dmgMult: 0.65, kind: 'ranged' },
+  { id: 'drake', name: 'Ember Drake', icon: '🐉', price: 12000, dmgMult: 0.8, kind: 'rangedfly' },
+  { id: 'dragon', name: 'Dragon', icon: '🐲', price: 30000, dmgMult: 1.1, kind: 'dragon' },
+];
+const PET_RARITIES = ['common', 'magic', 'rare', 'unique', 'exotic'];
+const STARTER_PET = { warrior: 0, sorceress: 3, huntress: 2, necromancer: -1 };
+function rollPetRarity() {
+  const r = Math.random();
+  return r < 0.05 ? 'exotic' : r < 0.15 ? 'unique' : r < 0.4 ? 'rare' : r < 0.75 ? 'magic' : 'common';
+}
+function makePetData(spIdx, rarity) {
+  const sp = PET_SPECIES[spIdx];
+  const rIdx = PET_RARITIES.indexOf(rarity);
+  const nMods = [1, ri(1, 2), ri(2, 3), 3, 4][rIdx];
+  const mult = [0.7, 1, 1.3, 1.7, 2.2][rIdx];
+  const ilvl = 2 + spIdx * 4;   // exotic species roll bigger buffs
+  const mods = {}, used = new Set();
+  for (let i = 0; i < nMods; i++) {
+    const a = choice(AFFIXES);
+    if (used.has(a.stat)) continue;
+    used.add(a.stat);
+    mods[a.stat] = (mods[a.stat] || 0) + Math.max(1, Math.round(a.roll(ilvl) * mult));
+  }
+  return { sp: spIdx, rarity, mods, price: Math.round(sp.price * (1 + rIdx * 0.6)) };
+}
 
 /* ---------------- monster data ---------------- */
 const MTYPES = [
@@ -255,7 +285,9 @@ let saveDirty = false;
 
 function newPlayer(clsId) {
   const c = CLASSES[clsId];
+  const starter = STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : [];
   return {
+    pets: starter, activePet: starter.length ? 0 : -1,
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
     stats: { ...c.base },
@@ -282,6 +314,9 @@ function derived(p) {
     const rw = runewordOf(it);
     if (rw) for (const k in rw.mods) m[k] = (m[k] || 0) + rw.mods[k];
   }
+  // active companion's aura buffs the hero
+  const actPet = p.pets && p.pets[p.activePet];
+  if (actPet) for (const k in actPet.mods) m[k] = (m[k] || 0) + actPet.mods[k];
   // set bonuses: each threshold up to the worn count applies
   const setCount = {};
   for (const s of SLOTS) {
@@ -465,6 +500,8 @@ function genTown() {
     exitTile: { x: R.x + R.w - 2, y: R.cy },
     vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
     stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
+    stable: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + 8) * TILE + TILE / 2 },
+    petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     shopStock,
   };
 }
@@ -1048,9 +1085,9 @@ function makeMinion(kind) {
     off: { x: rand(-30, 30), y: rand(-22, 22) },
   };
 }
-function makePet(kind) {
+function spawnPet(data) {
   const p = G.p;
-  return { isPet: true, kind, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
+  return { isPet: true, kind: PET_SPECIES[data.sp].id, data, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
 }
 function hurtMinion(mi, dmg) {
   mi.hp -= dmg; mi.hurtT = 0.15;
@@ -1114,12 +1151,15 @@ function updateMinions(dt) {
 function updatePet(dt) {
   const pet = G.pet, p = G.p;
   if (!pet) return;
+  const def = PET_SPECIES[pet.data.sp];
+  const rIdx = PET_RARITIES.indexOf(pet.data.rarity);
   pet.atkT -= dt;
   pet.swingT = Math.max(0, pet.swingT - dt);
-  const flying = pet.kind !== 'hound';
-  const spd = 210;
+  const flying = def.kind !== 'melee';
+  const isRanged = def.kind === 'ranged' || def.kind === 'rangedfly' || def.kind === 'dragon';
+  const spd = 210 + rIdx * 12;
   // nearest monster near the hero
-  let best = null, bd = pet.kind === 'familiar' ? 240 : 150;
+  let best = null, bd = isRanged ? 240 : 150;
   for (const m of G.lvl.monsters) {
     if (m.hp <= 0 || !m.aggro) continue;
     if (dist(p.x, p.y, m.x, m.y) > 300) continue;
@@ -1128,17 +1168,24 @@ function updatePet(dt) {
   }
   if (best) {
     pet.dir = Math.atan2(best.y - pet.y, best.x - pet.x);
-    const atkRange = pet.kind === 'familiar' ? 190 : best.r + 22;
+    const atkRange = isRanged ? 190 : best.r + 22;
     if (bd < atkRange) {
       if (pet.atkT <= 0) {
         pet.atkT = 1.15; pet.swingT = 0.2;
-        const dmg = Math.max(1, Math.round(playerAtk() * 0.3));
-        if (pet.kind === 'familiar') {
+        const dmg = Math.max(1, Math.round(playerAtk() * def.dmgMult * (1 + 0.15 * rIdx)));
+        if (def.kind === 'dragon') {
+          shoot(pet.x, pet.y - 22, pet.dir, 380, dmg, 'p', { kind: 'fireball', r: 5, aoe: 48 });
+          sfx.fire();
+        } else if (def.kind === 'rangedfly') {
+          shoot(pet.x, pet.y - 18, pet.dir, 430, dmg, 'p', { kind: 'fire', r: 3.5, color: '#ff9a4a' });
+          sfx.shoot();
+        } else if (def.kind === 'ranged') {
           shoot(pet.x, pet.y - 14, pet.dir, 420, dmg, 'p', { kind: 'fire', r: 3.5, color: '#b8a4ff' });
+          sfx.shoot();
         } else {
           hitMonster(best, dmg, { noCrit: true, noLeech: true });
+          sfx.hit();
         }
-        sfx.hit();
       }
       if (!flying) return;
     }
@@ -1191,7 +1238,8 @@ function enterLevel(dlvl, fresh) {
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
-  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const actPet = G.p.pets && G.p.pets[G.p.activePet];
+  G.pet = actPet ? spawnPet(actPet) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null;
@@ -1237,6 +1285,7 @@ function saveGame() {
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24,
+      pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1248,6 +1297,9 @@ function startGame(clsId, save, slot) {
       level: save.level, xp: save.xp, statPts: save.statPts, gold: save.gold,
       stats: save.stats, equip: save.equip, inv: save.inv || [], potions: save.potions,
       deaths: save.deaths || 0, bagSlots: save.bagSlots || 24,
+      pets: save.pets || (STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : []),
+      activePet: save.pets ? (save.activePet !== undefined ? save.activePet : -1)
+        : (STARTER_PET[clsId] >= 0 ? 0 : -1),
     });
     soundOn = save.soundOn !== false;
   }
@@ -1967,9 +2019,10 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
 
-  /* town vendor & stash trunk */
+  /* town vendor, stash trunk & stable */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
+  if (G.lvl.stable) drawStable(G.lvl.stable);
 
   /* entities sorted by y */
   const ents = [];
@@ -2120,6 +2173,7 @@ function drawLights() {
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
+  if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -2873,31 +2927,87 @@ function drawPet(pet) {
   const t = G.time;
   const bob = Math.sin(t * 3 + 1) * 1.2;
   const face = Math.cos(pet.dir) >= 0 ? 1 : -1;
-  if (pet.kind === 'hound') {
+  // rare+ companions glow with their grade's color
+  const rIdx = pet.data ? PET_RARITIES.indexOf(pet.data.rarity) : 0;
+  if (rIdx >= 2) {
+    ctx.strokeStyle = hexA(rarityColor(pet.data.rarity), 0.35 + Math.sin(t * 3) * 0.12);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 15, 5.5, 0, 0, 7); ctx.stroke();
+  }
+  if (pet.kind === 'hound' || pet.kind === 'wolf') {
+    const wolf = pet.kind === 'wolf';
+    const cBody = wolf ? '#78828e' : '#6a5238', cDark = wolf ? '#4e5762' : '#3a2c1c', cLeg = wolf ? '#565f6a' : '#4a3826';
+    const s = wolf ? 1.18 : 1;
     ctx.fillStyle = '#00000060';
-    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11, 4, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 11 * s, 4 * s, 0, 0, 7); ctx.fill();
     ctx.save();
     ctx.translate(pet.x, pet.y);
-    ctx.scale(face, 1);
-    const trot = Math.sin(t * 10);
-    ctx.strokeStyle = '#4a3826'; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    ctx.scale(face * s, s);
+    ctx.strokeStyle = cLeg; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
     for (const [lx, ph] of [[-6, 0], [-3, 2], [3, 1], [6, 3]]) {
       ctx.beginPath(); ctx.moveTo(lx, 2); ctx.lineTo(lx + Math.sin(t * 10 + ph) * 2.5, 8); ctx.stroke();
     }
-    ctx.fillStyle = '#6a5238';   // body
+    ctx.fillStyle = cBody;   // body
     ctx.beginPath(); ctx.ellipse(0, 0 + bob * 0.3, 9.5, 5.5, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#6a5238'; ctx.lineWidth = 2.2;   // wagging tail
+    ctx.strokeStyle = cBody; ctx.lineWidth = wolf ? 3 : 2.2;   // tail
     ctx.beginPath(); ctx.moveTo(-9, -2);
     ctx.quadraticCurveTo(-13, -6 + Math.sin(t * 8) * 2, -15, -4 + Math.sin(t * 8) * 3); ctx.stroke();
-    ctx.fillStyle = '#6a5238';   // head + snout
+    ctx.fillStyle = cBody;   // head + snout
     ctx.beginPath(); ctx.arc(9, -4 + bob * 0.3, 4.6, 0, 7); ctx.fill();
     ctx.fillRect(11, -4 + bob * 0.3, 5, 3.2);
-    ctx.fillStyle = '#3a2c1c';   // nose + ear
+    ctx.fillStyle = cDark;   // nose + ear
     ctx.fillRect(15, -3.6 + bob * 0.3, 1.8, 2);
     ctx.beginPath(); ctx.moveTo(7, -8); ctx.lineTo(9, -11.5); ctx.lineTo(10.5, -7.6); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#ffd76a';
+    if (wolf) { ctx.beginPath(); ctx.moveTo(4.5, -8.4); ctx.lineTo(6, -11.8); ctx.lineTo(7.8, -7.9); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle = wolf ? '#9adcff' : '#ffd76a';
     ctx.fillRect(9.6, -5.6 + bob * 0.3, 1.6, 1.6);
     ctx.restore();
+  } else if (pet.kind === 'drake' || pet.kind === 'dragon') {
+    const drg = pet.kind === 'dragon';
+    const s = drg ? 1.45 : 1;
+    const fy = pet.y - (drg ? 34 : 24) + bob * 2;
+    ctx.fillStyle = '#00000044';
+    ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 6, 10 * s, 3.5 * s, 0, 0, 7); ctx.fill();
+    ctx.save();
+    ctx.translate(pet.x, fy);
+    ctx.scale(face * s, s);
+    const flap = Math.sin(t * (drg ? 8 : 11));
+    const cBody = drg ? '#a32430' : '#c86a30', cWing = drg ? '#701420' : '#8a4520', cBelly = drg ? '#e8c05a' : '#e8a05a';
+    for (const sd of [-1, 1]) {   // membrane wings
+      ctx.fillStyle = cWing;
+      ctx.beginPath();
+      ctx.moveTo(sd * 2, -1);
+      ctx.quadraticCurveTo(sd * 9, -8 - flap * 6, sd * 17, -4 - flap * 9);
+      ctx.lineTo(sd * 12, -1 - flap * 4);
+      ctx.lineTo(sd * 15, 1 - flap * 5);
+      ctx.lineTo(sd * 8, 1.5 - flap * 2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.strokeStyle = cBody; ctx.lineWidth = 3;   // tail with arrow tip
+    ctx.beginPath(); ctx.moveTo(-6, 1);
+    ctx.quadraticCurveTo(-12, 3 + Math.sin(t * 5) * 2, -16, 1 + Math.sin(t * 5) * 3); ctx.stroke();
+    ctx.fillStyle = cBody;
+    ctx.beginPath();
+    ctx.moveTo(-15, 1 + Math.sin(t * 5) * 3); ctx.lineTo(-19, -1 + Math.sin(t * 5) * 3); ctx.lineTo(-18, 4 + Math.sin(t * 5) * 3);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = cBody;   // body
+    ctx.beginPath(); ctx.ellipse(0, 0, 7.5, 5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cBelly;
+    ctx.beginPath(); ctx.ellipse(1, 2, 5, 2.6, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cBody;   // neck + head + snout
+    ctx.beginPath(); ctx.ellipse(7.5, -4, 3.4, 2.8, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10.5, -6.5, 3.4, 0, 7); ctx.fill();
+    ctx.fillRect(12, -7, 5, 2.8);
+    ctx.strokeStyle = cBelly; ctx.lineWidth = 1.4;   // horns
+    ctx.beginPath(); ctx.moveTo(9.5, -9.5); ctx.lineTo(8, -12.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11.5, -9.5); ctx.lineTo(11, -13); ctx.stroke();
+    ctx.fillStyle = drg ? '#ffe14d' : '#ffd76a';
+    ctx.fillRect(10, -7.6, 1.7, 1.7);
+    ctx.restore();
+    // smoke & sparks from the dragon's snout
+    if (drg && Math.random() < 0.18) {
+      G.parts.push({ x: pet.x + 16 * face, y: fy - 8, vx: face * rand(8, 20), vy: rand(-14, -4), r: rand(1.5, 2.6), color: Math.random() < 0.6 ? '#ff8a3a' : '#ffd27a', life: rand(0.3, 0.55), glow: true });
+    }
   } else if (pet.kind === 'hawk') {
     const fly = pet.y - 26 + bob * 2;
     ctx.fillStyle = '#00000044';
@@ -2988,6 +3098,39 @@ function drawChest(ch) {
     ctx.fillStyle = '#ffd76a';
     ctx.fillRect(ch.x - 1.5, ch.y - 4, 3, 4);
   }
+}
+
+function drawStable(st) {
+  const t = G.time;
+  // straw floor patch
+  ctx.fillStyle = '#8a7a3c44';
+  ctx.beginPath(); ctx.ellipse(st.x, st.y + 4, 42, 20, 0, 0, 7); ctx.fill();
+  // fence: posts + rails on three sides
+  ctx.strokeStyle = '#6a4a2c'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  const posts = [[-44, -18], [-44, 14], [0, -22], [44, -18], [44, 14]];
+  for (const [dx, dy] of posts) {
+    ctx.beginPath(); ctx.moveTo(st.x + dx, st.y + dy); ctx.lineTo(st.x + dx, st.y + dy - 14); ctx.stroke();
+  }
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(st.x - 44, st.y - 26); ctx.lineTo(st.x, st.y - 30); ctx.lineTo(st.x + 44, st.y - 26); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(st.x - 44, st.y + 6); ctx.lineTo(st.x - 44, st.y - 24); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(st.x + 44, st.y + 6); ctx.lineTo(st.x + 44, st.y - 24); ctx.stroke();
+  // idle companions wait in the pen
+  const p = G.p;
+  let k = 0;
+  for (let i = 0; i < p.pets.length && k < 3; i++) {
+    if (i === p.activePet) continue;
+    const pet = p.pets[i];
+    drawPet({
+      isPet: true, kind: PET_SPECIES[pet.sp].id, data: pet,
+      x: st.x - 24 + k * 26, y: st.y - 4 + (k % 2) * 10,
+      dir: k % 2 ? Math.PI : 0, atkT: 0, swingT: 0,
+    });
+    k++;
+  }
+  ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🐾 Stable', st.x, st.y - 42);
 }
 
 function drawTrunk(s) {
@@ -3114,10 +3257,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'stablePanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -3131,8 +3274,66 @@ function togglePanel(id) {
     if (id === 'wpPanel') renderWp();
     if (id === 'shopPanel') renderShop();
     if (id === 'stashPanel') renderStash();
+    if (id === 'stablePanel') renderStable();
     paused = true;
   }
+}
+
+function renderStable() {
+  const p = G.p;
+  const modTxt = pet => Object.keys(pet.mods).map(k => { const a = AFFIXES.find(a => a.stat === k); return a ? a.txt(pet.mods[k]) : ''; }).filter(Boolean).join(' · ') || 'no blessings';
+  const own = p.pets.map((pet, i) => `
+    <div class="shoprow">
+      <span class="sicon2">${PET_SPECIES[pet.sp].icon}</span>
+      <span class="snm"><span class="rc-${pet.rarity}">${PET_SPECIES[pet.sp].name}</span>${i === p.activePet ? ' <span style="color:#7adf6a">● with you</span>' : ''}<br><small>${modTxt(pet)}</small></span>
+      ${i === p.activePet ? '' : `<button class="smallbtn" data-summon="${i}">Take</button>`}
+      <button class="smallbtn" data-sellpet="${i}" title="Sell">${Math.round(pet.price / 3)}g</button>
+    </div>`).join('');
+  const stock = (G.lvl.petStock || []).map((pet, i) => pet ? `
+    <div class="shoprow">
+      <span class="sicon2">${PET_SPECIES[pet.sp].icon}</span>
+      <span class="snm"><span class="rc-${pet.rarity}">${PET_SPECIES[pet.sp].name}</span><br><small>${modTxt(pet)}</small></span>
+      <button class="smallbtn" data-buypet="${i}" ${p.gold < pet.price || p.pets.length >= 8 ? 'disabled' : ''}>${pet.price}g</button>
+    </div>` : '').join('');
+  $('stablePanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🐾 Stable · 🪙 ${p.gold}</div>
+    <div class="ptitle" style="font-size:14px; border:none; margin:0; padding:0">Your companions · ${p.pets.length}/8</div>
+    ${own || '<div class="derived" style="text-align:center">No companions yet.</div>'}
+    <div class="ptitle" style="font-size:14px; border:none; margin:8px 0 0; padding:0">For sale (fresh per visit)</div>
+    ${stock || '<div class="derived" style="text-align:center">Sold out.</div>'}
+    <div class="derived" style="text-align:center">Only one companion travels with you — the rest wait here.<br>Grander beasts carry grander blessings.</div>`;
+  $('stablePanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('stablePanel').querySelectorAll('[data-summon]').forEach(b => b.addEventListener('click', () => {
+    p.activePet = +b.dataset.summon;
+    recalc();
+    G.pet = spawnPet(p.pets[p.activePet]);
+    banner(PET_SPECIES[p.pets[p.activePet].sp].name + ' joins you!');
+    sfx.pickup(); saveDirty = true; renderStable(); updateHUD();
+  }));
+  $('stablePanel').querySelectorAll('[data-sellpet]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.sellpet;
+    if (!confirm('Sell your ' + PET_SPECIES[p.pets[i].sp].name + ' for ' + Math.round(p.pets[i].price / 3) + ' gold?')) return;
+    p.gold += Math.round(p.pets[i].price / 3);
+    p.pets.splice(i, 1);
+    if (p.activePet === i) { p.activePet = -1; G.pet = null; }
+    else if (p.activePet > i) p.activePet--;
+    recalc(); sfx.gold(); saveDirty = true; renderStable(); updateHUD();
+  }));
+  $('stablePanel').querySelectorAll('[data-buypet]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.buypet, pet = G.lvl.petStock[i];
+    if (!pet || p.gold < pet.price || p.pets.length >= 8) return;
+    p.gold -= pet.price;
+    p.pets.push(pet);
+    G.lvl.petStock[i] = null;
+    if (p.activePet < 0) {
+      p.activePet = p.pets.length - 1;
+      G.pet = spawnPet(pet);
+    }
+    recalc();
+    banner(PET_SPECIES[pet.sp].name + ' purchased!');
+    sfx.level(); saveDirty = true; renderStable(); updateHUD();
+  }));
 }
 
 function renderStash() {
@@ -3250,6 +3451,9 @@ function renderChar() {
       Magic Find: <b>+${d.mf}%</b> · Life Steal: <b>${Math.round(d.leech * 100)}%</b><br>
       ${(d.fire + d.cold + d.light + d.poison) > 0
         ? 'Elemental: <b>' + [d.fire ? '🔥' + d.fire : '', d.cold ? '❄️' + d.cold : '', d.light ? '⚡' + d.light : '', d.poison ? '☠️' + d.poison : ''].filter(Boolean).join(' ') + '</b><br>'
+        : ''}
+      ${p.pets && p.pets[p.activePet]
+        ? `Companion: <b class="rc-${p.pets[p.activePet].rarity}">${PET_SPECIES[p.pets[p.activePet].sp].icon} ${PET_SPECIES[p.pets[p.activePet].sp].name}</b><br>`
         : ''}
       Experience: <b>${p.xp} / ${xpNext(p.level)}</b> · Deaths: <b>${p.deaths}</b>
     </div>`;
@@ -3577,6 +3781,12 @@ cvs.addEventListener('pointerup', e => {
   if (G.lvl.stash && dist(w.x, w.y, G.lvl.stash.x, G.lvl.stash.y) < 44) {
     if (dist(p.x, p.y, G.lvl.stash.x, G.lvl.stash.y) < 95) togglePanel('stashPanel');
     else setMoveTarget(G.lvl.stash.x, G.lvl.stash.y + 34);
+    return;
+  }
+  // stable?
+  if (G.lvl.stable && dist(w.x, w.y, G.lvl.stable.x, G.lvl.stable.y) < 55) {
+    if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
+    else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
     return;
   }
   // drop?
