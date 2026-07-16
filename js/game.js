@@ -171,14 +171,32 @@ const GEMS = {
   emerald: { name: 'Emerald', icon: '🟢', color: '#4ad46a', stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s` },
   skull: { name: 'Skull', icon: '💀', color: '#cfc9b8', stat: 'leech', txt: v => `${v}% Life Steal` },
 };
-function makeGem(ilvl) {
-  const k = choice(Object.keys(GEMS));
-  const q = ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2;
+function gemItem(k, q, ilvl) {
   const v = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
   return {
-    slot: 'gem', g: k, v, icon: GEMS[k].icon, rarity: 'magic', mods: {},
+    slot: 'gem', g: k, q, v, icon: GEMS[k].icon, rarity: 'magic', mods: {},
     name: ['Chipped ', '', 'Flawless '][q] + GEMS[k].name, base: 'gem', lvl: ilvl,
   };
+}
+function makeGem(ilvl) {
+  return gemItem(choice(Object.keys(GEMS)), ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2, ilvl);
+}
+/* quality tier of a gem; older saves lack .q so fall back to the name */
+function gemQ(it) {
+  if (it.q !== undefined) return it.q;
+  return it.name.startsWith('Chipped') ? 0 : it.name.startsWith('Flawless') ? 2 : 1;
+}
+/* first triple of same-kind, same-quality gems below Flawless in the bag */
+function fusableGems(inv) {
+  const groups = {};
+  for (let i = 0; i < inv.length; i++) {
+    const it = inv[i];
+    if (!it.g || gemQ(it) >= 2) continue;
+    const key = it.g + ':' + gemQ(it);
+    (groups[key] = groups[key] || []).push(i);
+    if (groups[key].length === 3) return groups[key];
+  }
+  return null;
 }
 /* two full sockets with matching gems awaken a runeword (either order) */
 const RUNEWORDS = {
@@ -3333,6 +3351,7 @@ function renderInv() {
       <button class="smallbtn" data-buy="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-buy="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
+      <button class="smallbtn" data-fuse ${fusableGems(p.inv) ? '' : 'disabled'} title="Combine 3 matching gems into 1 of the next quality">⚗ Fuse 3 gems</button>
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
@@ -3360,6 +3379,17 @@ function renderInv() {
     p.bagSlots += 6;
     banner('Bag expanded — ' + p.bagSlots + ' slots!');
     sfx.level(); renderInv(); updateHUD(); saveDirty = true;
+  });
+  $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
+    const idx = fusableGems(p.inv);
+    if (!idx) return;
+    const src = p.inv[idx[0]];
+    const fused = gemItem(src.g, gemQ(src) + 1, src.lvl);
+    for (let k = idx.length - 1; k >= 0; k--) p.inv.splice(idx[k], 1);
+    p.inv.push(fused);
+    banner('⚗ ' + fused.name + ' — gems fused!');
+    spark(p.x, p.y - 10, GEMS[fused.g].color, 14, 180);
+    sfx.level(); renderInv(); saveDirty = true;
   });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
