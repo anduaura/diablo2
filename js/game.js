@@ -851,9 +851,29 @@ function genTown() {
       w: i, x: (R.x + 2.5 + i * 3.5) * TILE, y: R.y * TILE + TILE * 0.9,
     })),
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
+    npcs: [
+      { id: 'elder', x: (R.x + 15) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
+      { id: 'healer', x: (R.x + 2) * TILE + TILE / 2, y: (R.y + 4) * TILE + TILE / 2 },
+    ],
     shopStock,
   };
 }
+
+/* ---------------- town folk ---------------- */
+const ELDER_LINES = [
+  'The gates to the north answer only to conquest. Fell a realm\'s tyrant, and the next realm opens.',
+  'Two matching gems seated in full sockets may whisper a runeword. The old smiths knew dozens.',
+  'Charms work their magic from inside your bag — but they hoard the space you\'d keep loot in.',
+  'Fuse three lesser gems and they become one, finer. The merchant taught me that trick, for a fee.',
+  'The tyrants below sometimes carry a bovine sigil. Use it here in town. Don\'t ask what I saw.',
+  'The violet obelisk tears open rifts. Beat the sand-clock and the next tier will open to you.',
+  'Feed your mercenary good steel and mail. He fights harder than he haggles.',
+  'Champions burn, freeze, storm and drink blood. Read their glow before you charge in.',
+  'Ranks make a skill mighty; passives make the hero. Spend your points, child.',
+  'Sister Amara mends wounds for nothing. Her blessings, though, cost coin — the light runs a ledger.',
+  'I once knew a hero who hoarded every potion. The graveyard lists them alphabetically.',
+  'They say the deepest gate leads back to the beginning, only crueler. NG+, the scholars call it.',
+];
 
 /* ---------------- shared town stash ---------------- */
 const STASH_KEY = 'sanctuary_stash';
@@ -1876,6 +1896,12 @@ function enterLevel(dlvl, fresh) {
     $('floorLabel').textContent = tierName + ' · ' + dlvl + (G.ng ? ' · NG+' + G.ng : '');
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
+    if (G.blessPending) {   // Amara's blessing kicks in past the gate
+      G.buffDmg = G.buffArmor = G.blessPending;
+      G.blessPending = 0;
+      spark(p.x, p.y - 10, '#ffd76a', 20, 200);
+      ftext(p.x, p.y - 34, '✨ blessed', '#ffd76a', 13);
+    }
   }
   if (G.p.hardcore) $('floorLabel').textContent += ' ☠';
   const ch = challengeOf(G.p.challenge);
@@ -1909,7 +1935,7 @@ function saveGame() {
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
       maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
-      conquered: G.conquered || [],
+      conquered: G.conquered || [], blessPending: G.blessPending || 0,
       pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
@@ -1955,6 +1981,7 @@ function startGame(clsId, save, slot) {
     maxRiftTier: (save && save.maxRiftTier) || 1,
     riftBest: (save && save.riftBest) || {},
     conquered: save ? (save.conquered || inferConquered(save.deepest || 1)) : [],
+    blessPending: (save && save.blessPending) || 0,
     anchor: null, offPortal: true,
   };
   recalc();
@@ -2999,6 +3026,7 @@ function render() {
   if (G.lvl.stash) drawTrunk(G.lvl.stash);
   if (G.lvl.stable) drawStable(G.lvl.stable);
   if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) drawNpc(n);
 
   /* portals: town-side return + dungeon-side anchor */
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
@@ -3173,6 +3201,7 @@ function drawLights() {
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
   if (G.lvl.gates) for (const gt of G.lvl.gates) hole(gt.x, gt.y - 12, gateUnlocked(gt.w) ? 95 : 60, gateUnlocked(gt.w) ? 0.85 : 0.5);
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) hole(n.x, n.y - 8, 95, 0.85);
   if (G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel)
     hole(G.lvl.exitTile.x * TILE + TILE / 2, G.lvl.exitTile.y * TILE, 110, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
@@ -4453,6 +4482,76 @@ function drawObelisk(o) {
   ctx.fillText('🌀 Rift Obelisk', o.x, o.y - 52);
 }
 
+function drawNpc(n) {
+  const t = G.time, bob = Math.sin(t * 1.8 + (n.id === 'elder' ? 2 : 0)) * 0.8;
+  ctx.fillStyle = '#00000066';
+  ctx.beginPath(); ctx.ellipse(n.x, n.y + 12, 11, 4.5, 0, 0, 7); ctx.fill();
+  if (n.id === 'elder') {
+    /* Elder Maro: bent back, long white beard, cane and a heavy book */
+    const g = ctx.createLinearGradient(n.x, n.y - 10, n.x, n.y + 12);
+    g.addColorStop(0, '#5c5244'); g.addColorStop(1, '#38322a');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(n.x - 8, n.y + 12);
+    ctx.quadraticCurveTo(n.x - 9, n.y - 5 + bob, n.x + 1, n.y - 9 + bob);   // hunched forward
+    ctx.quadraticCurveTo(n.x + 9, n.y - 5 + bob, n.x + 8, n.y + 12);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#d8b890';
+    ctx.beginPath(); ctx.arc(n.x + 2.5, n.y - 12 + bob, 4.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(n.x + 1, n.y - 13 + bob, 1.4, 1.4); ctx.fillRect(n.x + 4, n.y - 13 + bob, 1.4, 1.4);
+    ctx.fillStyle = '#e8e4da';   // the beard
+    ctx.beginPath();
+    ctx.moveTo(n.x - 1, n.y - 10 + bob);
+    ctx.quadraticCurveTo(n.x + 2, n.y - 1 + bob, n.x + 1, n.y + 4 + bob);
+    ctx.quadraticCurveTo(n.x + 5, n.y - 2 + bob, n.x + 6, n.y - 9 + bob);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8a8070';   // bald pate wisps
+    ctx.beginPath(); ctx.arc(n.x - 0.5, n.y - 14.5 + bob, 2, Math.PI * 0.9, Math.PI * 1.9); ctx.fill();
+    ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 2;   // cane
+    ctx.beginPath(); ctx.moveTo(n.x + 9, n.y - 6 + bob); ctx.lineTo(n.x + 11, n.y + 11); ctx.stroke();
+    ctx.fillStyle = '#7a2c1a';   // tome under the other arm
+    ctx.fillRect(n.x - 12, n.y - 4 + bob, 7, 9);
+    ctx.fillStyle = '#c9a45a';
+    ctx.fillRect(n.x - 12, n.y - 4 + bob, 7, 1.6);
+    ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#c9b98a';
+    ctx.fillText('📜 Elder Maro', n.x, n.y - 28);
+  } else {
+    /* Sister Amara: pale robes, red sash, softly glowing censer */
+    const g = ctx.createLinearGradient(n.x, n.y - 10, n.x, n.y + 12);
+    g.addColorStop(0, '#d8d2c4'); g.addColorStop(1, '#a8a294');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(n.x - 8, n.y + 12);
+    ctx.quadraticCurveTo(n.x - 9, n.y - 7 + bob, n.x, n.y - 10 + bob);
+    ctx.quadraticCurveTo(n.x + 9, n.y - 7 + bob, n.x + 8, n.y + 12);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#a3130b'; ctx.lineWidth = 2;   // sash
+    ctx.beginPath(); ctx.moveTo(n.x - 5, n.y - 2 + bob); ctx.quadraticCurveTo(n.x, n.y + bob, n.x + 5, n.y - 2 + bob); ctx.stroke();
+    // wimple + face
+    ctx.fillStyle = '#e8e4da';
+    ctx.beginPath(); ctx.arc(n.x, n.y - 13 + bob, 5.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#d8b890';
+    ctx.beginPath(); ctx.arc(n.x + 0.6, n.y - 12.4 + bob, 3.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(n.x - 1, n.y - 13 + bob, 1.3, 1.3); ctx.fillRect(n.x + 1.8, n.y - 13 + bob, 1.3, 1.3);
+    // swinging censer sheds warm light
+    const ca = Math.sin(t * 2.2) * 0.35;
+    ctx.strokeStyle = '#c9a45a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(n.x + 8, n.y - 6 + bob); ctx.lineTo(n.x + 8 + Math.sin(ca) * 8, n.y + 2 + Math.cos(ca) * 4); ctx.stroke();
+    const cx2 = n.x + 8 + Math.sin(ca) * 8, cy2 = n.y + 3 + Math.cos(ca) * 4;
+    ctx.fillStyle = '#c9a45a';
+    ctx.beginPath(); ctx.arc(cx2, cy2, 2.6, 0, 7); ctx.fill();
+    ctx.fillStyle = hexA('#ffd76a', 0.5 + Math.sin(t * 5) * 0.2);
+    ctx.beginPath(); ctx.arc(cx2, cy2, 4.5, 0, 7); ctx.fill();
+    if (Math.random() < 0.08) G.parts.push({ x: cx2, y: cy2 - 2, vx: rand(-3, 3), vy: rand(-12, -6), r: rand(1, 1.8), color: '#ffd76a', life: 0.6, glow: true });
+    ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#c9b98a';
+    ctx.fillText('✚ Sister Amara', n.x, n.y - 28);
+  }
+}
+
 function drawVendor(v) {
   const bob = Math.sin(G.time * 2) * 0.8;
   ctx.fillStyle = '#00000066';
@@ -4554,10 +4653,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -4574,6 +4673,7 @@ function togglePanel(id) {
     if (id === 'riftPanel') renderRift();
     if (id === 'stablePanel') renderStable();
     if (id === 'stairsPanel') renderStairs();
+    if (id === 'npcPanel') renderNpc(G.talkNpc);
     paused = true;
   }
 }
@@ -4709,6 +4809,56 @@ function renderStash() {
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
     saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
+}
+
+function renderNpc(id) {
+  const p = G.p;
+  if (id === 'healer') {
+    // Amara mends you the moment you approach
+    const healed = p.hp < G.d.maxHp - 0.5 || p.mp < G.d.maxMp - 0.5;
+    p.hp = G.d.maxHp; p.mp = G.d.maxMp;
+    if (healed) { spark(p.x, p.y - 10, '#ffd76a', 14, 160); sfx.potion(); updateHUD(); }
+    const cost = 150 + p.level * 30;
+    $('npcPanel').innerHTML = `
+      <button class="pclose" data-close>✕</button>
+      <div class="ptitle">✚ Sister Amara</div>
+      <div class="derived" style="text-align:center; font-size:14px">
+        ${healed ? '“Be still — there. Whole again.”' : '“The light finds nothing to mend. Walk carefully anyway.”'}
+      </div>
+      <div class="invactions" style="flex-direction:column">
+        <button class="smallbtn" data-bless ${p.gold < cost || G.blessPending ? 'disabled' : ''}>
+          ✨ Blessing for the road (${cost}g)${G.blessPending ? ' — already blessed' : ''}</button>
+      </div>
+      <div class="derived" style="text-align:center">A blessing grants +40% damage and +50% armor for your first
+      90 seconds beyond a gate.</div>`;
+    $('npcPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+    const bb = $('npcPanel').querySelector('[data-bless]');
+    bb.addEventListener('click', () => {
+      if (p.gold < cost || G.blessPending) return;
+      p.gold -= cost;
+      G.blessPending = 90;
+      banner('✨ Amara\'s blessing settles over you');
+      sfx.level(); updateHUD(); saveDirty = true;
+      renderNpc('healer');
+    });
+  } else {
+    G.elderLine = (G.elderLine === undefined ? Math.floor(Math.random() * ELDER_LINES.length) : G.elderLine);
+    $('npcPanel').innerHTML = `
+      <button class="pclose" data-close>✕</button>
+      <div class="ptitle">📜 Elder Maro</div>
+      <div class="derived" style="text-align:center; font-size:14px; font-style:italic; line-height:1.6">
+        “${ELDER_LINES[G.elderLine]}”
+      </div>
+      <div class="invactions">
+        <button class="smallbtn" data-more>Ask for more</button>
+        <button class="smallbtn" data-close>Farewell</button>
+      </div>`;
+    $('npcPanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
+    $('npcPanel').querySelector('[data-more]').addEventListener('click', () => {
+      G.elderLine = (G.elderLine + 1) % ELDER_LINES.length;
+      renderNpc('elder');
+    });
+  }
 }
 
 function renderRift() {
@@ -5342,6 +5492,14 @@ cvs.addEventListener('pointerup', e => {
     if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
     else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
     return;
+  }
+  // townsfolk?
+  if (G.lvl.npcs) for (const n of G.lvl.npcs) {
+    if (dist(w.x, w.y, n.x, n.y - 6) < 42) {
+      if (dist(p.x, p.y, n.x, n.y) < 95) { G.talkNpc = n.id; togglePanel('npcPanel'); }
+      else setMoveTarget(n.x, n.y + 34);
+      return;
+    }
   }
   // world gate?
   if (G.lvl.gates) for (const gt of G.lvl.gates) {
