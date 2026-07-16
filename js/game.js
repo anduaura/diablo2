@@ -943,13 +943,23 @@ function makeItem(slot, ilvl, forceRarity) {
     const pool = Object.keys(SETS).filter(k => SETS[k].pieces[slot]);
     const sid = choice(pool);
     const def = SETS[sid];
+    // set pieces roll a grade of their own: higher grades multiply the
+    // piece's stats while set membership & bonuses stay identical
+    const gr = Math.random();
+    const gIdx = gr < 0.04 ? 4 : gr < 0.12 ? 3 : gr < 0.3 ? 2 : gr < 0.6 ? 1 : 0;
+    const grade = ['common', 'magic', 'rare', 'unique', 'exotic'][gIdx];
+    const mult = [1, 1.25, 1.55, 1.95, 2.5][gIdx];
+    const mods = {};
+    for (const k in def.pieceMods) mods[k] = Math.max(1, Math.round(def.pieceMods[k] * mult));
     const it = {
-      slot, set: sid, base: def.pieces[slot], name: def.pieces[slot],
+      slot, set: sid, grade,
+      base: def.pieces[slot],
+      name: ['', 'Fine ', 'Exalted ', 'Mythic ', 'Celestial '][gIdx] + def.pieces[slot],
       icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot],
-      rarity: 'set', lvl: ilvl, mods: { ...def.pieceMods },
+      rarity: 'set', lvl: ilvl, mods,
     };
-    if (slot === 'weapon') it.dmg = [2 + ilvl * 2, 5 + ilvl * 3];
-    else if (slot !== 'ring' && slot !== 'amulet') it.armor = 3 + Math.round(ilvl * 2.5);
+    if (slot === 'weapon') it.dmg = [Math.round((2 + ilvl * 2) * mult), Math.round((5 + ilvl * 3) * mult)];
+    else if (slot !== 'ring' && slot !== 'amulet') it.armor = Math.round((3 + ilvl * 2.5) * mult);
     if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
     return it;
   }
@@ -998,7 +1008,8 @@ function makeItem(slot, ilvl, forceRarity) {
   }
   return it;
 }
-const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200, set: 120, exotic: 320 }[it.rarity] + it.lvl * 6);
+const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200, set: 120, exotic: 320 }[it.rarity] + it.lvl * 6
+  + (it.grade ? ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(it.grade) * 40 : 0));
 /* rough power score used by auto-equip to compare items */
 function itemScore(it) {
   if (!it) return -1;
@@ -4602,7 +4613,7 @@ function showItemPopup(it, ref, equipped) {
   })() : '';
   pop.innerHTML = `
     <div class="iname rc-${it.rarity}">${it.icon} ${it.name}</div>
-    <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
+    <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}${it.grade ? ` · <span style="color:${rarityColor(it.grade)}">${it.grade} grade</span>` : ''}</div>
     ${rwHtml}
     ${setHtml}
     <div class="imods">${modLines(it).join('<br>') || '<i>no properties</i>'}${gemLines}</div>
