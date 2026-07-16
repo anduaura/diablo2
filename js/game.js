@@ -71,6 +71,8 @@ const sfx = {
   die: () => blip(160, 0.9, 'sawtooth', 0.08, -120),
   boss: () => blip(70, 0.9, 'sawtooth', 0.09, -20),
   stairs: () => blip(240, 0.4, 'sine', 0.06, -160),
+  rare: () => { blip(784, 0.12, 'triangle', 0.06, 0); setTimeout(() => blip(1046, 0.22, 'triangle', 0.06, 0), 110); },
+  epic: () => { blip(659, 0.12, 'triangle', 0.065, 0); setTimeout(() => blip(880, 0.12, 'triangle', 0.065, 0), 110); setTimeout(() => blip(1318, 0.35, 'triangle', 0.07, 0), 220); },
 };
 
 /* ---------------- class data ---------------- */
@@ -1464,6 +1466,18 @@ function update(dt) {
     }
   }
 
+  /* --- drop ceremony: fanfare when high-rarity loot hits the ground --- */
+  for (const dr of G.drops) {
+    if (dr.ann || dr.kind !== 'item') continue;
+    dr.ann = true;
+    const rr2 = dr.item.rarity;
+    if (dr.item.g || rr2 === 'common' || rr2 === 'magic') continue;
+    const col = rarityColor(rr2);
+    G.rings.push({ x: dr.x, y: dr.y, r: 4, max: 46, color: col, life: 0.45 });
+    spark(dr.x, dr.y - 6, col, rr2 === 'rare' ? 8 : 16, 200);
+    if (rr2 === 'rare') sfx.rare(); else sfx.epic();
+  }
+
   /* --- pickups --- */
   for (let i = G.drops.length - 1; i >= 0; i--) {
     const dr = G.drops[i];
@@ -1923,6 +1937,23 @@ function render() {
       ctx.fillStyle = '#c9b98a'; ctx.fillRect(dr.x - 2, dr.y - 10 + bob * 0.5, 4, 5);
     } else {
       const col = dr.item.g ? GEMS[dr.item.g].color : rarityColor(dr.item.rarity);
+      // beacon of light over rare+ loot so a big drop reads from across the room
+      if (!dr.item.g && dr.item.rarity !== 'common' && dr.item.rarity !== 'magic') {
+        const pulse2 = 0.5 + Math.sin(G.time * 2.6 + dr.x) * 0.18;
+        const bh = 88, bw = 7;
+        const bg2 = ctx.createLinearGradient(0, dr.y - bh, 0, dr.y);
+        bg2.addColorStop(0, hexA(col, 0));
+        bg2.addColorStop(1, hexA(col, 0.4 * pulse2));
+        ctx.fillStyle = bg2;
+        ctx.beginPath();
+        ctx.moveTo(dr.x - 1.5, dr.y - bh);
+        ctx.lineTo(dr.x + 1.5, dr.y - bh);
+        ctx.lineTo(dr.x + bw, dr.y);
+        ctx.lineTo(dr.x - bw, dr.y);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = hexA(col, 0.22 * pulse2);
+        ctx.beginPath(); ctx.ellipse(dr.x, dr.y + 4, 13, 5.5, 0, 0, 7); ctx.fill();
+      }
       ctx.save(); ctx.translate(dr.x, dr.y + bob); ctx.rotate(Math.PI / 4);
       ctx.fillStyle = col; ctx.fillRect(-6, -6, 12, 12);
       ctx.strokeStyle = '#00000088'; ctx.strokeRect(-6, -6, 12, 12);
@@ -2117,6 +2148,10 @@ function drawLights() {
   for (const t of G.lvl.torches) hole(t.x, t.y - 12, 110 + Math.sin(G.time * 8 + t.x) * 8, 0.9);
   for (const pr of G.projs) if (pr.kind === 'fireball' || pr.kind === 'fire') hole(pr.x, pr.y, 70, 0.8);
   if (G.lvl.wp) hole(G.lvl.wp.x, G.lvl.wp.y, 100, 0.85);
+  for (const dr of G.drops) {
+    if (dr.kind === 'item' && !dr.item.g && dr.item.rarity !== 'common' && dr.item.rarity !== 'magic')
+      hole(dr.x, dr.y - 20, 70, 0.6);
+  }
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
@@ -3073,6 +3108,12 @@ function drawMinimap() {
   // aggroed monsters
   mmCtx.fillStyle = '#ff5a3a';
   for (const m of G.lvl.monsters) if (m.hp > 0 && m.aggro) mmCtx.fillRect(m.x / TILE * s - 1.5, m.y / TILE * s - 1.5, 3, 3);
+  // high-rarity loot pings
+  for (const dr of G.drops) {
+    if (dr.kind !== 'item' || dr.item.g || dr.item.rarity === 'common' || dr.item.rarity === 'magic') continue;
+    mmCtx.fillStyle = rarityColor(dr.item.rarity);
+    mmCtx.fillRect(dr.x / TILE * s - 1.5, dr.y / TILE * s - 1.5, 3, 3);
+  }
 }
 
 /* ---------------- HUD & panels ---------------- */
