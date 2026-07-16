@@ -344,3 +344,8 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .bst-unknown { opacity:.75; }
 .bst-unknown .bst-icon { filter:grayscale(1) brightness(.32); }
 .bst-unknown .bst-name { color:#4a4034; letter-spacing:2px; }
+.bst-rewards { margin:8px 2px 2px; display:flex; flex-direction:column; gap:5px; }
+.bst-rewards div { font-size:11px; color:#65573d; background:#170f06; border:1px solid #3a2c14; border-radius:8px; padding:7px 9px; line-height:1.45; }
+.bst-rewards div b { color:#9a8a68; }
+.bst-rewards .bst-got { color:#c9b98a; border-color:#7a6a3a; }
+.bst-rewards .bst-got b { color:#ffd76a; }
