@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.15.0';
+const SANCTUARY_VERSION = '1.16.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.16.0', date: '2026-07-16', title: 'No two floors alike',
+    notes: [
+      'Dungeon floors no longer fill a predictable square — each one takes its own silhouette: ovals, drifting blobs, diagonal canyons, rings, crossroads and edge-hugging Ls',
+      'Rooms come in new shapes too — ovals, diamonds and rounded halls alongside the classic rectangles',
+      'Corridors now link neighbouring rooms naturally (with the occasional loop) instead of zig-zagging across the whole map',
+    ],
+  },
   {
     v: '1.15.0', date: '2026-07-16', title: 'Tidy bags',
     notes: [
