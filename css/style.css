@@ -182,6 +182,9 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   box-shadow:0 4px 14px #000d, inset 0 1px 0 #ffffff22;
 }
 .bigbtn:active { transform:scale(.96); }
+#graveyard { display:flex; flex-direction:column; gap:4px; align-items:center; }
+.graverow { color:#8a7a5c; font-size:13px; }
+.graverow small { color:#65573d; font-size:11.5px; }
 
 /* ---------- panels ---------- */
 .panel {

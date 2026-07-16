@@ -321,6 +321,16 @@ window.addEventListener('resize', resize); resize();
 let G = null;              // active game (null = menu)
 let paused = false;        // panel open → world frozen
 let saveDirty = false;
+let hardcoreNext = false;  // menu toggle: forge the next hero as hardcore
+
+/* graveyard: hall of fame for fallen hardcore heroes */
+const GRAVE_KEY = 'sanctuary_graveyard';
+function loadGraves() { try { return JSON.parse(localStorage.getItem(GRAVE_KEY)) || []; } catch (e) { return []; } }
+function addGrave(g) {
+  const graves = loadGraves();
+  graves.unshift(g);
+  try { localStorage.setItem(GRAVE_KEY, JSON.stringify(graves.slice(0, 20))); } catch (e) { }
+}
 
 function newPlayer(clsId) {
   const c = CLASSES[clsId];
@@ -328,6 +338,7 @@ function newPlayer(clsId) {
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
     skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
+    hardcore: false,
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
@@ -938,12 +949,24 @@ function hurtPlayer(dmg, mlvl) {
   sfx.hurt();
   if (p.hp <= 0) {
     p.hp = 0; p.deaths++;
-    const lost = Math.floor(p.gold * 0.1);
-    p.gold -= lost;
-    $('deathInfo').textContent = (lost > 0 ? 'The darkness claims ' + lost + ' gold. ' : '') + 'Your body lies on floor ' + G.dlvl + '.';
+    if (p.hardcore) {
+      // death is final: the hero joins the graveyard and the save is erased
+      G.hardcoreDead = true;
+      addGrave({ cls: p.cls, level: p.level, dlvl: G.dlvl, ng: G.ng || 0, t: Date.now() });
+      localStorage.removeItem(SLOT_KEY(G.slot || 0));
+      $('deathInfo').textContent = 'Death is final for hardcore heroes. ' +
+        CLASSES[p.cls].name + ' of level ' + p.level + ' fell on floor ' + G.dlvl +
+        (G.ng ? ' in NG+' + G.ng : '') + ', never to rise again.';
+      $('btnRespawn').textContent = '⚰ Rest in the Graveyard';
+    } else {
+      const lost = Math.floor(p.gold * 0.1);
+      p.gold -= lost;
+      $('deathInfo').textContent = (lost > 0 ? 'The darkness claims ' + lost + ' gold. ' : '') + 'Your body lies on floor ' + G.dlvl + '.';
+      $('btnRespawn').textContent = 'Rise Again';
+      saveDirty = true; saveGame();
+    }
     $('deathScreen').classList.remove('hidden');
     sfx.die();
-    saveDirty = true; saveGame();
   }
 }
 
@@ -1299,6 +1322,7 @@ function enterLevel(dlvl, fresh) {
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
   }
+  if (G.p.hardcore) $('floorLabel').textContent += ' ☠';
   saveDirty = true; saveGame();
 }
 
@@ -1314,12 +1338,13 @@ function firstFreeSlot() { for (let i = 0; i < 3; i++) if (!loadSlot(i)) return 
   } catch (e) { }
 })();
 function saveGame() {
-  if (!G) return;
+  if (!G || G.hardcoreDead) return;   // a dead hardcore hero must stay dead
   try {
     const p = G.p;
     localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
       skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
+      hardcore: p.hardcore || false,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
       waypoints: G.waypoints, deepest: G.deepest,
@@ -1341,8 +1366,11 @@ function startGame(clsId, save, slot) {
       skillPts: save.skillPts !== undefined ? save.skillPts : Math.max(0, save.level - 1),
       skillLvls: save.skillLvls || [1, 1, 1, 1],
       passives: save.passives || [0, 0],
+      hardcore: !!save.hardcore,
     });
     soundOn = save.soundOn !== false;
+  } else {
+    p.hardcore = hardcoreNext;
   }
   G = {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
@@ -3702,7 +3730,7 @@ function refreshMenu() {
     const row = document.createElement('div');
     row.className = 'slotrow';
     row.innerHTML = `
-      <button class="slotbtn">▶ ${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
+      <button class="slotbtn">▶ ${s.hardcore ? '☠ ' : ''}${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
         <small>· ${s.dlvl === 0 ? 'town' : 'floor ' + s.dlvl}${s.ng ? ' · NG+' + s.ng : ''} · 🪙${s.gold}</small></button>
       <button class="slotdel" title="Delete hero">✕</button>`;
     row.querySelector('.slotbtn').addEventListener('click', () => { audioInit(); startGame(s.cls, s, i); });
@@ -3717,7 +3745,21 @@ function refreshMenu() {
   const free = firstFreeSlot();
   document.querySelectorAll('.classcard').forEach(c => c.classList.toggle('disabled', free < 0));
   $('slotsFull').classList.toggle('hidden', free >= 0);
+  // graveyard of fallen hardcore heroes
+  const graves = loadGraves();
+  const gy = $('graveyard');
+  gy.classList.toggle('hidden', !graves.length);
+  if (graves.length) {
+    gy.innerHTML = '<div class="pick">— graveyard —</div>' + graves.slice(0, 6).map(g =>
+      `<div class="graverow">🪦 ${CLASSES[g.cls] ? CLASSES[g.cls].icon + ' ' + CLASSES[g.cls].name : '?'} Lv.${g.level}
+       <small>fell on floor ${g.dlvl}${g.ng ? ' · NG+' + g.ng : ''}</small></div>`).join('');
+  }
 }
+$('hcToggle').addEventListener('click', () => {
+  hardcoreNext = !hardcoreNext;
+  $('hcToggle').textContent = hardcoreNext ? '☠ Hardcore: ON — death is forever' : '☠ Hardcore: OFF';
+  $('hcToggle').style.color = hardcoreNext ? '#ff8a7a' : '';
+});
 
 /* ---------------- input ---------------- */
 const pointer = { down: false, drag: false, x: 0, y: 0, sx: 0, sy: 0, t: 0 };
@@ -3824,6 +3866,7 @@ $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
 $('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
 $('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
 $('btnRespawn').addEventListener('click', () => {
+  if (G && G.hardcoreDead) { toMenu(); return; }
   const p = G.p;
   p.hp = G.d.maxHp * 0.6; p.mp = G.d.maxMp * 0.6;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
