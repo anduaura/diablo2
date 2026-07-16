@@ -6,16 +6,17 @@ one HTML file, one stylesheet, one script. All art is drawn procedurally on a
 `<canvas>`; this is an original fan homage inspired by Diablo II and uses no
 Blizzard assets, names, or code.
 
-## 🎮 Play it on your phone
+## 🎮 Play now
 
-The easiest way is GitHub Pages (a deploy workflow is included):
+**▶ https://anduaura.github.io/diablo2/**
 
-1. Merge this branch into `main` (or `master`).
-2. In the repo: **Settings → Pages → Source → GitHub Actions**.
-3. Push (or re-run the *Deploy to GitHub Pages* workflow). Your game will be
-   live at `https://<user>.github.io/diablo2/`.
-4. Open that URL on your phone. For fullscreen, use your browser's
-   **Add to Home Screen** — the game ships a web-app manifest.
+Open it on your phone and play. For a fullscreen, app-like experience use
+your browser's **Add to Home Screen** — the game ships a web-app manifest.
+Progress auto-saves on your device.
+
+Every push to `main` redeploys the game automatically via the included
+GitHub Pages workflow (`.github/workflows/deploy.yml`) — no manual setup
+needed.
 
 To run locally instead:
 
