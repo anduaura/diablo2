@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.16.0';
+const SANCTUARY_VERSION = '1.17.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.17.0', date: '2026-07-16', title: 'Lighter on your battery',
+    notes: [
+      'Big performance pass: tiles now render once into an offscreen cache and blit like sprites, and the lighting layer runs at half resolution — about a third less CPU per frame, same visuals',
+    ],
+  },
   {
     v: '1.16.0', date: '2026-07-16', title: 'No two floors alike',
     notes: [
