@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.16.0';
+const SANCTUARY_VERSION = '1.17.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.17.0', date: '2026-07-16', title: 'A tidier bag & livelier pets',
+    notes: [
+      'The inventory slims down: potions and gambling now live with the town merchant, and 💰 everything, 🗂 Reorg and ⚡ Fuse all share one row',
+      'Fixed tamed beasts rendering as dark shadows while wandering the town green — and the stable pen no longer shows frozen copies of them',
+    ],
+  },
   {
     v: '1.16.0', date: '2026-07-16', title: 'No two floors alike',
     notes: [

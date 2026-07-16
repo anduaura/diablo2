@@ -4597,9 +4597,11 @@ function render() {
   ents.sort((a, b) => a.y - b.y);
   for (const e of ents) {
     if (e === p) drawPlayer(p);
-    else if (e.tx !== undefined) drawProp(e);
     else if (e.isMinion) drawMinion(e);
+    // pets before the prop check: wandering town pets carry tx/ty wander
+    // targets and would otherwise render as scenery
     else if (e.isPet) drawPet(e);
+    else if (e.tx !== undefined) drawProp(e);
     else drawMonster(e);
   }
 
@@ -6707,19 +6709,8 @@ function drawStable(st) {
   ctx.beginPath(); ctx.moveTo(st.x - 44, st.y - 26); ctx.lineTo(st.x, st.y - 30); ctx.lineTo(st.x + 44, st.y - 26); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(st.x - 44, st.y + 6); ctx.lineTo(st.x - 44, st.y - 24); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(st.x + 44, st.y + 6); ctx.lineTo(st.x + 44, st.y - 24); ctx.stroke();
-  // idle companions wait in the pen
-  const p = G.p;
-  let k = 0;
-  for (let i = 0; i < p.pets.length && k < 3; i++) {
-    if (i === p.activePet) continue;
-    const pet = p.pets[i];
-    drawPet({
-      isPet: true, kind: PET_SPECIES[pet.sp].id, data: pet,
-      x: st.x - 24 + k * 26, y: st.y - 4 + (k % 2) * 10,
-      dir: k % 2 ? Math.PI : 0, atkT: 0, swingT: 0,
-    });
-    k++;
-  }
+  // (idle companions no longer pose in the pen — they wander the green
+  // as live town pets instead)
   ctx.font = '11px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#c9b98a';
   ctx.fillText('🐾 Stable', st.x, st.y - 42);
@@ -7975,6 +7966,7 @@ function renderWp() {
 function renderShop() {
   const p = G.p, stock = G.lvl.shopStock || [];
   const potCost = 20 + G.deepest * 5;
+  const gambleCost = 120 + G.deepest * 45;
   const rows = stock.map((it, i) => it ? `
     <div class="shoprow">
       <span class="sicon2">${it.icon}</span>
@@ -7993,6 +7985,7 @@ function renderShop() {
     <div class="invactions">
       <button class="smallbtn" data-pot="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-pot="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
+      <button class="smallbtn" data-gamble ${p.gold < gambleCost || p.inv.length >= p.bagSlots ? 'disabled' : ''} title="A mystery item, magic or better — scales with your deepest floor">🎲 Gamble (${gambleCost}g)</button>
     </div>
     ${mercHtml}
     ${rows || '<div class="derived" style="text-align:center">Sold out — return after your next descent.</div>'}
@@ -8021,6 +8014,17 @@ function renderShop() {
     p.gold -= potCost; p.potions[b.dataset.pot]++;
     sfx.gold(); renderShop(); updateHUD(); saveDirty = true;
   }));
+  const gb = $('shopPanel').querySelector('[data-gamble]');
+  if (gb) gb.addEventListener('click', () => {
+    if (p.gold < gambleCost || p.inv.length >= p.bagSlots) return;
+    p.gold -= gambleCost;
+    const r2 = Math.random();
+    const it = makeItem(choice(SLOTS), Math.max(1, G.deepest),
+      r2 < 0.03 ? 'exotic' : r2 < 0.1 ? 'unique' : r2 < 0.2 ? 'set' : r2 < 0.55 ? 'rare' : 'magic');
+    p.inv.push(it);
+    sfx.pickup(); renderShop(); updateHUD(); saveDirty = true;
+    showItemPopup(it, p.inv.length - 1, false);
+  });
   $('shopPanel').querySelectorAll('[data-buy-item]').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.buyItem, it = G.lvl.shopStock[i];
     if (!it || p.gold < sellPrice(it) * 3 || p.inv.length >= p.bagSlots) return;
@@ -8125,8 +8129,6 @@ function gradeBadge(it) {
 
 function renderInv() {
   const p = G.p;
-  const gambleCost = 120 + G.dlvl * 45;
-  const potCost = 25 + G.dlvl * 6;
   const eqSlot = s => {
     const it = p.equip[s];
     return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
@@ -8143,24 +8145,25 @@ function renderInv() {
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🎒 Inventory · 🪙 ${p.gold}</div>
     <div class="equipgrid">${SLOTS.map(eqSlot).join('')}</div>
-    <div class="invactions">
-      <button class="smallbtn" data-buy="hp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
-      <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
-      <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 of a kind into a finer one">⚗ Fuse${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
-      <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Apply every possible fusion, cascading up the ladder">⚡ Fuse all</button>
-      <button class="smallbtn" data-reorg ${p.inv.length > 1 ? '' : 'disabled'} title="Sort the bag by item type, most valuable first">🗂 Reorg</button>
-      ${p.bagSlots < BAG_MAX
-        ? `<button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button>`
-        : ''}
-    </div>
+    ${p.bagSlots < BAG_MAX
+      ? `<div class="invactions"><button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button></div>`
+      : ''}
     <div class="invactions" style="margin-top:-4px">
-      ${['common', 'magic', 'rare', 'exotic'].map(tier => {
+      ${['common', 'magic', 'rare'].map(tier => {
         const list = sellListUpTo(p, tier);
         const total = list.reduce((s, i) => s + sellPrice(i), 0);
-        const label = tier === 'common' ? 'commons' : tier === 'exotic' ? 'everything' : '≤ ' + tier;
+        const label = tier === 'common' ? 'commons' : '≤ ' + tier;
         return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
       }).join('')}
+    </div>
+    <div class="invactions" style="margin-top:-4px">
+      ${(() => {
+        const list = sellListUpTo(p, 'exotic');
+        const total = list.reduce((s, i) => s + sellPrice(i), 0);
+        return `<button class="smallbtn" data-sellup="exotic" ${!list.length ? 'disabled' : ''}>💰 everything (${total}g)</button>`;
+      })()}
+      <button class="smallbtn" data-reorg ${p.inv.length > 1 ? '' : 'disabled'} title="Sort the bag by item type, most valuable first">🗂 Reorg</button>
+      <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Fuse every 3-of-a-kind, cascading up the ladder">⚡ Fuse all</button>
     </div>
     <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms, sigils and eggs always stay.</div>
     <div class="invgrid">${grid}</div>`;
@@ -8172,11 +8175,6 @@ function renderInv() {
   $('invPanel').querySelectorAll('[data-eq]').forEach(b => b.addEventListener('click', () => {
     const it = p.equip[b.dataset.eq];
     if (it) showItemPopup(it, b.dataset.eq, true);
-  }));
-  $('invPanel').querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => {
-    if (p.gold < potCost) return;
-    p.gold -= potCost; p.potions[b.dataset.buy]++;
-    sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
   }));
   $('invPanel').querySelectorAll('[data-sellup]').forEach(b => b.addEventListener('click', () => {
     const tier = b.dataset.sellup;
@@ -8213,27 +8211,12 @@ function renderInv() {
     ftext(p.x, p.y - 30, 'bag organized', '#c9b98a', 12);
     sfx.pickup(); renderInv(); saveDirty = true;
   });
-  $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
-    if (!fusableGroups(p.inv).length) return;
-    togglePanel('fusePanel');
-  });
   $('invPanel').querySelector('[data-fuseall]').addEventListener('click', () => {
     const { count, finest } = fuseAll(p);
     if (!count) return;
     banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
     spark(p.x, p.y - 10, fuseColor(finest), 16, 200);
     sfx.level(); recalc(); saveDirty = true; renderInv(); updateHUD();
-  });
-  const gb = $('invPanel').querySelector('[data-gamble]');
-  gb.addEventListener('click', () => {
-    if (p.gold < gambleCost || p.inv.length >= p.bagSlots) return;
-    p.gold -= gambleCost;
-    const r2 = Math.random();
-    const it = makeItem(choice(SLOTS), Math.max(1, G.dlvl),
-      r2 < 0.03 ? 'exotic' : r2 < 0.1 ? 'unique' : r2 < 0.2 ? 'set' : r2 < 0.55 ? 'rare' : 'magic');
-    p.inv.push(it);
-    sfx.pickup(); renderInv(); updateHUD(); saveDirty = true;
-    showItemPopup(it, p.inv.length - 1, false);
   });
 }
 
