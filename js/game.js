@@ -133,10 +133,30 @@ const AFFIXES = [
   { stat: 'armor', txt: v => `+${v} Armor`, roll: l => ri(3, 6 + l * 3) },
   { stat: 'leech', txt: v => `${v}% Life Steal`, roll: l => ri(2, 3 + Math.floor(l / 3)) },
   { stat: 'mf', txt: v => `+${v}% Magic Find`, roll: l => ri(5, 10 + l * 3) },
+  { stat: 'fireDmg', txt: v => `+${v} Fire Damage`, roll: l => ri(2, 4 + l * 2) },
+  { stat: 'coldDmg', txt: v => `+${v} Cold Damage & Chill`, roll: l => ri(2, 3 + l * 2) },
+  { stat: 'lightDmg', txt: v => `+${v} Lightning Damage`, roll: l => ri(2, 5 + l * 2) },
+  { stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s`, roll: l => ri(3, 6 + l * 2) },
 ];
+const GEMS = {
+  ruby: { name: 'Ruby', icon: '🔴', color: '#ff5a3a', stat: 'fireDmg', txt: v => `+${v} Fire Damage` },
+  sapphire: { name: 'Sapphire', icon: '🔵', color: '#5ab0ff', stat: 'coldDmg', txt: v => `+${v} Cold Damage & Chill` },
+  topaz: { name: 'Topaz', icon: '🟡', color: '#ffd23a', stat: 'lightDmg', txt: v => `+${v} Lightning Damage` },
+  emerald: { name: 'Emerald', icon: '🟢', color: '#4ad46a', stat: 'poisonDmg', txt: v => `+${v} Poison Damage over 3s` },
+  skull: { name: 'Skull', icon: '💀', color: '#cfc9b8', stat: 'leech', txt: v => `${v}% Life Steal` },
+};
+function makeGem(ilvl) {
+  const k = choice(Object.keys(GEMS));
+  const q = ilvl < 5 ? 0 : ilvl < 10 ? 1 : 2;
+  const v = (k === 'skull' ? 2 : 3) + q * (k === 'skull' ? 2 : 4) + ri(0, 2);
+  return {
+    slot: 'gem', g: k, v, icon: GEMS[k].icon, rarity: 'magic', mods: {},
+    name: ['Chipped ', '', 'Flawless '][q] + GEMS[k].name, base: 'gem', lvl: ilvl,
+  };
+}
 const UNIQUES = [
-  { slot: 'weapon', name: 'Gravebite', mods: { dmgPct: 60, leech: 8, str: 10 } },
-  { slot: 'weapon', name: 'Embersong', mods: { dmgPct: 45, ene: 15, mp: 30 } },
+  { slot: 'weapon', name: 'Gravebite', mods: { dmgPct: 60, leech: 8, str: 10, poisonDmg: 8 } },
+  { slot: 'weapon', name: 'Embersong', mods: { dmgPct: 45, ene: 15, mp: 30, fireDmg: 12 } },
   { slot: 'helm', name: 'Stormhowl', mods: { armor: 25, dex: 12, mf: 25 } },
   { slot: 'armor', name: 'Embershroud', mods: { armor: 40, hp: 50, vit: 10 } },
   { slot: 'boots', name: 'Wolfstride', mods: { armor: 15, dex: 10, hp: 25 } },
@@ -183,13 +203,14 @@ function newPlayer(clsId) {
 
 function derived(p) {
   const c = CLASSES[p.cls];
-  const m = { str: 0, dex: 0, vit: 0, ene: 0, hp: 0, mp: 0, dmgPct: 0, armor: 0, leech: 0, mf: 0 };
+  const m = { str: 0, dex: 0, vit: 0, ene: 0, hp: 0, mp: 0, dmgPct: 0, armor: 0, leech: 0, mf: 0, fireDmg: 0, coldDmg: 0, lightDmg: 0, poisonDmg: 0 };
   let wdmg = [1, 2], warmor = 0;
   for (const s of SLOTS) {
     const it = p.equip[s]; if (!it) continue;
     if (it.dmg) wdmg = it.dmg;
     if (it.armor) warmor += it.armor;
-    for (const k in it.mods) m[k] += it.mods[k];
+    for (const k in it.mods) m[k] = (m[k] || 0) + it.mods[k];
+    if (it.gems) for (const g of it.gems) m[GEMS[g.g].stat] += g.v;
   }
   const str = p.stats.str + m.str, dex = p.stats.dex + m.dex,
     vit = p.stats.vit + m.vit, ene = p.stats.ene + m.ene;
@@ -204,8 +225,14 @@ function derived(p) {
     armor: Math.round(warmor + m.armor + dex * 0.25),
     crit: Math.min(0.5, 0.05 + dex * 0.002),
     leech: m.leech / 100, mf: m.mf,
+    fire: m.fireDmg, cold: m.coldDmg, light: m.lightDmg, poison: m.poisonDmg,
     hpRegen: 1 + vit * 0.03, mpRegen: 1.6 + ene * 0.06,
   };
+}
+function domEle(d) {   // dominant elemental color, or null
+  const arr = [['#ff8a3a', d.fire], ['#7ac8ff', d.cold], ['#ffd23a', d.light], ['#4ad46a', d.poison]];
+  arr.sort((a, b) => b[1] - a[1]);
+  return arr[0][1] > 0 ? arr[0][0] : null;
 }
 function recalc() { G.d = derived(G.p); G.p.hp = Math.min(G.p.hp, G.d.maxHp); G.p.mp = Math.min(G.p.mp, G.d.maxMp); }
 const xpNext = lvl => Math.round(80 * Math.pow(lvl, 1.6));
@@ -391,7 +418,7 @@ function makeItem(slot, ilvl, forceRarity) {
     if (pool.length) {
       const u = choice(pool);
       const it = { slot, base: u.name, name: u.name, icon: slot === 'weapon' ? choice(WEAPON_ICONS[clsId]) : SLOT_ICONS[slot], rarity: 'unique', lvl: ilvl, mods: { ...u.mods } };
-      if (slot === 'weapon') it.dmg = [3 + ilvl * 2, 6 + ilvl * 3];
+      if (slot === 'weapon') { it.dmg = [3 + ilvl * 2, 6 + ilvl * 3]; it.sockets = 1; it.gems = []; }
       else if (slot !== 'ring' && slot !== 'amulet') it.armor = 4 + ilvl * 3;
       return it;
     }
@@ -412,12 +439,16 @@ function makeItem(slot, ilvl, forceRarity) {
     used.add(a.stat);
     it.mods[a.stat] = (it.mods[a.stat] || 0) + a.roll(ilvl);
   }
+  if (slot === 'weapon') it.sockets = Math.random() < 0.08 ? 2 : Math.random() < 0.25 ? 1 : 0;
+  else if (slot === 'helm' || slot === 'armor') it.sockets = Math.random() < 0.15 ? 1 : 0;
+  if (it.sockets) it.gems = [];
   if (rarity === 'magic') it.name = base + ' ' + choice(['of Power', 'of the Fox', 'of the Wolf', 'of Souls', 'of Embers', 'of Frost', 'of the Colossus']);
   if (rarity === 'rare') it.name = choice(['Doom', 'Grim', 'Storm', 'Blood', 'Shadow', 'Bone', 'Raven']) + choice([' Spike', ' Ward', ' Song', ' Grasp', ' Veil', ' Brand']) ;
   return it;
 }
 const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200 }[it.rarity] + it.lvl * 6);
 function modLines(it) {
+  if (it.g) return [GEMS[it.g].txt(it.v), 'Embed into a socketed item'];
   const lines = [];
   if (it.dmg) lines.push(`Damage: ${it.dmg[0]}–${it.dmg[1]}`);
   if (it.armor) lines.push(`Armor: ${it.armor}`);
@@ -477,6 +508,13 @@ function hitMonster(m, dmg, opts) {
   burst(m.x, m.y - m.r / 2, m.type.color, crit ? 10 : 5);
   if (crit) G.rings.push({ x: m.x, y: m.y - m.r * 0.5, r: 2, max: 16, color: '#ffd76a', life: 0.15 });
   sfx.hit();
+  if (opts.ele) {   // weapon elemental procs (basic attacks & physical skills)
+    const d2 = G.d;
+    if (d2.fire > 0) { m.hp -= d2.fire; ftext(m.x + 9, m.y - m.r - 4, d2.fire, '#ff8a3a', 12); spark(m.x, m.y - m.r / 2, '#ff8a3a', 3, 130); }
+    if (d2.cold > 0) { m.hp -= d2.cold; m.slowT = Math.max(m.slowT, 1.3); ftext(m.x - 9, m.y - m.r - 4, d2.cold, '#7ac8ff', 12); spark(m.x, m.y - m.r / 2, '#bfe8ff', 3, 110); }
+    if (d2.light > 0) { m.hp -= d2.light; ftext(m.x, m.y - m.r - 20, d2.light, '#ffd23a', 12); spark(m.x, m.y - m.r / 2, '#ffd23a', 4, 220); }
+    if (d2.poison > 0) { m.poisonT = 3; m.poisonDps = d2.poison / 3; m.pTick = 0; }
+  }
   if (G.d.leech > 0) G.p.hp = Math.min(G.d.maxHp, G.p.hp + dmg * G.d.leech);
   if (m.hp <= 0) killMonster(m);
 }
@@ -522,6 +560,7 @@ function dropLoot(m) {
     const it = makeItem(slot, Math.max(1, dlvl + ri(-1, 1)), m.boss ? (Math.random() < 0.3 ? 'unique' : 'rare') : null);
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
+  if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl)), ...scatter() });
 }
 
 function hurtPlayer(dmg, mlvl) {
@@ -563,7 +602,7 @@ function castSkill(i) {
         if (d < 95 + m.r) {
           let da = Math.atan2(m.y - p.y, m.x - p.x) - aim;
           while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
-          if (Math.abs(da) < 1.35) hitMonster(m, atk * 1.8, { kb: 14 });
+          if (Math.abs(da) < 1.35) hitMonster(m, atk * 1.8, { kb: 14, ele: true });
         }
       }
       burst(p.x + Math.cos(aim) * 50, p.y + Math.sin(aim) * 50, '#e8d9a8', 12, 180);
@@ -594,11 +633,11 @@ function castSkill(i) {
       sfx.potion();
       break;
     case 'multishot':
-      for (let k = -2; k <= 2; k++) shoot(p.x, p.y, aim + k * 0.22, 470, atk * 0.95, 'p', { kind: 'arrow', r: 4 });
+      for (let k = -2; k <= 2; k++) shoot(p.x, p.y, aim + k * 0.22, 470, atk * 0.95, 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(G.d) });
       sfx.shoot();
       break;
     case 'skewer':
-      shoot(p.x, p.y, aim, 560, atk * 2.2, 'p', { kind: 'bolt', r: 5, pierce: true });
+      shoot(p.x, p.y, aim, 560, atk * 2.2, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true });
       sfx.shoot();
       break;
   }
@@ -611,6 +650,7 @@ function shoot(x, y, ang, spd, dmg, from, o) {
     x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
     dmg, from, r: o.r || 4, kind: o.kind || 'arrow',
     aoe: o.aoe || 0, pierce: !!o.pierce, hit: new Set(), life: 1.6,
+    ele: !!o.ele, color: o.color || null,
   });
 }
 
@@ -707,6 +747,15 @@ function update(dt) {
   p.hurtT = Math.max(0, p.hurtT - dt);
   p.swingT = Math.max(0, p.swingT - dt);
 
+  // elemental / unique weapons shed glowing wisps
+  const wispC = domEle(d) || (p.equip.weapon && p.equip.weapon.rarity === 'unique' ? '#d98d4a' : null);
+  if (wispC && Math.random() < dt * 7) {
+    G.parts.push({
+      x: p.x + Math.cos(p.dir) * 14 + rand(-3, 3), y: p.y - 5 + Math.sin(p.dir) * 6 + rand(-3, 3),
+      vx: rand(-8, 8), vy: rand(-24, -8), r: rand(1.2, 2.2), color: wispC, life: rand(0.3, 0.55), glow: true,
+    });
+  }
+
   /* --- player movement --- */
   const spd = 175;
   let kx = (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0);
@@ -730,8 +779,8 @@ function update(dt) {
           p.dir = Math.atan2(p.target.y - p.y, p.target.x - p.x);
           if (p.atkT <= 0) {
             p.atkT = c.atkCd; p.swingT = 0.2;
-            if (c.ranged) { shoot(p.x, p.y, p.dir, 460, playerAtk(), 'p', { kind: c.projKind, r: 4 }); sfx.shoot(); }
-            else hitMonster(p.target, playerAtk());
+            if (c.ranged) { shoot(p.x, p.y, p.dir, 460, playerAtk(), 'p', { kind: c.projKind, r: 4, ele: true, color: domEle(G.d) }); sfx.shoot(); }
+            else hitMonster(p.target, playerAtk(), { ele: true });
           }
         } else if (!p.moveTo || dist(p.moveTo.x, p.moveTo.y, p.target.x, p.target.y) > TILE * 1.5) {
           setMoveTarget(p.target.x, p.target.y);
@@ -792,6 +841,14 @@ function update(dt) {
   for (const m of ms) {
     if (m.hp <= 0) continue;
     m.atkT -= dt; m.hurtT = Math.max(0, m.hurtT - dt); m.hitT += dt;
+    if (m.poisonT > 0) {
+      m.poisonT -= dt;
+      m.hp -= m.poisonDps * dt;
+      m.pTick = (m.pTick || 0) + dt;
+      if (m.pTick > 0.7) { m.pTick = 0; ftext(m.x, m.y - m.r - 6, Math.max(1, Math.round(m.poisonDps * 0.7)), '#4ad46a', 11); }
+      if (Math.random() < dt * 5) burst(m.x + rand(-0.5, 0.5) * m.r, m.y - m.r, '#4ad46a', 1, 30);
+      if (m.hp <= 0) { m.hp = 0; killMonster(m); continue; }
+    }
     if (m.stunT > 0) { m.stunT -= dt; continue; }
     m.slowT = Math.max(0, m.slowT - dt);
     const dd = dist(m.x, m.y, p.x, p.y);
@@ -862,7 +919,7 @@ function update(dt) {
             shake(0.14);
             dead = true;
           } else {
-            hitMonster(m, pr.dmg);
+            hitMonster(m, pr.dmg, { ele: pr.ele });
             if (!pr.pierce) dead = true;
           }
           if (dead) break;
@@ -1093,7 +1150,7 @@ function render() {
       ctx.beginPath(); ctx.arc(dr.x, dr.y + bob * 0.5, 6, 0, 7); ctx.fill();
       ctx.fillStyle = '#c9b98a'; ctx.fillRect(dr.x - 2, dr.y - 10 + bob * 0.5, 4, 5);
     } else {
-      const col = rarityColor(dr.item.rarity);
+      const col = dr.item.g ? GEMS[dr.item.g].color : rarityColor(dr.item.rarity);
       ctx.save(); ctx.translate(dr.x, dr.y + bob); ctx.rotate(Math.PI / 4);
       ctx.fillStyle = col; ctx.fillRect(-6, -6, 12, 12);
       ctx.strokeStyle = '#00000088'; ctx.strokeRect(-6, -6, 12, 12);
@@ -1136,7 +1193,7 @@ function render() {
       ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.r * 0.45, 0, 7); ctx.fill();
       if (Math.random() < 0.8) G.parts.push({ x: pr.x, y: pr.y, vx: rand(-25, 25), vy: rand(-35, 5), r: rand(1.5, 3), color: Math.random() < 0.5 ? '#ff8a3a' : '#ffd27a', life: 0.35, glow: true });
     } else if (pr.kind === 'fire') {
-      ctx.fillStyle = '#ffab4a';
+      ctx.fillStyle = pr.color || '#ffab4a';
       ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.r, 0, 7); ctx.fill();
     } else if (pr.kind === 'bone') {
       ctx.fillStyle = '#cfc9b8';
@@ -1148,8 +1205,9 @@ function render() {
       ctx.beginPath(); ctx.moveTo(pr.x - Math.cos(a) * 12, pr.y - Math.sin(a) * 12); ctx.lineTo(pr.x, pr.y); ctx.stroke();
     } else { // arrow
       const a = Math.atan2(pr.vy, pr.vx);
-      ctx.strokeStyle = '#c9b98a'; ctx.lineWidth = 2;
+      ctx.strokeStyle = pr.color || '#c9b98a'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(pr.x - Math.cos(a) * 9, pr.y - Math.sin(a) * 9); ctx.lineTo(pr.x, pr.y); ctx.stroke();
+      if (pr.color && Math.random() < 0.4) G.parts.push({ x: pr.x, y: pr.y, vx: rand(-10, 10), vy: rand(-10, 10), r: 1.5, color: pr.color, life: 0.25, glow: true });
     }
   }
 
@@ -1374,9 +1432,9 @@ function drawPlayer(p) {
     if (rarC('weapon')) { ctx.fillStyle = rarC('weapon'); ctx.fillRect(-1.2, -1.2, 2.4, 2.4); }
     ringDot(-3.2, -1.8);
     ctx.restore();
-    /* swing trail */
+    /* swing trail, tinted by the weapon's element */
     if (swing > 0.1) {
-      ctx.strokeStyle = 'rgba(232,217,168,' + (0.55 * swing).toFixed(3) + ')';
+      ctx.strokeStyle = hexA(domEle(G.d) || '#e8d9a8', 0.55 * swing);
       ctx.lineWidth = 4.5; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.arc(6, -4.5, 20, -1.35 + swing * 0.2, -1.35 + swing * 1.9); ctx.stroke();
     }
@@ -1793,6 +1851,10 @@ function drawMonster(m) {
       ctx.restore();
     }
   }
+  if (m.poisonT > 0) {
+    ctx.fillStyle = '#4ad46a33';
+    ctx.beginPath(); ctx.arc(m.x, m.y - m.r * 0.4, m.r, 0, 7); ctx.fill();
+  }
   // stun stars
   if (m.stunT > 0) {
     ctx.fillStyle = '#ffe9b0';
@@ -1903,6 +1965,9 @@ function renderChar() {
       Damage: <b>${d.dmgLo}–${d.dmgHi}</b> · Armor: <b>${d.armor}</b> · Crit: <b>${Math.round(d.crit * 100)}%</b><br>
       Life: <b>${Math.ceil(p.hp)}/${d.maxHp}</b> · Mana: <b>${Math.ceil(p.mp)}/${d.maxMp}</b><br>
       Magic Find: <b>+${d.mf}%</b> · Life Steal: <b>${Math.round(d.leech * 100)}%</b><br>
+      ${(d.fire + d.cold + d.light + d.poison) > 0
+        ? 'Elemental: <b>' + [d.fire ? '🔥' + d.fire : '', d.cold ? '❄️' + d.cold : '', d.light ? '⚡' + d.light : '', d.poison ? '☠️' + d.poison : ''].filter(Boolean).join(' ') + '</b><br>'
+        : ''}
       Experience: <b>${p.xp} / ${xpNext(p.level)}</b> · Deaths: <b>${p.deaths}</b>
     </div>`;
   $('charPanel').querySelectorAll('.statbtn').forEach(b => b.addEventListener('click', () => {
@@ -1964,18 +2029,48 @@ function renderInv() {
 function showItemPopup(it, ref, equipped) {
   const p = G.p;
   const pop = $('itemPopup');
+  const gemLines = it.gems && it.gems.length
+    ? '<br>' + it.gems.map(g => `<span style="color:${GEMS[g.g].color}">◆ ${GEMS[g.g].txt(g.v)}</span>`).join('<br>')
+    : '';
+  const sockHtml = it.sockets
+    ? '<div class="isock">' + Array.from({ length: it.sockets }, (_, i) => {
+      const g = it.gems && it.gems[i];
+      return g ? `<span style="color:${GEMS[g.g].color}">◆</span>` : '<span style="color:#5a4c34">◇</span>';
+    }).join(' ') + '</div>'
+    : '';
+  const gemTargets = it.g ? SLOTS.filter(s => {
+    const e2 = p.equip[s];
+    return e2 && e2.sockets && (e2.gems ? e2.gems.length : 0) < e2.sockets;
+  }) : [];
   pop.innerHTML = `
-    <div class="iname rc-${it.rarity}">${it.icon} ${it.name}</div>
-    <div class="ibase">${it.base !== it.name ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
-    <div class="imods">${modLines(it).join('<br>') || '<i>no properties</i>'}</div>
+    <div class="iname rc-${it.rarity}" ${it.g ? `style="color:${GEMS[it.g].color}"` : ''}>${it.icon} ${it.name}</div>
+    <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}</div>
+    <div class="imods">${modLines(it).join('<br>') || '<i>no properties</i>'}${gemLines}</div>
+    ${sockHtml}
     <div class="ibtns">
       ${equipped
         ? `<button class="smallbtn" data-act="unequip">Unequip</button>`
-        : `<button class="smallbtn" data-act="equip">Equip</button>
-           <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
+        : it.g
+          ? gemTargets.map(s => `<button class="smallbtn" data-embed="${s}">◆ ${p.equip[s].name}</button>`).join('') +
+            `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
+          : `<button class="smallbtn" data-act="equip">Equip</button>
+             <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
   pop.classList.remove('hidden');
+  pop.querySelectorAll('[data-embed]').forEach(b => b.addEventListener('click', () => {
+    const target = p.equip[b.dataset.embed];
+    if (!target || !target.sockets) return;
+    if (!target.gems) target.gems = [];
+    if (target.gems.length >= target.sockets) return;
+    target.gems.push({ g: it.g, v: it.v });
+    p.inv.splice(ref, 1);
+    recalc(); sfx.pickup();
+    ftext(p.x, p.y - 30, GEMS[it.g].name + ' embedded!', GEMS[it.g].color, 13);
+    pop.classList.add('hidden');
+    saveDirty = true;
+    renderInv(); updateHUD();
+  }));
   pop.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
     const act = b.dataset.act;
     if (act === 'equip') {
