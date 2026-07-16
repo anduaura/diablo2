@@ -71,6 +71,7 @@ const sfx = {
   die: () => blip(160, 0.9, 'sawtooth', 0.08, -120),
   boss: () => blip(70, 0.9, 'sawtooth', 0.09, -20),
   stairs: () => blip(240, 0.4, 'sine', 0.06, -160),
+  moo: () => blip(150, 0.4, 'sawtooth', 0.06, -55),
   rare: () => { blip(784, 0.12, 'triangle', 0.06, 0); setTimeout(() => blip(1046, 0.22, 'triangle', 0.06, 0), 110); },
   epic: () => { blip(659, 0.12, 'triangle', 0.065, 0); setTimeout(() => blip(880, 0.12, 'triangle', 0.065, 0), 110); setTimeout(() => blip(1318, 0.35, 'triangle', 0.07, 0), 220); },
 };
@@ -230,6 +231,9 @@ const MTYPES = [
   { id: 'ghoul', name: 'Ghoul', hp: 46, dmg: [7, 12], spd: 108, r: 14, xp: 24, gold: [5, 13], atkCd: 0.9, range: 32, minL: 5, w: 2, color: '#7a5a8a' },
   { id: 'brute', name: 'Hell Brute', hp: 100, dmg: [11, 18], spd: 66, r: 20, xp: 45, gold: [10, 24], atkCd: 1.5, range: 42, minL: 7, w: 1, color: '#8a2c1a' },
 ];
+/* hell bovines only graze in the secret pasture — never in the dungeon pool */
+const COW_TYPE = { id: 'cow', name: 'Hell Bovine', hp: 42, dmg: [6, 11], spd: 108, r: 14, xp: 22, gold: [8, 18], atkCd: 1.0, range: 34, minL: 1, w: 0, color: '#e8e4da' };
+const COW_KING = { id: 'cowking', name: 'THE COW KING', hp: 320, dmg: [14, 22], spd: 84, r: 24, xp: 260, gold: [150, 280], atkCd: 1.1, range: 52, minL: 1, w: 0, color: '#e8e4da' };
 
 /* ---------------- item data ---------------- */
 const SLOTS = ['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet'];
@@ -313,6 +317,14 @@ function makeCharm(ilvl) {
   const first = Object.keys(it.mods)[0];
   it.name = (grand ? 'Grand Charm ' : 'Small Charm ') + (CHARM_SUFFIX[first] || 'of Power');
   return it;
+}
+
+/* the key to the secret pasture — floor bosses sometimes carry one */
+function makeSigil(ilvl) {
+  return {
+    slot: 'sigil', base: 'sigil', name: 'Bovine Sigil', icon: '🐮',
+    rarity: 'unique', lvl: ilvl || 1, mods: {},
+  };
 }
 
 /* two full sockets with matching gems awaken a runeword (either order) */
@@ -606,6 +618,65 @@ function genLevel(dlvl) {
   };
 }
 
+/* -------- the secret cow level: one huge pasture, many angry bovines ----- */
+function genCowLevel(depth) {
+  const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
+  const R = { x: 6, y: 6, w: 40, h: 40, cx: 26, cy: 26 };
+  for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
+  // scattered rocks & fence posts for cover
+  for (let i = 0; i < 46; i++) {
+    const x = ri(R.x + 2, R.x + R.w - 3), y = ri(R.y + 2, R.y + R.h - 3);
+    if (Math.abs(x - R.cx) + Math.abs(y - (R.y + R.h - 4)) > 6) map[y][x] = T_WALL;
+  }
+  const ex = R.cx, ey = R.y + R.h - 3;   // entrance at the south edge
+  map[ey][ex] = T_FLOOR; map[ey][ex - 2] = T_DOWN;   // portal home right beside it
+  const torches = [];
+  for (let i = 0; i < 14; i++) torches.push({ x: ri(R.x + 1, R.x + R.w - 2) * TILE + TILE / 2, y: ri(R.y + 1, R.y + R.h - 2) * TILE + TILE * 0.9 });
+  // the herd
+  const ngm = 1 + (G && G.ng || 0) * 0.8;
+  const scaleHp = (1 + 0.4 * (depth - 1) + 0.05 * (depth - 1) * (depth - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (depth - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (depth - 1)) * ngm;
+  const monsters = [];
+  for (let i = 0; i < 52; i++) {
+    let mx, my, tries = 0;
+    do {
+      mx = ri(R.x + 1, R.x + R.w - 2); my = ri(R.y + 1, R.y + R.h - 2);
+    } while ((map[my][mx] !== T_FLOOR || dist(mx, my, ex, ey) < 6) && ++tries < 20);
+    if (map[my][mx] !== T_FLOOR) continue;
+    monsters.push(makeMonster(COW_TYPE, mx * TILE + TILE / 2, my * TILE + TILE / 2, scaleHp, scaleDmg, scaleXp, Math.random() < 0.06, false, depth));
+  }
+  const boss = makeMonster(COW_KING, R.cx * TILE + TILE / 2, (R.y + 4) * TILE, scaleHp, scaleDmg, scaleXp, false, true, depth);
+  monsters.push(boss);
+  const shrines = [{ x: (R.cx + 4) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2, kind: 'gem', used: false }];
+  const chests = [{ x: (R.cx - 5) * TILE + TILE / 2, y: (R.cy - 3) * TILE + TILE / 2, opened: false }];
+  return {
+    map, rooms: [R], torches, monsters, boss, wp: null, shrines, chests, goldPiles: [],
+    seen: new Uint8Array(MAP_W * MAP_H),
+    locked: false,
+    entrance: { x: ex * TILE + TILE / 2, y: ey * TILE + TILE / 2 },
+    exitTile: { x: ex - 2, y: ey },
+  };
+}
+function enterCowLevel() {
+  const depth = Math.max(5, G.deepest || 5);
+  G.dlvl = depth;                       // drives loot & damage scaling
+  G.cowLevel = true;
+  G.lvl = genCowLevel(depth);
+  G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
+  G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
+  G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
+  G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
+  const p = G.p;
+  p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  G.world = 0;   // sunny Verdant Fields palette
+  $('floorLabel').textContent = 'The Secret Pasture 🐄' + (G.p.hardcore ? ' ☠' : '');
+  banner('MOO?! The herd senses an intruder…');
+  sfx.boss();
+}
+
 /* -------- town: safe hub with merchant, waypoint and stairs down -------- */
 function genTown() {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
@@ -820,6 +891,7 @@ function modLines(it) {
     if (a) lines.push(a.txt(it.mods[k]));
   }
   if (it.slot === 'charm') lines.push('Works from your bag');
+  if (it.slot === 'sigil') { lines.push('It smells faintly of hay…'); lines.push('Use in town to open a strange portal'); }
   return lines;
 }
 
@@ -956,9 +1028,10 @@ function killMonster(m) {
     G.rings.push({ x: m.x, y: m.y, r: 6, max: 62, color: '#ff8a3a', life: 0.25 });
     sfx.fire();
   }
+  if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
   if (m.boss) {
     G.lvl.locked = false;
-    banner(m.name + ' has fallen! The stairs open…');
+    banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
     sfx.boss();
     if (m.final) showVictory();
   }
@@ -1002,8 +1075,11 @@ function dropLoot(m) {
       m.boss ? (r3 < 0.12 ? 'exotic' : r3 < 0.35 ? 'unique' : r3 < 0.55 ? 'set' : 'rare') : null);
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
-  if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  const isCow = m.type.id === 'cow';
+  if (Math.random() < (m.boss ? 0.8 : isCow ? 0.18 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
   if (Math.random() < (m.boss ? 0.35 : 0.04)) G.drops.push({ kind: 'item', item: makeCharm(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  if (m.boss && m.type.id !== 'cowking' && Math.random() < 0.2)
+    G.drops.push({ kind: 'item', item: makeSigil(dlvl), ...scatter() });
 }
 
 function hurtPlayer(dmg, mlvl) {
@@ -1404,6 +1480,7 @@ function drinkPotion(kind) {
 
 /* ---------------- level flow ---------------- */
 function enterLevel(dlvl, fresh) {
+  G.cowLevel = false;
   G.dlvl = dlvl;
   G.deepest = Math.max(G.deepest || 1, dlvl);
   G.lvl = dlvl === 0 ? genTown() : genLevel(dlvl);
@@ -1691,7 +1768,7 @@ function update(dt) {
       p.moveTo = null; p.path = null;
       moveCircle(p, (p.x - (ptx * TILE + TILE / 2)) > 0 ? 3 : -3, 3);
     } else {
-      enterLevel(G.dlvl + 1, false);
+      enterLevel(G.cowLevel ? 0 : G.dlvl + 1, false);
       return;
     }
   }
@@ -2945,6 +3022,76 @@ function drawMonster(m) {
     ctx.fillStyle = '#e8e4da';
     for (let i = 0; i < 3; i++) ctx.fillRect(2.4 + i * 1.7, -9.8, 0.8, 1);
 
+  } else if (t.id === 'cow' || t.id === 'cowking') {
+    /* -------- hell bovine: an upright cow with a halberd -------- */
+    const king = t.id === 'cowking';
+    ctx.scale(rr / 14, rr / 14);
+    ctx.strokeStyle = W('#d8d4c8'); ctx.lineWidth = 3.2;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2.8, 3); ctx.lineTo(sd * 2.8 + stride * 3.8 * sd, 10.5); ctx.stroke();
+    }
+    ctx.strokeStyle = W('#e8e4da'); ctx.lineWidth = 1.6;   // swishing tail
+    ctx.beginPath();
+    ctx.moveTo(-4, 1);
+    ctx.quadraticCurveTo(-9, 3 + Math.sin(time * 5 + ph) * 2, -8, 8 + Math.sin(time * 5 + ph) * 2);
+    ctx.stroke();
+    // white body with black patches
+    const g = ctx.createLinearGradient(0, -9, 0, 6);
+    g.addColorStop(0, W('#f0ece0')); g.addColorStop(1, W('#c4c0b4'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-6.5, 5.5);
+    ctx.quadraticCurveTo(-8.5, -6, 0, -9);
+    ctx.quadraticCurveTo(8.5, -6, 6.5, 5.5);
+    ctx.quadraticCurveTo(0, 8, -6.5, 5.5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#2a2a2e');
+    ctx.beginPath(); ctx.ellipse(-2.5, -3.5, 2.6, 3.2, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(3.5, 1.5, 2.2, 2.6, -0.4, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8b4c0');   // pink belly patch
+    ctx.beginPath(); ctx.ellipse(0.5, 4.2, 3, 2, 0, 0, 7); ctx.fill();
+    // head with snout & horns
+    ctx.fillStyle = W('#f0ece0');
+    ctx.beginPath(); ctx.arc(1, -13, 4.6, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8b4c0');   // snout
+    ctx.beginPath(); ctx.ellipse(3.2, -11.2, 3, 2.2, 0.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7a3a4a';
+    ctx.fillRect(2.2, -11.6, 1, 1); ctx.fillRect(4.2, -11.4, 1, 1);
+    ctx.fillStyle = king ? '#ff3a2a' : '#20140a';   // eyes (the king's burn red)
+    ctx.fillRect(-0.6, -14.4, 1.6, 1.6); ctx.fillRect(2.6, -14.6, 1.6, 1.6);
+    ctx.fillStyle = W('#e8d9a8');   // horns
+    for (const sd of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(1 + sd * 3, -16);
+      ctx.quadraticCurveTo(1 + sd * 7, -18.5, 1 + sd * 7.5, -21.5);
+      ctx.quadraticCurveTo(1 + sd * 4.5, -19, 1 + sd * 2, -17);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = W('#2a2a2e');   // floppy ear
+    ctx.beginPath(); ctx.ellipse(-3.6, -13.6, 2, 1.2, 0.6, 0, 7); ctx.fill();
+    if (king) {   // golden crown between the horns
+      ctx.fillStyle = '#ffd76a';
+      ctx.beginPath();
+      ctx.moveTo(-2.4, -17.2); ctx.lineTo(-2.4, -20.4); ctx.lineTo(-0.8, -18.4);
+      ctx.lineTo(1, -21); ctx.lineTo(2.8, -18.4); ctx.lineTo(4.4, -20.4); ctx.lineTo(4.4, -17.2);
+      ctx.closePath(); ctx.fill();
+    }
+    // halberd arm
+    ctx.save();
+    ctx.translate(6, -5);
+    ctx.rotate(-0.35 + (m.hurtT > 0 ? 0.3 : 0) + stride * 0.12);
+    ctx.strokeStyle = W('#d8d4c8'); ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(3.5, 1.5); ctx.stroke();
+    ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(2, 9); ctx.lineTo(5, -12); ctx.stroke();
+    ctx.fillStyle = W('#ccd2da');
+    ctx.beginPath();
+    ctx.moveTo(4.4, -12.5);
+    ctx.quadraticCurveTo(11, -11, 11.5, -5.5);
+    ctx.quadraticCurveTo(7.5, -8.5, 4.7, -9);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+
   } else {
     /* -------- hell brute / boss demon -------- */
     ctx.scale(rr / 20, rr / 20);
@@ -3799,7 +3946,8 @@ function showItemPopup(it, ref, equipped) {
           ? gemTargets.map(s => `<button class="smallbtn" data-embed="${s}">◆ ${p.equip[s].name}</button>`).join('') +
             `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
           : !SLOTS.includes(it.slot)
-            ? `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
+            ? `${it.slot === 'sigil' ? '<button class="smallbtn" data-act="cow">🐄 Use the sigil</button>' : ''}
+               <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
             : `<button class="smallbtn" data-act="equip">Equip</button>
              ${G.merc && (it.slot === 'weapon' || it.slot === 'armor') ? '<button class="smallbtn" data-act="merc">🛡 Give to merc</button>' : ''}
              <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
@@ -3832,6 +3980,20 @@ function showItemPopup(it, ref, equipped) {
     } else if (act === 'unequip') {
       if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
       else { p.inv.push(it); p.equip[ref] = null; recalc(); }
+    } else if (act === 'cow') {
+      if (G.dlvl !== 0) {
+        ftext(p.x, p.y - 30, 'The sigil only stirs in town…', '#c9b98a', 12);
+        pop.classList.add('hidden');
+        return;
+      }
+      p.inv.splice(ref, 1);
+      pop.classList.add('hidden');
+      closePanels();
+      spark(p.x, p.y, '#c8281e', 30, 260);
+      enterCowLevel();
+      saveDirty = true;
+      updateHUD();
+      return;
     } else if (act === 'merc') {
       const old = G.merc[it.slot];
       G.merc[it.slot] = it;
