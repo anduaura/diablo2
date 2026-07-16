@@ -223,6 +223,14 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   display:flex; align-items:center; justify-content:center;
 }
 .islot .slotlabel { position:absolute; font-size:9px; color:#5a4c34; bottom:3px; letter-spacing:.5px; pointer-events:none; }
+.islot .socks {
+  position:absolute; bottom:1px; left:0; right:0; text-align:center;
+  font-size:9px; line-height:1; letter-spacing:1px; pointer-events:none; font-style:normal;
+}
+.islot .socks i { font-style:normal; }
+.islot.eq .socks { bottom:auto; top:2px; }
+.shoprow .socks { font-size:11px; letter-spacing:1px; }
+.shoprow .socks i { font-style:normal; }
 .islot.eq { aspect-ratio:auto; height:52px; font-size:24px; }
 .islot:active { transform:scale(.93); }
 .islot.r-common { border-color:#5b5b5b; }
