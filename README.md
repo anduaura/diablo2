@@ -47,9 +47,12 @@ python3 -m http.server 8000
   fieldstone, ice blocks & icicles, basalt & lava seams, bone catacombs,
   coral & wet sand), each a 5-floor section ending in a **boss**; conquer
   a world to unlock the next realm's **gate** in town
-- **A living town** — merchant, stash, stable, rift obelisk, five world
+- **A living town** — merchant, stash, stable, rift obelisk, the world
   gates, and townsfolk: Elder Maro trades lore & hints, Sister Amara
   heals for free and sells blessings for the road
+- **Side quests** — a stranded wanderer camps on the first floor of every
+  realm with a themed favour to ask (cull the local menace, gather gems,
+  recover a lost satchel) and pays in gold and rare gear
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
