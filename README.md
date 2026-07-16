@@ -64,7 +64,17 @@ python3 -m http.server 8000
   healing garden hearts, void tears that teleport you across the floor,
   wind shrines that scatter foes, and hackable turrets that fight for you
 - **The Gilded Imp** — a fleeing golden thief that drips coins as it runs;
-  slay it before it portals away and its hoard bursts open
+  slay it before it portals away and its hoard bursts open — and beware
+  the golden **bandit shrine** that releases a whole scatter of them
+- **Living weather** — petals, snowfall, embers, grave-fog, bubbles,
+  spores, sandstorms, crystal glints, crimson mist, void motes, passing
+  clouds and data-rain, one flavor per realm
+- **Cursed floors** — about one floor in eight rolls a curse (Withering,
+  Frenzy, Legion, Unstable): meaner monsters, richer rewards
+- **Realm relics** — every world hoards one signature unique that drops
+  only there, from Thornwing's Verdant Edge to the Omega Core
+- **Secret vaults** — some floors hide a treasure chamber behind a
+  cracked, faintly glowing wall; linger beside it and it crumbles open
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land

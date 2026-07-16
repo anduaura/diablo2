@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.3.0';
+const SANCTUARY_VERSION = '1.4.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.4.0', date: '2026-07-16', title: 'Relics & hidden vaults',
+    notes: [
+      'Realm relics: every world hoards one signature unique that drops only there — twelve chase items from Thornwing\'s Verdant Edge to the Omega Core',
+      'Secret vaults: some floors hide a treasure chamber behind a cracked, faintly glowing wall — linger beside it and it crumbles open',
+    ],
+  },
   {
     v: '1.3.0', date: '2026-07-16', title: 'Cursed floors & bandit shrines',
     notes: [
