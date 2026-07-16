@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.5.1';
+const SANCTUARY_VERSION = '1.6.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.6.0', date: '2026-07-16', title: 'Pet eggs & beast lairs',
+    notes: [
+      'Monsters now drop pet eggs — each realm lays its own species, from the Fae Fox to the Warden Orb, 24 new beasts in all',
+      'Eggs incubate in real time (rarer eggs brood longer), then crack open a beast lair: best the beast inside to tame it',
+      'Tyrant whelps — miniature dragon tyrants, the mightiest companions — hatch only from the rarest eggs of the tyrants themselves',
+      'Rarer eggs come from rarer foes, and hold fiercer, higher-grade beasts',
+    ],
+  },
   {
     v: '1.5.1', date: '2026-07-16', title: 'Menu polish',
     notes: [
