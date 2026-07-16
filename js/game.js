@@ -25,23 +25,25 @@ const WP_FLOORS = [1, 5, 10, 15, 20, 25, 30, 35, 40];
 const AUTO_TARGET_R = 180;   // idle heroes lock onto monsters inside this radius
 const SAVE_KEY = 'sanctuary_save_v1';
 
-const FLOOR_NAMES = ['Rotting Cellars', 'Bone Crypts', 'Drowned Catacombs',
-  'Ashen Halls', 'Blood Vaults', 'Screaming Depths', 'Molten Warrens', 'Abyssal Sanctum'];
 const BOSS_NAMES = ['Gharok the Flayed', 'Mistress Vex', 'Korlath, Tomb Warden',
   'The Hollow King', 'Balegrim the Devourer', 'Ashmaw the Eternal'];
 
-/* per-tier environment palettes: f = floor variants, w = wall, wt = wall
-   highlight, m = mortar/shadow, acc = accent (moss, embers, …) */
-const TIER_PAL = [
-  { f: ['#3b2e20', '#3f3223', '#372b1e'], w: '#2a1f15', wt: '#3a2c1c', m: '#140d07', acc: null },       // Rotting Cellars
-  { f: ['#33343c', '#373841', '#2e2f37'], w: '#262832', wt: '#363844', m: '#101218', acc: '#5a6a7a' },  // Bone Crypts
-  { f: ['#2c3a32', '#303e36', '#28362e'], w: '#1f2c26', wt: '#2c3c34', m: '#0c1410', acc: '#4a7a5a' },  // Drowned Catacombs
-  { f: ['#38322e', '#3c3632', '#34302c'], w: '#2a2522', wt: '#38322e', m: '#120f0d', acc: '#8a8078' },  // Ashen Halls
-  { f: ['#3a2624', '#3e2a28', '#362220'], w: '#2c1a18', wt: '#3c2624', m: '#140a09', acc: '#a03a2a' },  // Blood Vaults
-  { f: ['#2e2838', '#322c3c', '#2a2434'], w: '#221c2c', wt: '#302a3a', m: '#0e0a14', acc: '#7a5a9a' },  // Screaming Depths
-  { f: ['#32241c', '#362820', '#2e2018'], w: '#241812', wt: '#32221a', m: '#100a06', acc: '#ff7a2a' },  // Molten Warrens
-  { f: ['#20222e', '#242632', '#1c1e2a'], w: '#181a24', wt: '#242630', m: '#0a0b12', acc: '#4a5adf' },  // Abyssal Sanctum
+/* five themed worlds, one per 5-floor arc (cycling after floor 25).
+   pal: f = floor variants, w = wall, wt = wall highlight, m = mortar,
+   acc = accent · deco picks the floor decoration set · flame = torch color */
+const WORLDS = [
+  { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a',
+    pal: { f: ['#39482b', '#3f4e31', '#354427'], w: '#2c3a22', wt: '#3c4c30', m: '#141c0e', acc: '#d8b84a' } },
+  { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff',
+    pal: { f: ['#6f7988', '#77818f', '#67717f'], w: '#4a5462', wt: '#5e6876', m: '#2a323e', acc: '#bfe8ff' } },
+  { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a',
+    pal: { f: ['#2c2422', '#302826', '#282020'], w: '#221a18', wt: '#322624', m: '#100a08', acc: '#ff6a2a' } },
+  { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a',
+    pal: { f: ['#38323e', '#3c3642', '#342e3a'], w: '#2a2430', wt: '#38323e', m: '#120e16', acc: '#9adc8a' } },
+  { name: 'Drowned Abyss', deco: 'shells', flame: '#4ad4c8',
+    pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
 ];
+const worldOf = dlvl => dlvl <= 0 ? 0 : Math.floor((dlvl - 1) / 5) % WORLDS.length;
 
 /* ---------------- audio (tiny synth) ---------------- */
 let AC = null, soundOn = true;
@@ -236,6 +238,7 @@ function newPlayer(clsId) {
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
     hp: 1, mp: 1,                     // set by recalc
+    bagSlots: 24,
     atkT: 0, cd: [0, 0, 0, 0], target: null, path: null, moveTo: null,
     hurtT: 0, swingT: 0, deaths: 0,
     rageT: 0, spinT: 0, strafeN: 0, strafeT: 0,
@@ -1126,13 +1129,13 @@ function enterLevel(dlvl, fresh) {
     G.drops.push({ kind: 'gold', amt: Math.round(ri(12, 35) * (1 + dlvl * 0.3) * (1 + (G.ng || 0) * 0.6)), x: gp.x, y: gp.y });
   }
   if (dlvl === 0) {
-    G.tier = 0;
+    G.world = 0;
     $('floorLabel').textContent = 'Sanctuary · Town';
     banner('Sanctuary — safe haven');
     sfx.stairs();
   } else {
-    G.tier = Math.min(Math.floor((dlvl - 1) / 3), TIER_PAL.length - 1);
-    const tierName = FLOOR_NAMES[Math.min(Math.floor((dlvl - 1) / 3), FLOOR_NAMES.length - 1)];
+    G.world = worldOf(dlvl);
+    const tierName = WORLDS[G.world].name;
     $('floorLabel').textContent = tierName + ' · ' + dlvl + (G.ng ? ' · NG+' + G.ng : '');
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
@@ -1162,6 +1165,7 @@ function saveGame() {
       waypoints: G.waypoints, deepest: G.deepest,
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
+      bagSlots: p.bagSlots || 24,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1172,13 +1176,13 @@ function startGame(clsId, save, slot) {
     Object.assign(p, {
       level: save.level, xp: save.xp, statPts: save.statPts, gold: save.gold,
       stats: save.stats, equip: save.equip, inv: save.inv || [], potions: save.potions,
-      deaths: save.deaths || 0,
+      deaths: save.deaths || 0, bagSlots: save.bagSlots || 24,
     });
     soundOn = save.soundOn !== false;
   }
   G = {
     p, dlvl: save ? save.dlvl : 0, lvl: null, projs: [], parts: [], texts: [], drops: [], rings: [],
-    beams: [], meteors: [], clouds: [], time: 0, mmT: 0, tier: 0, shakeT: 0, onWp: false,
+    beams: [], meteors: [], clouds: [], time: 0, mmT: 0, world: 0, shakeT: 0, onWp: false,
     waypoints: (save && save.waypoints) || [], deepest: (save && save.deepest) || 1,
     autoPot: save && save.autoPot !== undefined ? save.autoPot : 0.35,
     autoSkill: !!(save && save.autoSkill), autoPotT: 0, autoSkillT: 0,
@@ -1407,7 +1411,7 @@ function update(dt) {
         const old = p.equip[it.slot];
         p.equip[it.slot] = it;
         if (old) {
-          if (p.inv.length < 24) p.inv.push(old);
+          if (p.inv.length < p.bagSlots) p.inv.push(old);
           else G.drops.push({ kind: 'item', item: old, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
         }
         recalc();
@@ -1421,7 +1425,7 @@ function update(dt) {
         p.gold += gold;
         ftext(dr.x, dr.y - 12, '+' + gold + 'g — ' + it.name + ' sold', '#e8c14d', 12);
         G.drops.splice(i, 1); sfx.gold(); saveDirty = true; updateHUD();
-      } else if (p.inv.length >= 24) {
+      } else if (p.inv.length >= p.bagSlots) {
         if (!dr.fullMsg) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); dr.fullMsg = true; }
       } else {
         p.inv.push(it);
@@ -1677,7 +1681,7 @@ function render() {
   const x1 = Math.min(MAP_W - 1, Math.ceil((cam.x + VW / 2 / ZOOM) / TILE) + 1);
   const y0 = Math.max(0, Math.floor((cam.y - VH / 2 / ZOOM) / TILE) - 1);
   const y1 = Math.min(MAP_H - 1, Math.ceil((cam.y + VH / 2 / ZOOM) / TILE) + 1);
-  const pal = TIER_PAL[G.tier || 0];
+  const wrld = WORLDS[G.world || 0], pal = wrld.pal;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
     if (t === T_WALL) {
@@ -1735,7 +1739,7 @@ function render() {
       if (h2 < 0.35) { ctx.beginPath(); ctx.moveTo(px + TILE * (0.3 + h2), py); ctx.lineTo(px + TILE * (0.3 + h2), py + TILE); ctx.stroke(); }
       else if (h2 < 0.7) { ctx.beginPath(); ctx.moveTo(px, py + TILE * h2); ctx.lineTo(px + TILE, py + TILE * h2); ctx.stroke(); }
       if (h > 0.84 && h < 0.93) {   // cracks (ember-lit in the Molten Warrens)
-        const molten = G.tier === 6 && pal.acc;
+        const molten = wrld.deco === 'lava';
         ctx.strokeStyle = molten ? pal.acc + 'aa' : pal.m + 'cc';
         ctx.lineWidth = molten ? 1.6 : 1;
         ctx.beginPath();
@@ -1748,12 +1752,49 @@ function render() {
         ctx.fillStyle = '#00000030';
         ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.5, 12 + h * 100, 8, h * 40, 0, 7); ctx.fill();
       }
-      if (h > 0.93) { // bones / rubble decoration
-        ctx.fillStyle = '#00000033';
-        ctx.beginPath(); ctx.ellipse(px + TILE * 0.5, py + TILE * 0.55, 8, 4, h * 6, 0, 7); ctx.fill();
-        ctx.fillStyle = h > 0.965 ? '#b8ab8f' : '#4a3a28';
-        ctx.fillRect(px + TILE * 0.3, py + TILE * 0.45, 9, 2.5);
-        ctx.fillRect(px + TILE * 0.5, py + TILE * 0.55, 6, 2);
+      if (h > 0.9) { // per-world floor decoration
+        const cx3 = px + TILE * 0.5, cy3 = py + TILE * 0.55;
+        if (wrld.deco === 'flowers') {
+          ctx.strokeStyle = '#4a6a34'; ctx.lineWidth = 1.2;
+          for (let k = 0; k < 3; k++) {
+            ctx.beginPath(); ctx.moveTo(cx3 - 4 + k * 4, cy3 + 4); ctx.lineTo(cx3 - 6 + k * 4 + h * 4, cy3 - 4); ctx.stroke();
+          }
+          if (h > 0.95) {
+            ctx.fillStyle = ['#d8b84a', '#c86a8a', '#e8e4da'][Math.floor(h * 40) % 3];
+            ctx.fillRect(cx3 - 1, cy3 - 6, 2.6, 2.6);
+          }
+        } else if (wrld.deco === 'snow') {
+          ctx.fillStyle = '#c8d2dc';
+          ctx.beginPath(); ctx.ellipse(cx3, cy3, 9 + h * 8, 5, h * 3, 0, 7); ctx.fill();
+          ctx.fillStyle = '#e8f0f8';
+          ctx.fillRect(cx3 - 1 + h * 6, cy3 - 1, 2, 2);
+        } else if (wrld.deco === 'lava') {
+          ctx.fillStyle = '#1a1210';
+          ctx.beginPath(); ctx.ellipse(cx3, cy3, 6, 4, h, 0, 7); ctx.fill();
+          ctx.fillStyle = '#ff6a2a';
+          ctx.fillRect(cx3 - 1, cy3 - 1, 2.2, 2.2);
+        } else if (wrld.deco === 'graves') {
+          if (h > 0.955) {   // leaning tombstone
+            ctx.fillStyle = '#6a6472';
+            ctx.fillRect(cx3 - 5, cy3 - 10, 10, 12);
+            ctx.beginPath(); ctx.arc(cx3, cy3 - 10, 5, Math.PI, 0); ctx.fill();
+            ctx.fillStyle = '#514b59';
+            ctx.fillRect(cx3 - 3, cy3 - 8, 6, 1.6);
+            ctx.fillRect(cx3 - 3, cy3 - 5, 4.5, 1.4);
+          } else {   // scattered bones
+            ctx.fillStyle = '#b8ab8f';
+            ctx.fillRect(cx3 - 6, cy3 - 2, 9, 2.4);
+            ctx.fillRect(cx3 - 1, cy3 + 1, 6, 2);
+          }
+        } else {   // shells & bubbles
+          ctx.strokeStyle = '#7ac8bc'; ctx.lineWidth = 1.4;
+          ctx.beginPath(); ctx.arc(cx3, cy3, 4.2, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+          ctx.beginPath(); ctx.arc(cx3, cy3, 2, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+          if (h > 0.96) {
+            ctx.fillStyle = '#bfe8ff44';
+            ctx.beginPath(); ctx.arc(cx3 + 8, cy3 - 9, 2.2, 0, 7); ctx.fill();
+          }
+        }
       }
       if (t === T_WP) {
         ctx.strokeStyle = '#5ab0ff';
@@ -1789,9 +1830,9 @@ function render() {
     ctx.fillStyle = '#4a3418';
     ctx.fillRect(t.x - 2, t.y - 10, 4, 12);
     const fl = Math.sin(G.time * 9 + t.x) * 1.6;
-    ctx.fillStyle = '#ffb03a';
+    ctx.fillStyle = wrld.flame;
     ctx.beginPath(); ctx.ellipse(t.x, t.y - 13 + fl * 0.4, 3.5, 6 + fl, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#ffe9b0';
+    ctx.fillStyle = '#ffffffcc';
     ctx.beginPath(); ctx.ellipse(t.x, t.y - 12, 1.6, 3, 0, 0, 7); ctx.fill();
   }
 
@@ -2994,7 +3035,7 @@ function togglePanel(id) {
 function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
-    : FLOOR_NAMES[Math.min(Math.floor((d - 1) / 3), FLOOR_NAMES.length - 1)] + ' · Floor ' + d;
+    : WORLDS[worldOf(d)].name + ' · Floor ' + d;
   const ret = G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
     ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '';
   $('wpPanel').innerHTML = `
@@ -3020,7 +3061,7 @@ function renderShop() {
     <div class="shoprow">
       <span class="sicon2">${it.icon}</span>
       <span class="snm"><span class="rc-${it.rarity}">${it.name}</span> ${sockBadge(it)}<br><small>${modLines(it).slice(0, 2).join(' · ') || it.slot}</small></span>
-      <button class="smallbtn" data-buy-item="${i}" ${p.gold < sellPrice(it) * 3 || p.inv.length >= 24 ? 'disabled' : ''}>${sellPrice(it) * 3}g</button>
+      <button class="smallbtn" data-buy-item="${i}" ${p.gold < sellPrice(it) * 3 || p.inv.length >= p.bagSlots ? 'disabled' : ''}>${sellPrice(it) * 3}g</button>
     </div>` : '').join('');
   $('shopPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
@@ -3039,7 +3080,7 @@ function renderShop() {
   }));
   $('shopPanel').querySelectorAll('[data-buy-item]').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.buyItem, it = G.lvl.shopStock[i];
-    if (!it || p.gold < sellPrice(it) * 3 || p.inv.length >= 24) return;
+    if (!it || p.gold < sellPrice(it) * 3 || p.inv.length >= p.bagSlots) return;
     p.gold -= sellPrice(it) * 3;
     p.inv.push(it);
     G.lvl.shopStock[i] = null;
@@ -3074,6 +3115,8 @@ function renderChar() {
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
+const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
+
 function sockBadge(it) {
   if (!it || !it.sockets) return '';
   return `<span class="socks">${Array.from({ length: it.sockets }, (_, k) => {
@@ -3091,7 +3134,7 @@ function renderInv() {
     return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < p.bagSlots; i++) {
     const it = p.inv[i];
     grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) : ''}</button>`;
   }
@@ -3103,6 +3146,9 @@ function renderInv() {
       <button class="smallbtn" data-buy="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-buy="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
+      ${p.bagSlots < 48
+        ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
+        : ''}
     </div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
@@ -3119,9 +3165,18 @@ function renderInv() {
     p.gold -= potCost; p.potions[b.dataset.buy]++;
     sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
   }));
+  const bagBtn = $('invPanel').querySelector('[data-bag]');
+  if (bagBtn) bagBtn.addEventListener('click', () => {
+    const cost = BAG_COSTS[(p.bagSlots - 24) / 6];
+    if (p.gold < cost || p.bagSlots >= 48) return;
+    p.gold -= cost;
+    p.bagSlots += 6;
+    banner('Bag expanded — ' + p.bagSlots + ' slots!');
+    sfx.level(); renderInv(); updateHUD(); saveDirty = true;
+  });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
-    if (p.gold < gambleCost || p.inv.length >= 24) return;
+    if (p.gold < gambleCost || p.inv.length >= p.bagSlots) return;
     p.gold -= gambleCost;
     const it = makeItem(choice(SLOTS), Math.max(1, G.dlvl), Math.random() < 0.08 ? 'unique' : Math.random() < 0.4 ? 'rare' : 'magic');
     p.inv.push(it);
@@ -3191,7 +3246,7 @@ function showItemPopup(it, ref, equipped) {
       if (old) p.inv.push(old);
       recalc(); sfx.pickup();
     } else if (act === 'unequip') {
-      if (p.inv.length >= 24) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
+      if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
       else { p.inv.push(it); p.equip[ref] = null; recalc(); }
     } else if (act === 'sell') {
       p.gold += sellPrice(it);
