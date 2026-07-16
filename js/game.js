@@ -198,6 +198,31 @@ function fusableGems(inv) {
   }
   return null;
 }
+/* charms: power that lives in your bag — the slot it occupies is the cost */
+const CHARM_SUFFIX = {
+  str: 'of the Bear', dex: 'of the Fox', vit: 'of the Oak', ene: 'of the Mind',
+  hp: 'of Life', mp: 'of Spirit', dmgPct: 'of Wrath', armor: 'of Warding',
+  leech: 'of the Leech', mf: 'of Fortune', fireDmg: 'of Embers',
+  coldDmg: 'of Frost', lightDmg: 'of Storms', poisonDmg: 'of Venom',
+};
+function makeCharm(ilvl) {
+  const grand = Math.random() < 0.3;
+  const it = {
+    slot: 'charm', base: 'charm', icon: grand ? '🧿' : '🔶',
+    rarity: grand ? 'rare' : 'magic', lvl: ilvl, mods: {},
+  };
+  const used = new Set();
+  for (let i = 0; i < (grand ? 2 : 1); i++) {
+    const a = choice(AFFIXES);
+    if (used.has(a.stat)) continue;
+    used.add(a.stat);
+    it.mods[a.stat] = Math.max(1, Math.round(a.roll(ilvl) * (grand ? 0.75 : 0.5)));
+  }
+  const first = Object.keys(it.mods)[0];
+  it.name = (grand ? 'Grand Charm ' : 'Small Charm ') + (CHARM_SUFFIX[first] || 'of Power');
+  return it;
+}
+
 /* two full sockets with matching gems awaken a runeword (either order) */
 const RUNEWORDS = {
   'ruby+ruby': { name: 'Inferno', mods: { dmgPct: 15, fireDmg: 10 } },
@@ -301,6 +326,11 @@ function derived(p) {
     if (it.gems) for (const g of it.gems) m[GEMS[g.g].stat] += g.v;
     const rw = runewordOf(it);
     if (rw) for (const k in rw.mods) m[k] = (m[k] || 0) + rw.mods[k];
+  }
+  // charms grant their mods straight from the bag
+  for (const it of p.inv) {
+    if (it.slot !== 'charm') continue;
+    for (const k in it.mods) m[k] = (m[k] || 0) + it.mods[k];
   }
   // set bonuses: each threshold up to the worn count applies
   const setCount = {};
@@ -675,6 +705,7 @@ function modLines(it) {
     const a = AFFIXES.find(a => a.stat === k);
     if (a) lines.push(a.txt(it.mods[k]));
   }
+  if (it.slot === 'charm') lines.push('Works from your bag');
   return lines;
 }
 
@@ -857,6 +888,7 @@ function dropLoot(m) {
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
   if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  if (Math.random() < (m.boss ? 0.35 : 0.04)) G.drops.push({ kind: 'item', item: makeCharm(Math.max(1, dlvl + ngb * 8)), ...scatter() });
 }
 
 function hurtPlayer(dmg, mlvl) {
@@ -1509,7 +1541,7 @@ function update(dt) {
       G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
     } else if (dr.kind === 'item' && dd < 30) {
       const it = dr.item;
-      if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
+      if (G.autoEquip && !it.g && SLOTS.includes(it.slot) && itemScore(it) > itemScore(p.equip[it.slot])) {
         // auto-equip upgrades; old piece goes to the bag (or the floor if full)
         const old = p.equip[it.slot];
         p.equip[it.slot] = it;
@@ -1521,7 +1553,7 @@ function update(dt) {
         ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' equipped!', rarityColor(it.rarity), 13);
         spark(p.x, p.y - 10, rarityColor(it.rarity), 8, 140);
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
-      } else if (G.autoSell > 0 && !it.g && !(it.sockets >= 2) &&
+      } else if (G.autoSell > 0 && !it.g && it.slot !== 'charm' && !(it.sockets >= 2) &&
         (it.rarity === 'common' || (G.autoSell >= 2 && it.rarity === 'magic'))) {
         // auto-sell junk straight to gold (2-socket runeword bases are kept)
         const gold = sellPrice(it);
@@ -1533,6 +1565,7 @@ function update(dt) {
       } else {
         p.inv.push(it);
         ftext(dr.x, dr.y - 12, it.name, it.g ? GEMS[it.g].color : rarityColor(it.rarity), 13);
+        if (it.slot === 'charm') recalc();
         G.drops.splice(i, 1); sfx.pickup(); saveDirty = true;
       }
       if (!G.drops.includes(dr) && !$('invPanel').classList.contains('hidden')) renderInv();
@@ -3216,24 +3249,24 @@ function renderStash() {
     if (!it || p.inv.length >= p.bagSlots) return;
     s2.splice(+b.dataset.st, 1);
     p.inv.push(it);
-    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.pickup(); renderStash();
   }));
   $('stashPanel').querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => {
     const s2 = loadStash(), it = p.inv[+b.dataset.bg];
     if (!it || s2.length >= STASH_MAX) return;
     p.inv.splice(+b.dataset.bg, 1);
     s2.push(it);
-    saveStash(s2); saveDirty = true; sfx.pickup(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.pickup(); renderStash();
   }));
   $('stashPanel').querySelector('[data-all-in]').addEventListener('click', () => {
     const s2 = loadStash();
     while (p.inv.length && s2.length < STASH_MAX) s2.push(p.inv.shift());
-    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
   $('stashPanel').querySelector('[data-all-out]').addEventListener('click', () => {
     const s2 = loadStash();
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
-    saveStash(s2); saveDirty = true; sfx.gold(); renderStash();
+    saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
 }
 
@@ -3476,7 +3509,9 @@ function showItemPopup(it, ref, equipped) {
         : it.g
           ? gemTargets.map(s => `<button class="smallbtn" data-embed="${s}">◆ ${p.equip[s].name}</button>`).join('') +
             `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
-          : `<button class="smallbtn" data-act="equip">Equip</button>
+          : !SLOTS.includes(it.slot)
+            ? `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
+            : `<button class="smallbtn" data-act="equip">Equip</button>
              <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
@@ -3510,6 +3545,7 @@ function showItemPopup(it, ref, equipped) {
     } else if (act === 'sell') {
       p.gold += sellPrice(it);
       p.inv.splice(ref, 1);
+      if (it.slot === 'charm') recalc();
       sfx.gold();
     }
     pop.classList.add('hidden');
