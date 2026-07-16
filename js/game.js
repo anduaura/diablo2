@@ -325,9 +325,10 @@ function genLevel(dlvl) {
   const monsters = [];
   const isBossFloor = dlvl % 5 === 0;
   const pool = MTYPES.filter(t => t.minL <= dlvl);
-  const scaleHp = 1 + 0.4 * (dlvl - 1) + 0.05 * (dlvl - 1) * (dlvl - 1);
-  const scaleDmg = 1 + 0.22 * (dlvl - 1);
-  const scaleXp = 1 + 0.3 * (dlvl - 1);
+  const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
+  const scaleHp = (1 + 0.4 * (dlvl - 1) + 0.05 * (dlvl - 1) * (dlvl - 1)) * ngm;
+  const scaleDmg = (1 + 0.22 * (dlvl - 1)) * ngm;
+  const scaleXp = (1 + 0.3 * (dlvl - 1)) * ngm;
   const wpick = () => {
     let tot = 0; for (const t of pool) tot += t.w;
     let r = Math.random() * tot;
@@ -352,13 +353,33 @@ function genLevel(dlvl) {
   }
   let boss = null;
   if (isBossFloor) {
-    const bt = { id: 'boss', name: choice(BOSS_NAMES), hp: 240, dmg: [12, 20], spd: 78, r: 26, xp: 160, gold: [60, 120], atkCd: 1.1, range: 52, w: 0, minL: 1, color: '#a01818' };
+    const isFinal = dlvl === 25;
+    const bt = isFinal
+      ? { id: 'boss', name: 'MALGOROTH, LORD OF THE ABYSS', hp: 700, dmg: [18, 28], spd: 88, r: 34, xp: 800, gold: [300, 500], atkCd: 1.0, range: 64, w: 0, minL: 1, color: '#7a0c20' }
+      : { id: 'boss', name: choice(BOSS_NAMES), hp: 240, dmg: [12, 20], spd: 78, r: 26, xp: 160, gold: [60, 120], atkCd: 1.1, range: 52, w: 0, minL: 1, color: '#a01818' };
     boss = makeMonster(bt, exit.cx * TILE + TILE / 2, exit.cy * TILE - TILE, scaleHp, scaleDmg, scaleXp, false, true, dlvl);
+    if (isFinal) { boss.final = true; boss.summonT = 6; boss.novaT = 2; }
     monsters.push(boss);
   }
 
+  // dungeon events: shrines, treasure chests, gold piles
+  const shrines = [], chests = [], goldPiles = [];
+  const SHRINE_KINDS = ['combat', 'armor', 'speed', 'healing', 'gem', 'xp'];
+  for (const room of rooms) {
+    if (room === r0 || room === exit) continue;
+    const mx = room.x + Math.floor(room.w / 2), topY = room.y + 1, botY = room.y + room.h - 2;
+    if (Math.random() < 0.25 && shrines.length < 2 && map[topY][mx] === T_FLOOR) {
+      shrines.push({ x: mx * TILE + TILE / 2, y: topY * TILE + TILE / 2, kind: choice(SHRINE_KINDS), used: false });
+    } else if (Math.random() < 0.2 && chests.length < 2 && map[botY][mx] === T_FLOOR) {
+      chests.push({ x: mx * TILE + TILE / 2, y: botY * TILE + TILE / 2, opened: false });
+    } else if (Math.random() < 0.18) {
+      const gx = Math.floor(room.x + rand(1, room.w - 1)), gy = Math.floor(room.y + rand(1, room.h - 1));
+      if (map[gy][gx] === T_FLOOR) goldPiles.push({ x: gx * TILE + TILE / 2, y: gy * TILE + TILE / 2 });
+    }
+  }
+
   return {
-    map, rooms, torches, monsters, boss, wp,
+    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
@@ -377,11 +398,12 @@ function genTown() {
   map[R.y + R.h - 2][R.x + 1] = T_WALL; map[R.y + R.h - 2][R.x + R.w - 2] = T_WALL;
   const torches = [];
   for (let x = R.x + 1; x < R.x + R.w - 1; x += 3) torches.push({ x: x * TILE + TILE / 2, y: (R.y - 1) * TILE + TILE * 0.9 });
-  const ilvl = Math.max(1, (G && G.deepest) || 1);
+  const ilvl = Math.max(1, ((G && G.deepest) || 1) + (G && G.ng || 0) * 8);
   const shopStock = [];
   for (let i = 0; i < 4; i++) shopStock.push(makeItem(choice(SLOTS), ilvl, Math.random() < 0.15 ? 'rare' : 'magic'));
   return {
-    map, rooms: [R], torches, monsters: [], boss: null, wp: { x: (R.x + 2) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2 },
+    map, rooms: [R], torches, monsters: [], boss: null, shrines: [], chests: [], goldPiles: [],
+    wp: { x: (R.x + 2) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2 },
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: false,
     entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 2) * TILE + TILE / 2 },
@@ -391,15 +413,23 @@ function genTown() {
   };
 }
 
+const CHAMP_AFFIXES = {
+  fire: { name: 'Fire-Enchanted', color: '#ff8a3a' },
+  frost: { name: 'Frostbound', color: '#7ac8ff' },
+  storm: { name: 'Storm-Charged', color: '#ffd23a' },
+  vampiric: { name: 'Vampiric', color: '#c8281e' },
+};
 function makeMonster(t, x, y, sh, sd, sx, champ, isBoss, dlvl) {
   const hp = Math.round(t.hp * sh * (champ ? 2.2 : 1) * (isBoss ? 1 : 1));
+  const affix = champ ? choice(Object.keys(CHAMP_AFFIXES)) : null;
   return {
+    affix, stormT: rand(1, 3),
     type: t, x, y, r: t.r * (champ ? 1.25 : 1),
     hp, maxHp: hp,
     dmg: [Math.round(t.dmg[0] * sd * (champ ? 1.5 : 1)), Math.round(t.dmg[1] * sd * (champ ? 1.5 : 1))],
     spd: t.spd * rand(0.9, 1.1), xp: Math.round(t.xp * sx * (champ ? 2.5 : 1)),
     gold: t.gold, atkCd: t.atkCd, range: t.range, ranged: !!t.ranged,
-    champ, boss: isBoss, name: champ ? 'Champion ' + t.name : t.name, dlvl,
+    champ, boss: isBoss, name: champ ? CHAMP_AFFIXES[affix].name + ' ' + t.name : t.name, dlvl,
     aggro: false, atkT: rand(0, 0.5), stunT: 0, slowT: 0, hurtT: 0, hitT: 99,
     dir: rand(0, 6.28), blocked: 0, path: null, pathT: 0, novaT: isBoss ? 3 : 0,
   };
@@ -554,7 +584,7 @@ function banner(txt) {
 }
 
 /* ---------------- combat ---------------- */
-function playerAtk() { return Math.round(ri(G.d.dmgLo, G.d.dmgHi) * (G.p.rageT > 0 ? 1.6 : 1)); }
+function playerAtk() { return Math.round(ri(G.d.dmgLo, G.d.dmgHi) * (G.p.rageT > 0 ? 1.6 : 1) * (G.buffDmg > 0 ? 1.4 : 1)); }
 
 function hitMonster(m, dmg, opts) {
   opts = opts || {};
@@ -584,15 +614,8 @@ function hitMonster(m, dmg, opts) {
   if (m.hp <= 0) killMonster(m);
 }
 
-function killMonster(m) {
-  burst(m.x, m.y, m.type.color, 16, 160);
-  burst(m.x, m.y, '#3a3a3a', 8, 80);
-  spark(m.x, m.y, m.type.color, m.boss ? 30 : 7, m.boss ? 300 : 180);
-  if (m.boss) shake(0.4);
-  // xp
+function grantLevelUps() {
   const p = G.p;
-  p.xp += m.xp;
-  ftext(m.x, m.y - 26, '+' + m.xp + ' xp', '#b8a4e8', 12);
   while (p.xp >= xpNext(p.level)) {
     p.xp -= xpNext(p.level); p.level++; p.statPts += 5;
     recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
@@ -602,35 +625,117 @@ function killMonster(m) {
     G.rings.push({ x: p.x, y: p.y, r: 8, max: 70, color: '#ffd76a', life: 0.5 });
     sfx.level(); updateBadge();
   }
+}
+
+function activateShrine(s) {
+  const p = G.p;
+  spark(s.x, s.y - 14, '#bfe8ff', 18, 200); sfx.level();
+  switch (s.kind) {
+    case 'combat': G.buffDmg = 30; banner('Shrine of Battle — +40% damage!'); break;
+    case 'armor': G.buffArmor = 30; banner('Shrine of Stone — +50% armor!'); break;
+    case 'speed': G.buffSpd = 30; banner('Shrine of Wind — +25% speed!'); break;
+    case 'healing':
+      p.hp = G.d.maxHp; p.mp = G.d.maxMp;
+      burst(p.x, p.y - 10, '#ff8a7a', 14, 120);
+      banner('Shrine of Life — fully restored!');
+      break;
+    case 'gem':
+      G.drops.push({ kind: 'item', item: makeGem(Math.max(1, G.dlvl + (G.ng || 0) * 8)), x: s.x + rand(-14, 14), y: s.y + 24 });
+      banner('Gem Shrine — a jewel appears!');
+      break;
+    case 'xp': {
+      const amt = Math.round(xpNext(p.level) * 0.35);
+      p.xp += amt;
+      ftext(s.x, s.y - 22, '+' + amt + ' xp', '#b8a4e8', 14);
+      banner('Shrine of Wisdom!');
+      grantLevelUps();
+      break;
+    }
+  }
+  updateHUD(); saveDirty = true;
+}
+
+function openChest(ch) {
+  const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8);
+  G.drops.push({ kind: 'gold', amt: Math.round(ri(20, 60) * (1 + G.dlvl * 0.3) * (1 + (G.ng || 0) * 0.6)), x: ch.x + rand(-18, 18), y: ch.y + 26 });
+  const n = ri(1, 2);
+  for (let i = 0; i < n; i++) {
+    G.drops.push({ kind: 'item', item: makeItem(choice(SLOTS), ilvl, Math.random() < 0.25 ? 'rare' : null), x: ch.x + rand(-24, 24), y: ch.y + rand(16, 32) });
+  }
+  if (Math.random() < 0.3) G.drops.push({ kind: 'item', item: makeGem(ilvl), x: ch.x, y: ch.y + 36 });
+  burst(ch.x, ch.y - 6, '#e8c14d', 14, 140);
+  spark(ch.x, ch.y - 6, '#ffe9b0', 8, 160);
+  sfx.gold();
+  banner('Treasure!');
+}
+
+function killMonster(m) {
+  burst(m.x, m.y, m.type.color, 16, 160);
+  burst(m.x, m.y, '#3a3a3a', 8, 80);
+  spark(m.x, m.y, m.type.color, m.boss ? 30 : 7, m.boss ? 300 : 180);
+  if (m.boss) shake(0.4);
+  // xp
+  const p = G.p;
+  p.xp += m.xp;
+  ftext(m.x, m.y - 26, '+' + m.xp + ' xp', '#b8a4e8', 12);
+  grantLevelUps();
   dropLoot(m);
+  if (m.affix === 'fire') {   // fire-enchanted champions explode on death
+    for (let k = 0; k < 8; k++) shoot(m.x, m.y, k / 8 * Math.PI * 2, 260, Math.round(m.dmg[1] * 0.9), 'm', { kind: 'fireball', r: 5 });
+    G.rings.push({ x: m.x, y: m.y, r: 6, max: 62, color: '#ff8a3a', life: 0.25 });
+    sfx.fire();
+  }
   if (m.boss) {
     G.lvl.locked = false;
     banner(m.name + ' has fallen! The stairs open…');
     sfx.boss();
+    if (m.final) showVictory();
   }
   saveDirty = true;
+}
+
+function showVictory() {
+  const p = G.p;
+  $('victoryInfo').textContent =
+    'Malgoroth is no more. ' + CLASSES[p.cls].name + ' of level ' + p.level +
+    (G.ng ? ', conqueror of NG+' + G.ng : '') + ' — Sanctuary is saved… for now.';
+  $('victoryScreen').classList.remove('hidden');
+  saveGame();
+}
+function newGamePlus() {
+  G.ng = (G.ng || 0) + 1;
+  G.waypoints = [];
+  G.deepest = 1;
+  const p = G.p;
+  recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
+  $('victoryScreen').classList.add('hidden');
+  enterLevel(0, true);
+  banner('NEW GAME+' + G.ng + ' — the abyss deepens…');
+  sfx.boss();
 }
 
 function dropLoot(m) {
   const x = m.x, y = m.y, dlvl = G.dlvl;
   const scatter = () => ({ x: x + rand(-22, 22), y: y + rand(-22, 22) });
   const rGold = m.boss ? 1 : 0.62, rPot = m.boss ? 1 : 0.16, rItem = m.boss ? 1 : (m.champ ? 0.55 : 0.17);
+  const ngb = (G.ng || 0);
   if (Math.random() < rGold) {
-    const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25));
+    const amt = Math.round(ri(m.gold[0], m.gold[1]) * (1 + dlvl * 0.25) * (1 + ngb * 0.6));
     G.drops.push({ kind: 'gold', amt, ...scatter() });
   }
   if (Math.random() < rPot) G.drops.push({ kind: Math.random() < 0.6 ? 'hpPot' : 'mpPot', ...scatter() });
   if (Math.random() < rItem) {
     const slot = choice(SLOTS);
-    const it = makeItem(slot, Math.max(1, dlvl + ri(-1, 1)), m.boss ? (Math.random() < 0.3 ? 'unique' : 'rare') : null);
+    const it = makeItem(slot, Math.max(1, dlvl + ri(-1, 1) + ngb * 8), m.boss ? (Math.random() < 0.3 ? 'unique' : 'rare') : null);
     G.drops.push({ kind: 'item', item: it, ...scatter() });
   }
-  if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl)), ...scatter() });
+  if (Math.random() < (m.boss ? 0.8 : 0.06)) G.drops.push({ kind: 'item', item: makeGem(Math.max(1, dlvl + ngb * 8)), ...scatter() });
 }
 
 function hurtPlayer(dmg, mlvl) {
   const p = G.p;
-  const red = clamp(G.d.armor / (G.d.armor + 60 + 12 * (mlvl || G.dlvl)), 0, 0.75);
+  const arm = G.d.armor * (G.buffArmor > 0 ? 1.5 : 1);
+  const red = clamp(arm / (arm + 60 + 12 * (mlvl || G.dlvl)), 0, 0.75);
   dmg = Math.max(1, Math.round(dmg * (1 - red)));
   p.hp -= dmg; p.hurtT = 0.25;
   ftext(p.x, p.y - 26, '-' + dmg, '#ff6a5a', 15);
@@ -809,6 +914,9 @@ function enterLevel(dlvl, fresh) {
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   p.target = null; p.path = null; p.moveTo = null;
   p.strafeN = 0;
+  for (const gp of G.lvl.goldPiles || []) {
+    G.drops.push({ kind: 'gold', amt: Math.round(ri(12, 35) * (1 + dlvl * 0.3) * (1 + (G.ng || 0) * 0.6)), x: gp.x, y: gp.y });
+  }
   if (dlvl === 0) {
     G.tier = 0;
     $('floorLabel').textContent = 'Sanctuary · Town';
@@ -817,32 +925,39 @@ function enterLevel(dlvl, fresh) {
   } else {
     G.tier = Math.min(Math.floor((dlvl - 1) / 3), TIER_PAL.length - 1);
     const tierName = FLOOR_NAMES[Math.min(Math.floor((dlvl - 1) / 3), FLOOR_NAMES.length - 1)];
-    $('floorLabel').textContent = tierName + ' · ' + dlvl;
+    $('floorLabel').textContent = tierName + ' · ' + dlvl + (G.ng ? ' · NG+' + G.ng : '');
     banner(dlvl % 5 === 0 ? tierName + ' — ' + dlvl + '  ⚠ a great evil stirs…' : tierName + ' — Floor ' + dlvl);
     if (dlvl % 5 === 0) sfx.boss(); else sfx.stairs();
   }
   saveDirty = true; saveGame();
 }
 
-/* ---------------- save / load ---------------- */
+/* ---------------- save / load (3 hero slots) ---------------- */
+const SLOT_KEY = i => 'sanctuary_slot_' + i;
+function loadSlot(i) { try { return JSON.parse(localStorage.getItem(SLOT_KEY(i))); } catch (e) { return null; } }
+function firstFreeSlot() { for (let i = 0; i < 3; i++) if (!loadSlot(i)) return i; return -1; }
+(function migrateLegacySave() {
+  try {
+    const old = localStorage.getItem(SAVE_KEY);
+    if (old && !localStorage.getItem(SLOT_KEY(0))) localStorage.setItem(SLOT_KEY(0), old);
+    if (old) localStorage.removeItem(SAVE_KEY);
+  } catch (e) { }
+})();
 function saveGame() {
   if (!G) return;
   try {
     const p = G.p;
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
+    localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn,
       waypoints: G.waypoints, deepest: G.deepest,
-      autoPot: G.autoPot, autoSkill: G.autoSkill,
+      autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
     }));
     saveDirty = false;
   } catch (e) { }
 }
-function loadSave() {
-  try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; }
-}
-function startGame(clsId, save) {
+function startGame(clsId, save, slot) {
   const p = newPlayer(clsId);
   if (save) {
     Object.assign(p, {
@@ -858,6 +973,8 @@ function startGame(clsId, save) {
     waypoints: (save && save.waypoints) || [], deepest: (save && save.deepest) || 1,
     autoPot: save && save.autoPot !== undefined ? save.autoPot : 0.35,
     autoSkill: !!(save && save.autoSkill), autoPotT: 0, autoSkillT: 0,
+    slot: slot !== undefined ? slot : 0, ng: (save && save.ng) || 0,
+    buffDmg: 0, buffArmor: 0, buffSpd: 0,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -865,6 +982,7 @@ function startGame(clsId, save) {
   enterLevel(G.dlvl, true);
   $('menuScreen').classList.add('hidden');
   $('deathScreen').classList.add('hidden');
+  $('victoryScreen').classList.add('hidden');
   $('topbar').classList.remove('hidden');
   $('hud').classList.remove('hidden');
   $('btnAuto').classList.toggle('on', G.autoSkill);
@@ -889,6 +1007,18 @@ function update(dt) {
 
   p.rageT = Math.max(0, p.rageT - dt);
   p.spinT = Math.max(0, p.spinT - dt);
+  p.chillT = Math.max(0, (p.chillT || 0) - dt);
+  G.buffDmg = Math.max(0, (G.buffDmg || 0) - dt);
+  G.buffArmor = Math.max(0, (G.buffArmor || 0) - dt);
+  G.buffSpd = Math.max(0, (G.buffSpd || 0) - dt);
+
+  // shrines & treasure chests
+  for (const s of G.lvl.shrines || []) {
+    if (!s.used && dist(p.x, p.y, s.x, s.y) < 36) { s.used = true; activateShrine(s); }
+  }
+  for (const ch of G.lvl.chests || []) {
+    if (!ch.opened && dist(p.x, p.y, ch.x, ch.y) < 40) { ch.opened = true; openChest(ch); }
+  }
 
   // auto-potion: drink when life falls under the chosen threshold
   G.autoPotT = Math.max(0, (G.autoPotT || 0) - dt);
@@ -969,7 +1099,7 @@ function update(dt) {
   }
 
   /* --- player movement --- */
-  const spd = 175 * (p.rageT > 0 ? 1.25 : 1);
+  const spd = 175 * (p.rageT > 0 ? 1.25 : 1) * (G.buffSpd > 0 ? 1.25 : 1) * (p.chillT > 0 ? 0.65 : 1);
   let kx = (keys['d'] || keys['arrowright'] ? 1 : 0) - (keys['a'] || keys['arrowleft'] ? 1 : 0);
   let ky = (keys['s'] || keys['arrowdown'] ? 1 : 0) - (keys['w'] || keys['arrowup'] ? 1 : 0);
   if (kx || ky) { p.path = null; p.moveTo = null; p.target = null; const l = Math.hypot(kx, ky); moveCircle(p, kx / l * spd * dt, ky / l * spd * dt); p.dir = Math.atan2(ky, kx); }
@@ -1099,14 +1229,50 @@ function update(dt) {
       } else chaseStep(m, mspd, dt);
     } else {
       if (dd < m.range + p.r) {
-        if (m.atkT <= 0) { m.atkT = m.atkCd; hurtPlayer(ri(m.dmg[0], m.dmg[1]), m.dlvl); }
+        if (m.atkT <= 0) {
+          m.atkT = m.atkCd;
+          const raw = ri(m.dmg[0], m.dmg[1]);
+          hurtPlayer(raw, m.dlvl);
+          if (m.affix === 'vampiric') {
+            m.hp = Math.min(m.maxHp, m.hp + raw);
+            ftext(m.x, m.y - m.r - 12, '+' + raw, '#c8281e', 11);
+          }
+        }
       } else chaseStep(m, mspd, dt);
+    }
+    // champion affix auras
+    if (m.affix === 'frost' && dd < 110) {
+      p.chillT = 0.4;
+      if (Math.random() < dt * 4) burst(p.x, p.y - 10, '#bfe8ff', 1, 40);
+    }
+    if (m.affix === 'storm') {
+      m.stormT -= dt;
+      if (m.stormT <= 0 && dd < 300 && los(m.x, m.y, p.x, p.y)) {
+        m.stormT = 3;
+        shoot(m.x, m.y - m.r, m.dir, 340, Math.round(m.dmg[0] * 0.9), 'm', { kind: 'bone', r: 4 });
+        spark(m.x, m.y - m.r, '#ffd23a', 4, 140);
+      }
+    }
+    // final boss summons imps
+    if (m.final) {
+      m.summonT -= dt;
+      if (m.summonT <= 0 && dd < 500 && ms.filter(x => x.hp > 0).length < 26) {
+        m.summonT = 8;
+        const ngm2 = 1 + (G.ng || 0) * 0.8;
+        for (let k = 0; k < 2; k++) {
+          const imp = makeMonster(MTYPES[0], m.x + rand(-60, 60), m.y + rand(-60, 60), 8 * ngm2, 4 * ngm2, 3 * ngm2, false, false, G.dlvl);
+          imp.aggro = true;
+          ms.push(imp);
+          burst(imp.x, imp.y, '#7a0c20', 10, 140);
+        }
+        sfx.boss();
+      }
     }
     // boss nova
     if (m.boss) {
       m.novaT -= dt;
       if (m.novaT <= 0 && dd < 420) {
-        m.novaT = 6;
+        m.novaT = m.final ? 4.5 : 6;
         for (let k = 0; k < 10; k++) shoot(m.x, m.y, k / 10 * Math.PI * 2, 230, Math.round(m.dmg[1] * 0.8), 'm', { kind: 'fireball', r: 6 });
         G.rings.push({ x: m.x, y: m.y, r: 12, max: 90, color: '#ff5a3a', life: 0.3 });
         spark(m.x, m.y, '#ff7a3a', 14, 220);
@@ -1423,6 +1589,10 @@ function render() {
     ctx.beginPath(); ctx.arc(cl.x, cl.y, 75 + Math.sin(G.time * 3) * 3, 0, 7); ctx.stroke();
   }
 
+  /* shrines & chests */
+  for (const s of G.lvl.shrines || []) drawShrine(s);
+  for (const ch of G.lvl.chests || []) drawChest(ch);
+
   /* town vendor */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
 
@@ -1568,6 +1738,7 @@ function drawLights() {
   for (const t of G.lvl.torches) hole(t.x, t.y - 12, 110 + Math.sin(G.time * 8 + t.x) * 8, 0.9);
   for (const pr of G.projs) if (pr.kind === 'fireball' || pr.kind === 'fire') hole(pr.x, pr.y, 70, 0.8);
   if (G.lvl.wp) hole(G.lvl.wp.x, G.lvl.wp.y, 100, 0.85);
+  for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   for (const mt of G.meteors) hole(mt.x + mt.t * 70, mt.y - mt.t * 560, 90, 0.85);
   for (const cl of G.clouds) hole(cl.x, cl.y, 95, 0.55);
@@ -1895,7 +2066,7 @@ function drawMonster(m) {
   ctx.fillStyle = '#00000066';
   ctx.beginPath(); ctx.ellipse(m.x, m.y + rr * 0.8, rr * 0.9, rr * 0.35, 0, 0, 7); ctx.fill();
   if (m.champ || m.boss) {
-    ctx.strokeStyle = m.boss ? '#ff5a3aa8' : '#ffd76aa8';
+    ctx.strokeStyle = m.boss ? '#ff5a3aa8' : hexA(CHAMP_AFFIXES[m.affix].color, 0.66);
     ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.ellipse(m.x, m.y + rr * 0.8, rr * 1.15 + Math.sin(time * 4) * 1.2, rr * 0.45, 0, 0, 7); ctx.stroke();
   }
@@ -2169,6 +2340,54 @@ function drawMonster(m) {
   if (G.p.target === m) {
     ctx.strokeStyle = '#ff8a5a'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 5 + Math.sin(G.time * 7) * 1.5, 0, 7); ctx.stroke();
+  }
+}
+
+const SHRINE_COLORS = { combat: '#ff5a3a', armor: '#c9b98a', speed: '#7ac8ff', healing: '#ff8a7a', gem: '#4ad46a', xp: '#b8a4e8' };
+function drawShrine(s) {
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(s.x, s.y + 8, 12, 4.5, 0, 0, 7); ctx.fill();
+  // stone pedestal
+  ctx.fillStyle = '#4a4440';
+  ctx.beginPath();
+  ctx.moveTo(s.x - 9, s.y + 8); ctx.lineTo(s.x - 5.5, s.y - 8); ctx.lineTo(s.x + 5.5, s.y - 8); ctx.lineTo(s.x + 9, s.y + 8);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#5c5650';
+  ctx.fillRect(s.x - 8, s.y - 11, 16, 4);
+  // orb
+  const col = s.used ? '#5a5a5a' : SHRINE_COLORS[s.kind];
+  if (!s.used) {
+    const g = ctx.createRadialGradient(s.x, s.y - 17, 0, s.x, s.y - 17, 12);
+    g.addColorStop(0, hexA(col, 0.5)); g.addColorStop(1, hexA(col, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(s.x, s.y - 17, 12, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(s.x, s.y - 17, 4.5 + (s.used ? 0 : Math.sin(G.time * 3 + s.x) * 0.8), 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffffff88';
+  ctx.beginPath(); ctx.arc(s.x - 1.4, s.y - 18.4, 1.4, 0, 7); ctx.fill();
+}
+function drawChest(ch) {
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(ch.x, ch.y + 7, 13, 4.5, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = ch.opened ? '#3a2a18' : '#5a3a1e';
+  ctx.fillRect(ch.x - 11, ch.y - 5, 22, 12);
+  ctx.fillStyle = '#c9a45a';
+  ctx.fillRect(ch.x - 11, ch.y - 1, 22, 2);
+  ctx.fillRect(ch.x - 1.5, ch.y - 5, 3, 12);
+  if (ch.opened) {
+    ctx.fillStyle = '#140c04';
+    ctx.fillRect(ch.x - 9, ch.y - 4, 18, 5);
+    ctx.fillStyle = '#6a4426';
+    ctx.fillRect(ch.x - 11, ch.y - 13, 22, 5);
+  } else {
+    ctx.fillStyle = '#6a4426';
+    ctx.beginPath();
+    ctx.moveTo(ch.x - 11, ch.y - 5);
+    ctx.quadraticCurveTo(ch.x, ch.y - 13, ch.x + 11, ch.y - 5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillRect(ch.x - 1.5, ch.y - 4, 3, 4);
   }
 }
 
@@ -2519,7 +2738,8 @@ function renderPause() {
   $('pausePanel').querySelector('[data-quit]').addEventListener('click', () => { saveGame(); toMenu(); });
   $('pausePanel').querySelector('[data-newchar]').addEventListener('click', () => {
     if (confirm('Abandon this hero forever? Your save will be deleted.')) {
-      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(SLOT_KEY(G.slot || 0));
+      G = null;
       toMenu();
     }
   });
@@ -2531,17 +2751,35 @@ function toMenu() {
   $('topbar').classList.add('hidden');
   $('hud').classList.add('hidden');
   $('deathScreen').classList.add('hidden');
+  $('victoryScreen').classList.add('hidden');
   $('menuScreen').classList.remove('hidden');
   refreshMenu();
 }
 
 function refreshMenu() {
-  const save = loadSave();
-  const btn = $('btnContinue');
-  if (save) {
-    btn.classList.remove('hidden');
-    btn.textContent = '▶ Continue — ' + CLASSES[save.cls].name + ' Lv.' + save.level + ' (floor ' + save.dlvl + ')';
-  } else btn.classList.add('hidden');
+  const wrap = $('roster');
+  wrap.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const s = loadSlot(i);
+    if (!s) continue;
+    const row = document.createElement('div');
+    row.className = 'slotrow';
+    row.innerHTML = `
+      <button class="slotbtn">▶ ${CLASSES[s.cls].icon} ${CLASSES[s.cls].name} Lv.${s.level}
+        <small>· ${s.dlvl === 0 ? 'town' : 'floor ' + s.dlvl}${s.ng ? ' · NG+' + s.ng : ''} · 🪙${s.gold}</small></button>
+      <button class="slotdel" title="Delete hero">✕</button>`;
+    row.querySelector('.slotbtn').addEventListener('click', () => { audioInit(); startGame(s.cls, s, i); });
+    row.querySelector('.slotdel').addEventListener('click', () => {
+      if (confirm('Release this ' + CLASSES[s.cls].name + ' forever? The save will be deleted.')) {
+        localStorage.removeItem(SLOT_KEY(i));
+        refreshMenu();
+      }
+    });
+    wrap.appendChild(row);
+  }
+  const free = firstFreeSlot();
+  document.querySelectorAll('.classcard').forEach(c => c.classList.toggle('disabled', free < 0));
+  $('slotsFull').classList.toggle('hidden', free >= 0);
 }
 
 /* ---------------- input ---------------- */
@@ -2629,6 +2867,8 @@ $('btnAuto').addEventListener('click', () => {
 $('btnInv').addEventListener('click', () => togglePanel('invPanel'));
 $('btnChar').addEventListener('click', () => togglePanel('charPanel'));
 $('btnMenu').addEventListener('click', () => togglePanel('pausePanel'));
+$('btnNgPlus').addEventListener('click', () => { audioInit(); newGamePlus(); });
+$('btnKeepPlaying').addEventListener('click', () => $('victoryScreen').classList.add('hidden'));
 $('btnRespawn').addEventListener('click', () => {
   const p = G.p;
   p.hp = G.d.maxHp * 0.6; p.mp = G.d.maxMp * 0.6;
@@ -2649,18 +2889,12 @@ $('btnRespawn').addEventListener('click', () => {
     card.innerHTML = `<span class="cicon">${c.icon}</span><span class="cname">${c.name}</span><span class="cdesc">${c.desc}</span>`;
     card.addEventListener('click', () => {
       audioInit();
-      const save = loadSave();
-      if (save && !confirm('Starting a new hero deletes your saved ' + CLASSES[save.cls].name + '. Continue?')) return;
-      localStorage.removeItem(SAVE_KEY);
-      startGame(id, null);
+      const free = firstFreeSlot();
+      if (free < 0) return;
+      startGame(id, null, free);
     });
     wrap.appendChild(card);
   }
-  $('btnContinue').addEventListener('click', () => {
-    audioInit();
-    const save = loadSave();
-    if (save) startGame(save.cls, save);
-  });
   refreshMenu();
 })();
 

@@ -58,10 +58,19 @@
 <div id="menuScreen" class="screen">
   <h1 class="gtitle">⚔ SANCTUARY ⚔</h1>
   <p class="gsub">a Diablo II–inspired action RPG for your browser</p>
-  <button id="btnContinue" class="bigbtn hidden">▶ Continue</button>
-  <p class="pick">— choose your hero —</p>
+  <div id="roster"></div>
+  <p class="pick">— forge a new hero —</p>
   <div id="classCards"></div>
+  <p id="slotsFull" class="hint hidden">All three slots are full — release a hero to forge a new one.</p>
   <p class="hint">Tap to move & attack · hold to run · buttons cast skills</p>
+</div>
+
+<!-- victory screen -->
+<div id="victoryScreen" class="screen hidden">
+  <h1 class="gtitle">⚔ VICTORY ⚔</h1>
+  <p id="victoryInfo" class="gsub"></p>
+  <button id="btnNgPlus" class="bigbtn">🔥 Enter New Game+</button>
+  <button id="btnKeepPlaying" class="smallbtn" style="flex:none; width:220px; padding:12px">Keep exploring this world</button>
 </div>
 
 <!-- death screen -->
@@ -80,5 +89,8 @@
 <div id="itemPopup" class="hidden"></div>
 
 <script src="js/game.js"></script>
+<script>
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
 </body>
 </html>
