@@ -1821,6 +1821,18 @@ function render() {
       ctx.fillRect(dr.x - nw / 2 - 3, dr.y - 24, nw + 6, 13);
       ctx.fillStyle = col;
       ctx.fillText(dr.item.name, dr.x, dr.y - 17.5);
+      if (dr.item.sockets) {   // socket pips under the label
+        for (let k = 0; k < dr.item.sockets; k++) {
+          const g2 = dr.item.gems && dr.item.gems[k];
+          const sx2 = dr.x - (dr.item.sockets - 1) * 4.5 + k * 9;
+          ctx.save();
+          ctx.translate(sx2, dr.y - 8);
+          ctx.rotate(Math.PI / 4);
+          if (g2) { ctx.fillStyle = GEMS[g2.g].color; ctx.fillRect(-2.3, -2.3, 4.6, 4.6); }
+          else { ctx.strokeStyle = '#c9b98a'; ctx.lineWidth = 1; ctx.strokeRect(-2.1, -2.1, 4.2, 4.2); }
+          ctx.restore();
+        }
+      }
     }
   }
 
@@ -3007,7 +3019,7 @@ function renderShop() {
   const rows = stock.map((it, i) => it ? `
     <div class="shoprow">
       <span class="sicon2">${it.icon}</span>
-      <span class="snm"><span class="rc-${it.rarity}">${it.name}</span><br><small>${modLines(it).slice(0, 2).join(' · ') || it.slot}</small></span>
+      <span class="snm"><span class="rc-${it.rarity}">${it.name}</span> ${sockBadge(it)}<br><small>${modLines(it).slice(0, 2).join(' · ') || it.slot}</small></span>
       <button class="smallbtn" data-buy-item="${i}" ${p.gold < sellPrice(it) * 3 || p.inv.length >= 24 ? 'disabled' : ''}>${sellPrice(it) * 3}g</button>
     </div>` : '').join('');
   $('shopPanel').innerHTML = `
@@ -3062,18 +3074,26 @@ function renderChar() {
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
+function sockBadge(it) {
+  if (!it || !it.sockets) return '';
+  return `<span class="socks">${Array.from({ length: it.sockets }, (_, k) => {
+    const g = it.gems && it.gems[k];
+    return `<i style="color:${g ? GEMS[g.g].color : '#6a5a3e'}">${g ? '◆' : '◇'}</i>`;
+  }).join('')}</span>`;
+}
+
 function renderInv() {
   const p = G.p;
   const gambleCost = 120 + G.dlvl * 45;
   const potCost = 25 + G.dlvl * 6;
   const eqSlot = s => {
     const it = p.equip[s];
-    return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}<span class="slotlabel">${s}</span></button>`;
+    return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
   for (let i = 0; i < 24; i++) {
     const it = p.inv[i];
-    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}</button>`;
+    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) : ''}</button>`;
   }
   $('invPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
