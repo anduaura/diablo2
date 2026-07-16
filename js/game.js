@@ -545,11 +545,10 @@ function makeCharm(ilvl, tier) {
     slot: 'charm', base: 'charm', ct: t, icon: def.icon,
     rarity: def.rarity, lvl: ilvl, mods: {},
   };
-  const used = new Set();
-  for (let i = 0; i < def.aff; i++) {
-    const a = choice(AFFIXES);
-    if (used.has(a.stat)) continue;
-    used.add(a.stat);
+  // draw affixes without replacement so the tier's count is guaranteed
+  const pool = [...AFFIXES];
+  for (let i = 0; i < def.aff && pool.length; i++) {
+    const a = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
     it.mods[a.stat] = Math.max(1, Math.round(a.roll(ilvl) * def.mult));
   }
   const first = Object.keys(it.mods)[0];
