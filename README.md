@@ -88,6 +88,10 @@ python3 -m http.server 8000
 - **Procedural ambient music** — a WebAudio drone & bells score, per world
 - **Auto-save** — progress is stored in `localStorage`; close the tab and
   continue later
+- **Versioned releases** — the main menu shows the running version; tap it
+  for the "What's New" changelog. When a new build deploys, installed
+  copies show an *update ready* toast — tap to reload into the new version
+  (version lives in `js/version.js`; the deploy workflow stamps each build)
 - Red/blue **globes**, floating damage numbers, champions, stuns, chills,
   and plenty of gothic gloom
 

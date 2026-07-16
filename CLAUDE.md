@@ -13,6 +13,11 @@ GitHub Pages on push.
   from the latest `origin/main` before new work.
 - `main` moves fast (parallel sessions); fetch and merge `origin/main`
   before opening the PR if it has advanced.
+- **Every PR bumps the version**: in `js/version.js`, raise
+  `SANCTUARY_VERSION` (minor for features, patch for fixes) and prepend a
+  `SANCTUARY_CHANGELOG` entry (short player-facing notes). The service
+  worker cache and the menu's "What's New" panel key off it; the deploy
+  workflow stamps `SANCTUARY_BUILD` automatically.
 
 ## Testing
 
