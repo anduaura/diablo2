@@ -32,17 +32,23 @@
 
 <!-- bottom HUD -->
 <div id="hud" class="hidden">
-  <div class="globe hp"><div class="gfill" id="hpFill"></div><div class="gshine"></div><span class="gtext" id="hpText"></span></div>
+  <div class="globecol">
+    <button class="potbtn" id="btnHpPot">🧪<span class="count" id="hpPotCount">0</span></button>
+    <div class="globe hp"><div class="gfill" id="hpFill"></div><div class="gshine"></div><span class="gtext" id="hpText"></span></div>
+  </div>
   <div id="hudmid">
     <div id="xpbar"><div id="xpFill"></div></div>
     <div id="skillrow">
-      <button class="skillbtn potion" id="btnHpPot"><span class="sicon">🧪</span><span class="count" id="hpPotCount">0</span></button>
       <button class="skillbtn" id="btnSkill1"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
       <button class="skillbtn" id="btnSkill2"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
-      <button class="skillbtn potion" id="btnMpPot"><span class="sicon">🔮</span><span class="count" id="mpPotCount">0</span></button>
+      <button class="skillbtn" id="btnSkill3"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
+      <button class="skillbtn" id="btnSkill4"><span class="sicon"></span><span class="cost"></span><div class="cdmask"></div></button>
     </div>
   </div>
-  <div class="globe mp"><div class="gfill" id="mpFill"></div><div class="gshine"></div><span class="gtext" id="mpText"></span></div>
+  <div class="globecol">
+    <button class="potbtn" id="btnMpPot">🔮<span class="count" id="mpPotCount">0</span></button>
+    <div class="globe mp"><div class="gfill" id="mpFill"></div><div class="gshine"></div><span class="gtext" id="mpText"></span></div>
+  </div>
 </div>
 
 <!-- main menu / class select -->
@@ -66,6 +72,8 @@
 <div id="charPanel" class="panel hidden"></div>
 <div id="invPanel" class="panel hidden"></div>
 <div id="pausePanel" class="panel hidden"></div>
+<div id="wpPanel" class="panel hidden"></div>
+<div id="shopPanel" class="panel hidden"></div>
 <div id="itemPopup" class="hidden"></div>
 
 <script src="js/game.js"></script>
