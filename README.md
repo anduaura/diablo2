@@ -40,15 +40,28 @@ python3 -m http.server 8000
 
 ## 🗡️ The game
 
-- **3 classes** — Warrior (melee bruiser), Sorceress (fire & frost),
-  Huntress (bow volleys), each with two skills
-- **Endless procedurally generated dungeon** — rooms, corridors, torch-lit
-  darkness, fog-of-war minimap; every 5th floor holds a **boss** who seals
-  the stairs until slain
-- **Diablo-style loot** — common/magic/rare/unique items with random
-  affixes, 6 equipment slots, gambling, potions, gold
+- **4 classes** — Warrior (melee bruiser), Sorceress (fire & frost),
+  Huntress (bow volleys), Necromancer (skeletal army), each with four
+  skills, two passives, and skill points to rank them up (respec for gold)
+- **Endless procedurally generated dungeon** — five themed worlds, rooms,
+  corridors, torch-lit darkness, fog-of-war minimap; every 5th floor holds
+  a **boss** who seals the stairs until slain
+- **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
+  random affixes, 6 equipment slots, sockets & gems, runewords, charms
+  that work from your bag, gambling, potions, gold — and rare drops land
+  with a chime and a beam of light
+- **Timed rifts** — a town obelisk opens single-floor challenges: summon
+  and slay the Rift Guardian before the clock dies to unlock higher tiers
+- **A mercenary** — hire a man-at-arms, hand him weapons & armor, revive
+  him when he falls
+- **Hardcore mode** — optional permadeath; fallen heroes rest in the menu
+  graveyard
+- **A secret pasture** — floor bosses sometimes drop a strange bovine
+  sigil… use it in town. Moo.
+- **Gem crafting** — fuse three matching gems into the next quality tier
 - **Character building** — levels grant stat points for Strength, Dexterity,
   Vitality and Energy; crits, life steal, magic find
+- **Procedural ambient music** — a WebAudio drone & bells score, per world
 - **Auto-save** — progress is stored in `localStorage`; close the tab and
   continue later
 - Red/blue **globes**, floating damage numbers, champions, stuns, chills,

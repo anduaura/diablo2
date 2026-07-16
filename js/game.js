@@ -4437,4 +4437,9 @@ window.addEventListener('pagehide', saveGame);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
 
 /* expose for debugging / tests */
-window.__sanctuary = { get G() { return G; }, startGame, CLASSES, MTYPES, makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false) };
+window.__sanctuary = {
+  get G() { return G; }, startGame, CLASSES, MTYPES,
+  makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false),
+  enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
+  killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES,
+};
