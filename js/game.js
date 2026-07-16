@@ -1371,6 +1371,12 @@ const ELDER_LINES = [
    any slot) and the best rarity grade it was caught at. */
 const BESTIARY_KEY = 'sanctuary_bestiary';
 function loadBestiary() { try { return JSON.parse(localStorage.getItem(BESTIARY_KEY)) || {}; } catch (e) { return {}; } }
+/* completion rewards: 15 tamed awakens the Beastmaster's Bond, all 30
+   crowns you Lord of Beasts. Shared by every hero, like the record. */
+const bestiaryTierOf = n => n >= PET_SPECIES.length ? 2 : n >= 15 ? 1 : 0;
+let bestiaryTier = bestiaryTierOf(Object.keys(loadBestiary()).length);
+const bestiaryMult = () => bestiaryTier >= 2 ? 1.3 : bestiaryTier >= 1 ? 1.15 : 1;
+const stablePrice = pet => Math.round(pet.price * (bestiaryTier >= 1 ? 0.75 : 1));
 function recordBestiary(pd) {
   try {
     const b = loadBestiary();
@@ -1378,6 +1384,16 @@ function recordBestiary(pd) {
     if (b[pd.sp] === undefined || b[pd.sp] < rIdx) {
       b[pd.sp] = rIdx;
       localStorage.setItem(BESTIARY_KEY, JSON.stringify(b));
+      const tier = bestiaryTierOf(Object.keys(b).length);
+      if (tier > bestiaryTier) {
+        bestiaryTier = tier;
+        setTimeout(() => {
+          banner(tier >= 2
+            ? '👑 All ' + PET_SPECIES.length + ' beasts tamed — LORD OF BEASTS! Your companions strike +30% harder and wear the crown.'
+            : '🏅 15 beasts tamed — Beastmaster\'s Bond! Pets & minions +15% damage · stable prices −25%.');
+          sfx.epic();
+        }, 2200);
+      }
     }
   } catch (e) { }
 }
@@ -2516,8 +2532,8 @@ function hurtMinion(mi, dmg) {
   ftext(mi.x, mi.y - mi.r - 6, '-' + Math.round(dmg), '#9aa8b8', 11);
 }
 function minionDmg(mi) {
-  let d = ri(mi.dmg[0], mi.dmg[1]);
-  return d;
+  let d = ri(mi.dmg[0], mi.dmg[1]) * bestiaryMult();
+  return Math.round(d);
 }
 
 function updateMinions(dt) {
@@ -2658,7 +2674,7 @@ function updatePet(dt) {
     if (bd < atkRange) {
       if (pet.atkT <= 0) {
         pet.atkT = 1.15; pet.swingT = 0.2;
-        const dmg = Math.max(1, Math.round(playerAtk() * def.dmgMult * (1 + 0.15 * rIdx)));
+        const dmg = Math.max(1, Math.round(playerAtk() * def.dmgMult * (1 + 0.15 * rIdx) * bestiaryMult()));
         if (def.kind === 'dragon') {
           shoot(pet.x, pet.y - 22, pet.dir, 380, dmg, 'p', { kind: 'fireball', r: 5, aoe: 48 });
           sfx.fire();
@@ -6010,6 +6026,17 @@ function drawPet(pet) {
     ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.ellipse(pet.x, pet.y + 8, 15, 5.5, 0, 0, 7); ctx.stroke();
   }
+  // the Lord of Beasts' companion wears a tiny golden crown
+  if (bestiaryTier >= 2 && G.pet === pet) {
+    const cy = pet.y - ({ dragon: 54, drake: 40, hawk: 38, wisp: 32 }[pet.kind] || 24) + bob;
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath();
+    ctx.moveTo(pet.x - 5, cy); ctx.lineTo(pet.x - 5, cy - 4); ctx.lineTo(pet.x - 2.5, cy - 1.5);
+    ctx.lineTo(pet.x, cy - 5); ctx.lineTo(pet.x + 2.5, cy - 1.5); ctx.lineTo(pet.x + 5, cy - 4); ctx.lineTo(pet.x + 5, cy);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#a3130b';
+    ctx.fillRect(pet.x - 1, cy - 2.4, 2, 1.8);
+  }
   if (pet.kind === 'hound' || pet.kind === 'wolf' || pet.kind === 'tiger') {
     const wolf = pet.kind === 'wolf', tiger = pet.kind === 'tiger';
     const cBody = pal ? pal.body : tiger ? '#d8863a' : wolf ? '#78828e' : '#6a5238';
@@ -7543,7 +7570,7 @@ function renderStable() {
     <div class="shoprow">
       <span class="sicon2">${PET_SPECIES[pet.sp].icon}</span>
       <span class="snm"><span class="rc-${pet.rarity}">${PET_SPECIES[pet.sp].name}</span><br><small>${modTxt(pet)}</small></span>
-      <button class="smallbtn" data-buypet="${i}" ${p.gold < pet.price || p.pets.length >= 8 ? 'disabled' : ''}>${pet.price}g</button>
+      <button class="smallbtn" data-buypet="${i}" ${p.gold < stablePrice(pet) || p.pets.length >= 8 ? 'disabled' : ''}>${stablePrice(pet)}g${bestiaryTier >= 1 ? ' <small style="color:#7adf6a">−25%</small>' : ''}</button>
     </div>` : '').join('');
   $('stablePanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
@@ -7572,8 +7599,8 @@ function renderStable() {
   }));
   $('stablePanel').querySelectorAll('[data-buypet]').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.buypet, pet = G.lvl.petStock[i];
-    if (!pet || p.gold < pet.price || p.pets.length >= 8) return;
-    p.gold -= pet.price;
+    if (!pet || p.gold < stablePrice(pet) || p.pets.length >= 8) return;
+    p.gold -= stablePrice(pet);
     p.pets.push(pet);
     recordBestiary(pet);
     G.lvl.petStock[i] = null;
@@ -8376,10 +8403,15 @@ function renderBestiary() {
           : sp.whelp ? 'tyrant egg · ' + home : sp.eggOnly ? 'egg · ' + home : 'stable · wilds'}</span>
       </div>`;
   };
+  const title = bestiaryTier >= 2 ? ' · 👑 Lord of Beasts' : bestiaryTier >= 1 ? ' · 🏅 Beastmaster' : '';
   $('bestiaryPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">📖 Bestiary — ${tamed}/${PET_SPECIES.length} tamed</div>
+    <div class="ptitle">📖 Bestiary — ${tamed}/${PET_SPECIES.length} tamed${title}</div>
     <div class="derived" style="text-align:center">Every beast any of your heroes has ever tamed, and the best grade caught.</div>
+    <div class="bst-rewards">
+      <div class="${tamed >= 15 ? 'bst-got' : ''}">🏅 <b>Beastmaster's Bond</b> (15 tamed): pets & minions +15% damage · stable −25% ${tamed >= 15 ? '— earned ✓' : `— ${tamed}/15`}</div>
+      <div class="${tamed >= PET_SPECIES.length ? 'bst-got' : ''}">👑 <b>Lord of Beasts</b> (all ${PET_SPECIES.length}): +30% damage instead, and your companion wears a golden crown ${tamed >= PET_SPECIES.length ? '— earned ✓' : `— ${tamed}/${PET_SPECIES.length}`}</div>
+    </div>
     ${groups.map(g => `
       <div class="bst-group"><b>${g.title}</b> <small>· ${g.hint}</small></div>
       <div class="bst-grid">${g.idx.map(card).join('')}</div>`).join('')}`;

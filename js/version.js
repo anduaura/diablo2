@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.10.0';
+const SANCTUARY_VERSION = '1.11.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.11.0', date: '2026-07-16', title: 'Beastmaster & Lord of Beasts',
+    notes: [
+      'Bestiary rewards: tame 15 species for the Beastmaster\'s Bond — pets & minions +15% damage and stable prices −25%, for every hero',
+      'Tame all 30 to become Lord of Beasts: +30% damage instead, and your companion wears a golden crown',
+    ],
+  },
   {
     v: '1.10.0', date: '2026-07-16', title: 'Two-way stairs & a livelier town',
     notes: [

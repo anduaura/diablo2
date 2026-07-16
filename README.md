@@ -88,7 +88,9 @@ python3 -m http.server 8000
   be bested to be tamed
 - **A Bestiary** — the main menu tracks all 30 species across every hero:
   tamed beasts show the best grade caught, the rest wait as silhouettes
-  with a hint of where they live
+  with a hint of where they live; tame 15 for the **Beastmaster's Bond**
+  (pets & minions +15% damage, stable −25%) and all 30 to become **Lord
+  of Beasts** (+30%, and your companion wears a golden crown)
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
