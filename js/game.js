@@ -652,6 +652,23 @@ function genLevel(dlvl, riftMode) {
   }
   const propSet = new Set(props.map(pr => pr.ty * MAP_W + pr.tx));
 
+  // a stranded wanderer with a favour to ask, on each world's first floor
+  let questNpc = null, satchel = null;
+  if (!riftMode && G) {
+    const q = QUESTS[wIdx], st = questState(wIdx);
+    if (q && dlvl === WORLD_START(wIdx) && (!st || st.s !== 'claimed')) {
+      const room = rooms.find(r => r !== r0 && r !== exit) || rooms[rooms.length - 1];
+      if (map[room.y + 1][room.cx] === T_FLOOR)
+        questNpc = { w: wIdx, x: room.cx * TILE + TILE / 2, y: (room.y + 1) * TILE + TILE / 2 };
+    }
+    // the lost satchel waits on a deeper floor of its world
+    if (q && q.type === 'satchel' && st && st.s === 'active' && dlvl === WORLD_START(wIdx) + q.floorOff) {
+      const room = rooms.find(r => r !== r0 && r !== exit) || rooms[rooms.length - 1];
+      if (map[room.cy][room.cx] === T_FLOOR)
+        satchel = { x: room.cx * TILE + TILE / 2, y: room.cy * TILE + TILE / 2, got: false };
+    }
+  }
+
   // torches on walls adjacent to floor
   const torches = [];
   for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
@@ -718,7 +735,7 @@ function genLevel(dlvl, riftMode) {
 
   return {
     map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles,
-    props, propSet,
+    props, propSet, questNpc, satchel,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor || !!riftMode,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
@@ -919,6 +936,66 @@ function genTown() {
   };
 }
 
+/* ---------------- side quests ----------------
+   Each world hides a stranded wanderer on its first floor with one
+   themed favour to ask. Three archetypes: cull (slay monsters in this
+   world), gems (hand over gems from your bag) and satchel (recover a
+   lost pack from a deeper floor of the world). Quest state lives in
+   G.quests[w] = { s: 'active'|'done'|'claimed', n: progress }. */
+const QUESTS = [
+  { npc: 'Farmer Odd', type: 'cull', count: 8, match: ['fallen'],
+    ask: 'Imps trample my seedlings by night. Cull 8 of the little fiends and I\'ll dig up my savings.',
+    thanks: 'The fields can breathe again. Take this — buried it under the turnips.' },
+  { npc: 'Trapper Yll', type: 'gems', count: 2,
+    ask: 'My hearth froze solid weeks ago. Two gems — any kind — would kindle it like nothing else.',
+    thanks: 'Warmth at last! Everything I own that doesn\'t smell of pelts is yours.' },
+  { npc: 'Smith Bora', type: 'satchel', floorOff: 2,
+    ask: 'I fled the fire-brutes and dropped my tool satchel two floors down. Bring it back, please!',
+    thanks: 'My hammers! You\'ve saved my trade. Here — I struck this while I waited.' },
+  { npc: 'Gravedigger Pim', type: 'cull', count: 10, match: ['skel', 'archer', 'zombie', 'ghoul'],
+    ask: 'The dead won\'t stay put — 10 of them back in the ground, and I\'ll pay you a digger\'s bonus.',
+    thanks: 'Quietest the plains have been in years. This came out of a very fancy grave.' },
+  { npc: 'Pearl-diver Nerin', type: 'gems', count: 3,
+    ask: 'The current stole my catch. Three gems would square my debts with the guild — I\'d trade richly.',
+    thanks: 'The guild is paid! Take my finest find — the sea gives back to those who give.' },
+  { npc: 'Spore-witch Fen', type: 'satchel', floorOff: 2,
+    ask: 'My reagent satchel sprouted legs — the mushrooms take things, you know. It\'s two floors below.',
+    thanks: 'Ooh, still fizzing. A trade, then: one wonder for another.' },
+  { npc: 'Caravan-master Sul', type: 'cull', count: 12, match: null,
+    ask: 'Nothing crosses these sands while that pack hunts. Thin them by a dozen and name your price.',
+    thanks: 'The caravans roll again. Sul pays his debts — every coin, every time.' },
+  { npc: 'Gem-cutter Vex', type: 'gems', count: 2, quality: 2,
+    ask: 'I only work Flawless stones. Bring me two and I\'ll part with a masterpiece.',
+    thanks: 'Magnificent facets… Yes, yes — the masterpiece is yours. We\'re both richer for it.' },
+  { npc: 'Herbalist Mave', type: 'satchel', floorOff: 3,
+    ask: 'My herb satchel is somewhere below, half-swallowed by the gardens. They bite, so do hurry.',
+    thanks: 'Unchewed! Mostly. You\'ve earned the rarest cutting I ever pressed.' },
+  { npc: 'The Lost Cartographer', type: 'cull', count: 15, match: null,
+    ask: 'I map the void and the void objects. Silence 15 of its residents so I can finish my survey.',
+    thanks: 'The chart is complete… and it says you deserve this. Maps never lie.' },
+];
+function questState(w) { return (G.quests || {})[w] || null; }
+function questReward(w) {
+  const p = G.p, ilvl = 5 * (w + 1);
+  const gold = 150 * (w + 1) + ri(0, 100);
+  p.gold += gold;
+  const r = Math.random();
+  const it = makeItem(choice(SLOTS), ilvl, r < 0.15 ? 'exotic' : r < 0.4 ? 'unique' : r < 0.7 ? 'set' : 'rare');
+  const items = [it];
+  if (w >= 3) items.push(makeCharm(ilvl));
+  for (const item of items) {
+    if (p.inv.length < p.bagSlots) p.inv.push(item);
+    else G.drops.push({ kind: 'item', item, x: p.x + rand(-20, 20), y: p.y + 30 });
+  }
+  recalc();
+  banner('🎁 +' + gold + 'g · ' + it.name + (items[1] ? ' · ' + items[1].name : ''));
+  sfx.epic();
+}
+/* gems in the bag that satisfy a quest's requirement */
+function questGems(q) {
+  return G.p.inv.filter(i => i.g && (q.quality === undefined || gemQ(i) >= q.quality));
+}
+
 /* ---------------- town folk ---------------- */
 const ELDER_LINES = [
   'The gates to the north answer only to conquest. Fell a realm\'s tyrant, and the next realm opens.',
@@ -933,6 +1010,7 @@ const ELDER_LINES = [
   'Sister Amara mends wounds for nothing. Her blessings, though, cost coin — the light runs a ledger.',
   'I once knew a hero who hoarded every potion. The graveyard lists them alphabetically.',
   'They say the deepest gate leads back to the beginning, only crueler. NG+, the scholars call it.',
+  'Stranded wanderers camp on the first floor of every realm. Help them — they pay better than the merchant.',
 ];
 
 /* ---------------- shared town stash ---------------- */
@@ -1276,6 +1354,16 @@ function killMonster(m) {
     sfx.fire();
   }
   if (m.type.id === 'cow' || m.type.id === 'cowking') sfx.moo();
+  // side quest: cull progress counts only on the quest's own world floors
+  if (!G.rift && !G.cowLevel && G.quests) {
+    const w = worldOf(G.dlvl), q = QUESTS[w], st = G.quests[w];
+    if (q && q.type === 'cull' && st && st.s === 'active' && (!q.match || q.match.includes(m.type.id))) {
+      st.n = (st.n || 0) + 1;
+      if (st.n >= q.count) { st.s = 'done'; banner('✔ Quest complete — return to ' + q.npc + '!'); sfx.level(); }
+      else ftext(m.x, m.y - 40, st.n + ' / ' + q.count, '#e8d45a', 12);
+      saveDirty = true;
+    }
+  }
   if (G.rift && !G.rift.done) {
     if (m.type.id === 'riftguardian') {
       riftComplete(m);
@@ -1324,6 +1412,7 @@ function newGamePlus() {
   G.waypoints = [];
   G.deepest = 1;
   G.conquered = [];   // the gates seal again — reconquer the worlds
+  G.quests = {};      // and the wanderers need help all over again
   const p = G.p;
   recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
   $('victoryScreen').classList.add('hidden');
@@ -1996,6 +2085,7 @@ function saveGame() {
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
       maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
       conquered: G.conquered || [], blessPending: G.blessPending || 0,
+      quests: G.quests || {},
       pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
@@ -2042,6 +2132,7 @@ function startGame(clsId, save, slot) {
     riftBest: (save && save.riftBest) || {},
     conquered: save ? (save.conquered || inferConquered(save.deepest || 1)) : [],
     blessPending: (save && save.blessPending) || 0,
+    quests: (save && save.quests) || {},
     anchor: null, offPortal: true,
   };
   recalc();
@@ -2096,6 +2187,19 @@ function update(dt) {
     if (!s.used && dist(p.x, p.y, s.x, s.y) < 36) { s.used = true; activateShrine(s); }
   }
   tryOpenChests(p.x, p.y, 40);
+
+  // the lost quest satchel is picked up by walking over it
+  const sq = G.lvl.satchel;
+  if (sq && !sq.got && dist(p.x, p.y, sq.x, sq.y) < 36) {
+    sq.got = true;
+    const w = worldOf(G.dlvl), st = questState(w);
+    if (st && st.s === 'active') {
+      st.s = 'done';
+      banner('🎒 Satchel recovered — return to ' + QUESTS[w].npc + '!');
+      spark(sq.x, sq.y - 8, '#e8d45a', 16, 180);
+      sfx.level(); saveDirty = true;
+    }
+  }
 
   // auto-potion: drink when life falls under the chosen threshold
   G.autoPotT = Math.max(0, (G.autoPotT || 0) - dt);
@@ -3361,6 +3465,8 @@ function render() {
   if (G.lvl.stable) drawStable(G.lvl.stable);
   if (G.lvl.obelisk) drawObelisk(G.lvl.obelisk);
   if (G.lvl.npcs) for (const n of G.lvl.npcs) drawNpc(n);
+  if (G.lvl.questNpc) drawQuestNpc(G.lvl.questNpc);
+  if (G.lvl.satchel && !G.lvl.satchel.got) drawSatchel(G.lvl.satchel);
 
   /* portals: town-side return + dungeon-side anchor */
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) drawPortal(G.lvl.portal.x, G.lvl.portal.y);
@@ -3538,6 +3644,8 @@ function drawLights() {
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
   if (G.lvl.gates) for (const gt of G.lvl.gates) hole(gt.x, gt.y - 12, gateUnlocked(gt.w) ? 95 : 60, gateUnlocked(gt.w) ? 0.85 : 0.5);
   if (G.lvl.npcs) for (const n of G.lvl.npcs) hole(n.x, n.y - 8, 95, 0.85);
+  if (G.lvl.questNpc) hole(G.lvl.questNpc.x, G.lvl.questNpc.y - 8, 100, 0.85);
+  if (G.lvl.satchel && !G.lvl.satchel.got) hole(G.lvl.satchel.x, G.lvl.satchel.y - 6, 75, 0.7);
   for (const pr of G.lvl.props || []) {   // luminous scenery sheds its own light
     if (pr.w === 5 && pr.v === 0) hole(pr.x, pr.y - 22, 80, 0.7);
     else if (pr.w === 7) hole(pr.x, pr.y - 12, 65, 0.55);
@@ -5203,6 +5311,76 @@ function drawNpc(n) {
   }
 }
 
+function drawQuestNpc(n) {
+  const t = G.time, bob = Math.sin(t * 2 + n.w) * 0.8;
+  const q = QUESTS[n.w], st = questState(n.w);
+  const acc = WORLDS[n.w].pal.acc;
+  ctx.fillStyle = '#00000066';
+  ctx.beginPath(); ctx.ellipse(n.x, n.y + 12, 11, 4.5, 0, 0, 7); ctx.fill();
+  // travel-worn cloak trimmed in the realm's colors
+  const g = ctx.createLinearGradient(n.x, n.y - 10, n.x, n.y + 12);
+  g.addColorStop(0, '#6a5a44'); g.addColorStop(1, '#42382c');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(n.x - 8, n.y + 12);
+  ctx.quadraticCurveTo(n.x - 9, n.y - 7 + bob, n.x, n.y - 10 + bob);
+  ctx.quadraticCurveTo(n.x + 9, n.y - 7 + bob, n.x + 8, n.y + 12);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = acc; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(n.x - 7.4, n.y + 10); ctx.quadraticCurveTo(n.x, n.y + 12, n.x + 7.4, n.y + 10); ctx.stroke();
+  // bulging backpack
+  ctx.fillStyle = '#5a4226';
+  ctx.beginPath(); ctx.ellipse(n.x - 8.5, n.y - 3 + bob, 5, 7, 0.25, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#3c2c1a'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(n.x - 12, n.y - 7 + bob); ctx.lineTo(n.x - 5, n.y - 8 + bob); ctx.stroke();
+  // hooded face
+  ctx.fillStyle = '#57431f';
+  ctx.beginPath(); ctx.arc(n.x - 0.5, n.y - 14 + bob, 5.7, 0, 7); ctx.fill();
+  ctx.fillStyle = '#d8b890';
+  ctx.beginPath(); ctx.arc(n.x + 1.2, n.y - 13.3 + bob, 3.7, 0, 7); ctx.fill();
+  ctx.fillStyle = '#20140a';
+  ctx.fillRect(n.x - 0.5, n.y - 13.9 + bob, 1.5, 1.5); ctx.fillRect(n.x + 2.2, n.y - 13.9 + bob, 1.5, 1.5);
+  // walking staff
+  ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(n.x + 8.5, n.y + 11); ctx.lineTo(n.x + 10, n.y - 13 + bob); ctx.stroke();
+  // quest indicator: gold ! when there's business, grey … while working
+  ctx.font = 'bold 15px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (!st || st.s === 'done') {
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText('❗', n.x, n.y - 30 + Math.sin(t * 3.4) * 2);
+  } else if (st.s === 'active') {
+    ctx.fillStyle = '#9a8a68';
+    ctx.fillText('…', n.x, n.y - 29);
+  }
+  ctx.font = '11px Georgia';
+  ctx.fillStyle = '#c9b98a';
+  ctx.fillText('🎒 ' + q.npc, n.x, n.y - 42);
+}
+
+function drawSatchel(s) {
+  const t = G.time, bob = Math.sin(t * 2.6) * 1.5;
+  ctx.fillStyle = '#00000055';
+  ctx.beginPath(); ctx.ellipse(s.x, s.y + 6, 10, 4, 0, 0, 7); ctx.fill();
+  const g = ctx.createRadialGradient(s.x, s.y - 6, 0, s.x, s.y - 6, 22);
+  g.addColorStop(0, hexA('#e8d45a', 0.3 + Math.sin(t * 3) * 0.12));
+  g.addColorStop(1, hexA('#e8d45a', 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(s.x, s.y - 6, 22, 0, 7); ctx.fill();
+  ctx.fillStyle = '#6a4a26';
+  ctx.beginPath();
+  ctx.moveTo(s.x - 8, s.y + 4 + bob * 0.3);
+  ctx.quadraticCurveTo(s.x - 9, s.y - 8 + bob * 0.3, s.x, s.y - 9 + bob * 0.3);
+  ctx.quadraticCurveTo(s.x + 9, s.y - 8 + bob * 0.3, s.x + 8, s.y + 4 + bob * 0.3);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#8a6a3c';   // flap & buckle
+  ctx.beginPath(); ctx.ellipse(s.x, s.y - 6 + bob * 0.3, 8, 4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#c9a45a';
+  ctx.fillRect(s.x - 1.5, s.y - 5 + bob * 0.3, 3, 5);
+  ctx.font = '10.5px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#e8d45a';
+  ctx.fillText('the lost satchel', s.x, s.y - 22);
+}
+
 function drawVendor(v) {
   const bob = Math.sin(G.time * 2) * 0.8;
   ctx.fillStyle = '#00000066';
@@ -5464,6 +5642,7 @@ function renderStash() {
 
 function renderNpc(id) {
   const p = G.p;
+  if (id === 'quest') { renderQuestDialog(); return; }
   if (id === 'healer') {
     // Amara mends you the moment you approach
     const healed = p.hp < G.d.maxHp - 0.5 || p.mp < G.d.maxMp - 0.5;
@@ -5510,6 +5689,67 @@ function renderNpc(id) {
       renderNpc('elder');
     });
   }
+}
+
+function renderQuestDialog() {
+  const p = G.p, w = worldOf(G.dlvl), q = QUESTS[w];
+  G.quests = G.quests || {};
+  const st = G.quests[w];
+  let body = '', buttons = '';
+  if (!st) {
+    body = '“' + q.ask + '”';
+    buttons = `<button class="smallbtn" data-accept>🤝 I\'ll do it</button>
+               <button class="smallbtn" data-close>Not now</button>`;
+  } else if (st.s === 'active') {
+    if (q.type === 'cull') {
+      body = '“How goes the hunt?”<br><b style="color:#e8d45a">' + (st.n || 0) + ' / ' + q.count + '</b> slain on these floors.';
+    } else if (q.type === 'gems') {
+      const have = questGems(q).length;
+      body = '“Have you the ' + (q.quality === 2 ? 'Flawless ' : '') + 'gems?”<br>You carry <b style="color:#e8d45a">' +
+        have + ' / ' + q.count + '</b> that would do.';
+      if (have >= q.count) buttons = `<button class="smallbtn" data-gems>💎 Hand over ${q.count} gems</button>`;
+    } else {
+      body = '“My satchel lies on <b>floor ' + (WORLD_START(w) + q.floorOff) + '</b>. I can still hear it, faintly.”';
+    }
+    buttons += '<button class="smallbtn" data-close>Farewell</button>';
+  } else if (st.s === 'done') {
+    body = '“' + q.thanks + '”';
+    buttons = `<button class="smallbtn" data-claim>🎁 Claim reward</button>`;
+  } else {
+    body = '“Safe roads, friend. I\'ll not forget what you did here.”';
+    buttons = '<button class="smallbtn" data-close>Farewell</button>';
+  }
+  $('npcPanel').innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">🎒 ${q.npc}</div>
+    <div class="derived" style="text-align:center; font-size:14px; font-style:italic; line-height:1.6">${body}</div>
+    <div class="invactions">${buttons}</div>`;
+  $('npcPanel').querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closePanels));
+  const acceptBtn = $('npcPanel').querySelector('[data-accept]');
+  if (acceptBtn) acceptBtn.addEventListener('click', () => {
+    G.quests[w] = { s: 'active', n: 0 };
+    banner('📜 Quest accepted: ' + q.npc);
+    if (q.type === 'satchel') ftext(p.x, p.y - 34, 'the satchel lies on floor ' + (WORLD_START(w) + q.floorOff), '#e8d45a', 12);
+    sfx.pickup(); saveDirty = true;
+    renderQuestDialog();
+  });
+  const gemsBtn = $('npcPanel').querySelector('[data-gems]');
+  if (gemsBtn) gemsBtn.addEventListener('click', () => {
+    const give = questGems(q).slice(0, q.count);
+    if (give.length < q.count) return;
+    for (const g of give) p.inv.splice(p.inv.indexOf(g), 1);
+    G.quests[w].s = 'claimed';
+    questReward(w);
+    saveDirty = true; updateHUD();
+    renderQuestDialog();
+  });
+  const claimBtn = $('npcPanel').querySelector('[data-claim]');
+  if (claimBtn) claimBtn.addEventListener('click', () => {
+    G.quests[w].s = 'claimed';
+    questReward(w);
+    saveDirty = true; updateHUD();
+    renderQuestDialog();
+  });
 }
 
 function renderRift() {
@@ -6143,6 +6383,15 @@ cvs.addEventListener('pointerup', e => {
     if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
     else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
     return;
+  }
+  // the wandering quest-giver?
+  if (G.lvl.questNpc) {
+    const n = G.lvl.questNpc;
+    if (dist(w.x, w.y, n.x, n.y - 6) < 42) {
+      if (dist(p.x, p.y, n.x, n.y) < 95) { G.talkNpc = 'quest'; togglePanel('npcPanel'); }
+      else setMoveTarget(n.x, n.y + 34);
+      return;
+    }
   }
   // townsfolk?
   if (G.lvl.npcs) for (const n of G.lvl.npcs) {
