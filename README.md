@@ -91,6 +91,8 @@ python3 -m http.server 8000
   with a hint of where they live; tame 15 for the **Beastmaster's Bond**
   (pets & minions +15% damage, stable −25%) and all 30 to become **Lord
   of Beasts** (+30%, and your companion wears a golden crown)
+- **Bottomless storage** — bag and shared trunk both grow to 1,000 slots
+  at a flat 100 gold per +6 slots
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
   that work from your bag, gambling, potions, gold — and rare drops land
