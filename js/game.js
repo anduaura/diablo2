@@ -1081,6 +1081,26 @@ function shoot(x, y, ang, spd, dmg, from, o) {
 }
 
 /* ---------------- loot collection (hero, pets & minions) ---------------- */
+function autoSocketSwap(it) {
+  // a picked-up gem replaces the weakest embedded gem of the SAME type,
+  // so runewords stay intact while their gems improve
+  if (!G.autoEquip || !it.g) return null;
+  const p = G.p;
+  let host = null, gi = -1, low = it.v;
+  for (const s of SLOTS) {
+    const eq2 = p.equip[s];
+    if (!eq2 || !eq2.gems) continue;
+    for (let k2 = 0; k2 < eq2.gems.length; k2++) {
+      if (eq2.gems[k2].g === it.g && eq2.gems[k2].v < low) { low = eq2.gems[k2].v; host = eq2; gi = k2; }
+    }
+  }
+  if (!host) return null;
+  const old = host.gems[gi];
+  host.gems[gi] = { g: it.g, v: it.v };
+  recalc();
+  return old;
+}
+
 function collectDropsAt(x, y) {
   const p = G.p;
   for (let i = G.drops.length - 1; i >= 0; i--) {
@@ -1095,7 +1115,16 @@ function collectDropsAt(x, y) {
       G.drops.splice(i, 1); sfx.pickup(); updateHUD(); saveDirty = true;
     } else if (dr.kind === 'item' && dd < 30) {
       const it = dr.item;
-      if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
+      const swappedGem = it.g ? autoSocketSwap(it) : null;
+      if (swappedGem) {
+        // weaker gem comes back out into the bag (or onto the floor)
+        const oldItem = { slot: 'gem', g: swappedGem.g, v: swappedGem.v, icon: GEMS[swappedGem.g].icon, rarity: 'common', mods: {}, name: GEMS[swappedGem.g].name, base: 'gem', lvl: it.lvl };
+        if (p.inv.length < p.bagSlots) p.inv.push(oldItem);
+        else G.drops.push({ kind: 'item', item: oldItem, x: dr.x + rand(-10, 10), y: dr.y + rand(-10, 10) });
+        ftext(dr.x, dr.y - 12, '⬆ ' + it.name + ' socketed!', GEMS[it.g].color, 13);
+        spark(p.x, p.y - 10, GEMS[it.g].color, 8, 140);
+        G.drops.splice(i, 1); sfx.pickup(); saveDirty = true; updateHUD();
+      } else if (G.autoEquip && !it.g && itemScore(it) > itemScore(p.equip[it.slot])) {
         // auto-equip upgrades; old piece goes to the bag (or the floor if full)
         const old = p.equip[it.slot];
         p.equip[it.slot] = it;
@@ -3674,6 +3703,7 @@ function renderInv() {
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
+      <button class="smallbtn" data-sellall ${!p.inv.some(i => !i.g) ? 'disabled' : ''}>💰 Sell all (${p.inv.filter(i => !i.g).reduce((s, i) => s + sellPrice(i), 0)}g)</button>
     </div>
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
@@ -3690,6 +3720,17 @@ function renderInv() {
     p.gold -= potCost; p.potions[b.dataset.buy]++;
     sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
   }));
+  const sellAllBtn = $('invPanel').querySelector('[data-sellall]');
+  if (sellAllBtn) sellAllBtn.addEventListener('click', () => {
+    const sellables = p.inv.filter(i => !i.g);
+    if (!sellables.length) return;
+    const total = sellables.reduce((s, i) => s + sellPrice(i), 0);
+    if (!confirm('Sell all ' + sellables.length + ' items for ' + total + ' gold? Gems stay in the bag.')) return;
+    p.inv = p.inv.filter(i => i.g);
+    p.gold += total;
+    ftext(p.x, p.y - 30, '+' + total + 'g', '#e8c14d', 14);
+    sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
+  });
   const bagBtn = $('invPanel').querySelector('[data-bag]');
   if (bagBtn) bagBtn.addEventListener('click', () => {
     const cost = BAG_COSTS[(p.bagSlots - 24) / 6];
