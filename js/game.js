@@ -1227,6 +1227,39 @@ function makeMinion(kind) {
     off: { x: rand(-30, 30), y: rand(-22, 22) },
   };
 }
+/* ---------------- mercenary: a hireling with weapon & armor slots ------- */
+const MERC_HIRE_COST = 500;
+const mercReviveCost = () => 50 + G.p.level * 10;
+function mercStats() {
+  const lvl = G.p.level, w = G.merc.weapon, a = G.merc.armor;
+  const base = w && w.dmg ? w.dmg : [2 + lvl, 5 + Math.round(lvl * 1.8)];
+  const mult = 1 + lvl * 0.04;
+  return {
+    hp: Math.round(70 + lvl * 16 + (a && a.armor ? a.armor * 2.5 : 0)),
+    dmg: [Math.round(base[0] * mult), Math.round(base[1] * mult)],
+  };
+}
+function makeMercEntity() {
+  const p = G.p, st = mercStats();
+  return {
+    isMinion: true, kind: 'merc',
+    x: p.x + rand(-30, 30), y: p.y + rand(-24, 24),
+    hp: st.hp, maxHp: st.hp, dmg: st.dmg,
+    spd: 160, r: 13, range: 32, atkCd: 0.8,
+    atkT: rand(0, 0.4), dir: 0, swingT: 0, hurtT: 0,
+    off: { x: rand(-32, 32), y: rand(-24, 24) },
+  };
+}
+/* refresh the live merc entity after gear or level changes */
+function refreshMercEntity() {
+  const mi = G.minions.find(m => m.kind === 'merc');
+  if (!mi || !G.merc) return;
+  const st = mercStats();
+  const ratio = mi.hp / mi.maxHp;
+  mi.maxHp = st.hp; mi.hp = Math.max(1, Math.round(st.hp * ratio));
+  mi.dmg = st.dmg;
+}
+
 function makePet(kind) {
   const p = G.p;
   return { isPet: true, kind, x: p.x + rand(-30, 30), y: p.y + 20, dir: 0, atkT: 0, swingT: 0 };
@@ -1246,10 +1279,17 @@ function updateMinions(dt) {
     const mi = G.minions[i];
     if (mi.hp <= 0) {
       burst(mi.x, mi.y, '#cfc9b8', 12, 130);
-      ftext(mi.x, mi.y - 14, mi.kind === 'golem' ? 'Golem crumbles' : 'Skeleton falls', '#9aa8b8', 11);
+      if (mi.kind === 'merc') {
+        if (G.merc) G.merc.alive = false;
+        banner('Your mercenary has fallen! Revive them at the merchant.');
+        sfx.die(); saveDirty = true;
+      } else {
+        ftext(mi.x, mi.y - 14, mi.kind === 'golem' ? 'Golem crumbles' : 'Skeleton falls', '#9aa8b8', 11);
+      }
       G.minions.splice(i, 1);
       continue;
     }
+    if (mi.kind === 'merc') mi.hp = Math.min(mi.maxHp, mi.hp + (2 + G.p.level * 0.2) * dt);
     mi.atkT -= dt;
     mi.swingT = Math.max(0, mi.swingT - dt);
     mi.hurtT = Math.max(0, mi.hurtT - dt);
@@ -1370,6 +1410,7 @@ function enterLevel(dlvl, fresh) {
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
+  if (G.merc && G.merc.alive) G.minions.push(makeMercEntity());
   G.pet = PETS[G.p.cls] ? makePet(PETS[G.p.cls]) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
@@ -1418,7 +1459,7 @@ function saveGame() {
       waypoints: G.waypoints, deepest: G.deepest,
       autoPot: G.autoPot, autoSkill: G.autoSkill, ng: G.ng || 0,
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
-      bagSlots: p.bagSlots || 24,
+      bagSlots: p.bagSlots || 24, merc: G.merc || null,
     }));
     saveDirty = false;
   } catch (e) { }
@@ -1453,6 +1494,7 @@ function startGame(clsId, save, slot) {
     autoEquip: save && save.autoEquip !== undefined ? save.autoEquip : true,
     autoSell: save && save.autoSell !== undefined ? save.autoSell : 1,
     portalFloor: (save && save.portalFloor) || 0,
+    merc: (save && save.merc) || null,
   };
   recalc();
   p.hp = save ? clamp(save.hp, 1, G.d.maxHp) : G.d.maxHp;
@@ -3030,7 +3072,51 @@ function drawMinion(mi) {
   ctx.save();
   ctx.translate(mi.x, mi.y - bob);
   ctx.scale(face, 1);
-  if (mi.kind === 'golem') {
+  if (mi.kind === 'merc') {
+    /* man-at-arms: mail tunic, kettle helm, sword & round buckler */
+    ctx.scale(mi.r / 13, mi.r / 13);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = W('#4a3826'); ctx.lineWidth = 3.4;
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 2.6, 2); ctx.lineTo(sd * 2.6 + stride * 3.8 * sd, 10); ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -9, 0, 6);
+    g.addColorStop(0, W('#8a8f9a')); g.addColorStop(1, W('#565c66'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-5.5, 5.5);
+    ctx.quadraticCurveTo(-7.5, -6, 0, -9);
+    ctx.quadraticCurveTo(7.5, -6, 5.5, 5.5);
+    ctx.quadraticCurveTo(0, 7.5, -5.5, 5.5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a4048'; ctx.lineWidth = 0.7;   // mail rows
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(0, -6 + i * 3.6, 5.4 - i * 0.6, 0.3, Math.PI - 0.3); ctx.stroke();
+    }
+    ctx.fillStyle = '#3c2c1a'; ctx.fillRect(-5.4, 3.2, 10.8, 2.6);   // belt
+    /* buckler on the off-hand */
+    ctx.fillStyle = W('#5a3a22');
+    ctx.beginPath(); ctx.arc(-7.5, -1.5, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#8a909c'; ctx.lineWidth = 1.4; ctx.stroke();
+    /* head + kettle helm */
+    ctx.fillStyle = mi.hurtT > 0 ? '#ffb0a0' : '#d8b890';
+    ctx.beginPath(); ctx.arc(0, -13.5, 4.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140a';
+    ctx.fillRect(-2.5, -13.6, 1.6, 1.6); ctx.fillRect(1, -13.6, 1.6, 1.6);
+    ctx.fillStyle = W('#7a808c');
+    ctx.beginPath(); ctx.arc(0, -14.5, 5, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+    ctx.fillRect(-6.4, -15, 12.8, 1.8);   // brim
+    /* sword arm */
+    ctx.save();
+    ctx.translate(5.5, -5);
+    ctx.rotate(-0.45 + (mi.swingT > 0 ? Math.sin((0.2 - mi.swingT) / 0.2 * Math.PI) * 1.5 : 0));
+    ctx.strokeStyle = mi.hurtT > 0 ? '#ffb0a0' : '#d8b890'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(4, 1.5); ctx.stroke();
+    ctx.fillStyle = '#c9a45a'; ctx.fillRect(3, 0, 1.6, 3.4);
+    ctx.fillStyle = W('#ccd2da');
+    ctx.beginPath(); ctx.moveTo(4.5, 1.2); ctx.lineTo(15, 0.2); ctx.lineTo(4.8, 2.6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else if (mi.kind === 'golem') {
     ctx.scale(mi.r / 17, mi.r / 17);
     ctx.strokeStyle = W('#a8a294'); ctx.lineWidth = 4.5; ctx.lineCap = 'round';
     for (const sd of [-1, 1]) {
@@ -3439,6 +3525,12 @@ function renderShop() {
       <span class="snm"><span class="rc-${it.rarity}">${it.name}</span> ${sockBadge(it)}<br><small>${modLines(it).slice(0, 2).join(' · ') || it.slot}</small></span>
       <button class="smallbtn" data-buy-item="${i}" ${p.gold < sellPrice(it) * 3 || p.inv.length >= p.bagSlots ? 'disabled' : ''}>${sellPrice(it) * 3}g</button>
     </div>` : '').join('');
+  const mercHtml = !G.merc
+    ? `<div class="invactions"><button class="smallbtn" data-hire ${p.gold < MERC_HIRE_COST ? 'disabled' : ''}>🛡 Hire Mercenary (${MERC_HIRE_COST}g)</button></div>`
+    : `<div class="derived" style="text-align:center">🛡 Mercenary${G.merc.alive ? '' : ' — <span style="color:#ff8a7a">fallen</span>'}
+        · ⚔ ${G.merc.weapon ? G.merc.weapon.name : 'bare hands'} · 🥋 ${G.merc.armor ? G.merc.armor.name : 'no armor'}<br>
+        <small>Hand them weapons & armor from your inventory.</small></div>` +
+      (!G.merc.alive ? `<div class="invactions"><button class="smallbtn" data-revive ${p.gold < mercReviveCost() ? 'disabled' : ''}>⛑ Revive Mercenary (${mercReviveCost()}g)</button></div>` : '');
   $('shopPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">⚖ Merchant · 🪙 ${p.gold}</div>
@@ -3446,9 +3538,28 @@ function renderShop() {
       <button class="smallbtn" data-pot="hp" ${p.gold < potCost ? 'disabled' : ''}>🧪 Potion (${potCost}g)</button>
       <button class="smallbtn" data-pot="mp" ${p.gold < potCost ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
     </div>
+    ${mercHtml}
     ${rows || '<div class="derived" style="text-align:center">Sold out — return after your next descent.</div>'}
     <div class="derived" style="text-align:center">Sell your loot from the inventory 🎒</div>`;
   $('shopPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  const hireBtn = $('shopPanel').querySelector('[data-hire]');
+  if (hireBtn) hireBtn.addEventListener('click', () => {
+    if (p.gold < MERC_HIRE_COST || G.merc) return;
+    p.gold -= MERC_HIRE_COST;
+    G.merc = { alive: true, weapon: null, armor: null };
+    G.minions.push(makeMercEntity());
+    banner('🛡 A mercenary joins you!');
+    sfx.level(); renderShop(); updateHUD(); saveDirty = true;
+  });
+  const revBtn = $('shopPanel').querySelector('[data-revive]');
+  if (revBtn) revBtn.addEventListener('click', () => {
+    if (!G.merc || G.merc.alive || p.gold < mercReviveCost()) return;
+    p.gold -= mercReviveCost();
+    G.merc.alive = true;
+    G.minions.push(makeMercEntity());
+    banner('⛑ Your mercenary stands again!');
+    sfx.level(); renderShop(); updateHUD(); saveDirty = true;
+  });
   $('shopPanel').querySelectorAll('[data-pot]').forEach(b => b.addEventListener('click', () => {
     if (p.gold < potCost) return;
     p.gold -= potCost; p.potions[b.dataset.pot]++;
@@ -3690,6 +3801,7 @@ function showItemPopup(it, ref, equipped) {
           : !SLOTS.includes(it.slot)
             ? `<button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`
             : `<button class="smallbtn" data-act="equip">Equip</button>
+             ${G.merc && (it.slot === 'weapon' || it.slot === 'armor') ? '<button class="smallbtn" data-act="merc">🛡 Give to merc</button>' : ''}
              <button class="smallbtn" data-act="sell">Sell ${sellPrice(it)}g</button>`}
       <button class="smallbtn" data-act="close">Close</button>
     </div>`;
@@ -3720,6 +3832,14 @@ function showItemPopup(it, ref, equipped) {
     } else if (act === 'unequip') {
       if (p.inv.length >= p.bagSlots) { ftext(p.x, p.y - 30, 'Inventory full!', '#ff8a7a', 13); }
       else { p.inv.push(it); p.equip[ref] = null; recalc(); }
+    } else if (act === 'merc') {
+      const old = G.merc[it.slot];
+      G.merc[it.slot] = it;
+      p.inv.splice(ref, 1);
+      if (old) p.inv.push(old);
+      refreshMercEntity();
+      ftext(p.x, p.y - 30, 'Mercenary takes ' + it.name, rarityColor(it.rarity), 12);
+      sfx.pickup();
     } else if (act === 'sell') {
       p.gold += sellPrice(it);
       p.inv.splice(ref, 1);
