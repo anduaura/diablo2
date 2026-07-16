@@ -44,6 +44,16 @@ const WORLDS = [
     pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
 ];
 const worldOf = dlvl => dlvl <= 0 ? 0 : Math.floor((dlvl - 1) / 5) % WORLDS.length;
+/* world sections: world w spans floors 5w+1..5w+5; slaying its floor-5w+5
+   boss conquers it and unlocks the next world's gate in town */
+const WORLD_START = w => w * 5 + 1;
+const gateUnlocked = w => w === 0 || (G.conquered || []).includes(w - 1);
+/* pre-gate saves: any boss floor you descended past was conquered */
+function inferConquered(deepest) {
+  const c = [];
+  for (let w = 0; w < WORLDS.length; w++) if (deepest > 5 * (w + 1)) c.push(w);
+  return c;
+}
 
 /* ---------------- audio (tiny synth) ---------------- */
 let AC = null, soundOn = true;
@@ -809,14 +819,19 @@ function enterCowLevel() {
 /* -------- town: safe hub with merchant, waypoint and stairs down -------- */
 function genTown() {
   const map = []; for (let y = 0; y < MAP_H; y++) map.push(new Array(MAP_W).fill(T_WALL));
-  const R = { x: 20, y: 20, w: 13, h: 11, cx: 26, cy: 25 };
+  // a larger village green: gates north, services west & east, obelisk south
+  const R = { x: 17, y: 17, w: 19, h: 15, cx: 26, cy: 24 };
   for (let y = R.y; y < R.y + R.h; y++) for (let x = R.x; x < R.x + R.w; x++) map[y][x] = T_FLOOR;
   map[R.cy][R.x + R.w - 2] = T_DOWN;
   map[R.cy][R.x + 2] = T_WP;
-  map[R.y + 1][R.x + 1] = T_WALL; map[R.y + 1][R.x + R.w - 2] = T_WALL;   // corner pillars
-  map[R.y + R.h - 2][R.x + 1] = T_WALL; map[R.y + R.h - 2][R.x + R.w - 2] = T_WALL;
+  map[R.y + R.h - 2][R.x + 1] = T_WALL;   // corner pillars (south only — gates line the north)
+  map[R.y + R.h - 2][R.x + R.w - 2] = T_WALL;
   const torches = [];
-  for (let x = R.x + 1; x < R.x + R.w - 1; x += 3) torches.push({ x: x * TILE + TILE / 2, y: (R.y - 1) * TILE + TILE * 0.9 });
+  for (let y = R.y + 3; y < R.y + R.h - 1; y += 4) {   // side walls carry the torches
+    torches.push({ x: (R.x - 1) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
+    torches.push({ x: (R.x + R.w) * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
+  }
+  for (let x = R.x + 2; x < R.x + R.w - 1; x += 5) torches.push({ x: x * TILE + TILE / 2, y: (R.y + R.h) * TILE + TILE * 0.9 });
   const ilvl = Math.max(1, ((G && G.deepest) || 1) + (G && G.ng || 0) * 8);
   const shopStock = [];
   for (let i = 0; i < 4; i++) shopStock.push(makeItem(choice(SLOTS), ilvl, Math.random() < 0.15 ? 'rare' : 'magic'));
@@ -825,12 +840,16 @@ function genTown() {
     wp: { x: (R.x + 2) * TILE + TILE / 2, y: R.cy * TILE + TILE / 2 },
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: false,
-    entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 2) * TILE + TILE / 2 },
+    entrance: { x: R.cx * TILE + TILE / 2, y: (R.cy + 3) * TILE + TILE / 2 },
     exitTile: { x: R.x + R.w - 2, y: R.cy },
-    vendor: { x: (R.x + 5) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
-    stash: { x: (R.x + 8) * TILE + TILE / 2, y: (R.y + 2) * TILE + TILE / 2 },
+    vendor: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
+    stash: { x: (R.x + 9) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
+    stable: { x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
     obelisk: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + R.h - 3) * TILE + TILE / 2 },
-    stable: { x: (R.x + 3) * TILE + TILE / 2, y: (R.y + 8) * TILE + TILE / 2 },
+    // five world gates along the north wall, one per realm
+    gates: Array.from({ length: WORLDS.length }, (_, i) => ({
+      w: i, x: (R.x + 2.5 + i * 3.5) * TILE, y: R.y * TILE + TILE * 0.9,
+    })),
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     shopStock,
   };
@@ -1189,6 +1208,17 @@ function killMonster(m) {
     G.lvl.locked = false;
     banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
     sfx.boss();
+    // conquering a world's boss opens the next world's gate in town
+    if (m.type.id === 'boss' && !G.rift && !G.cowLevel && G.dlvl % 5 === 0) {
+      const w = worldOf(G.dlvl);
+      G.conquered = G.conquered || [];
+      if (!G.conquered.includes(w)) {
+        G.conquered.push(w);
+        if (w < WORLDS.length - 1) {
+          setTimeout(() => { if (G) { banner('🏳 ' + WORLDS[w].name + ' conquered — the ' + WORLDS[w + 1].name + ' gate opens!'); sfx.level(); } }, 2600);
+        }
+      }
+    }
     if (m.final) showVictory();
   }
   saveDirty = true;
@@ -1213,6 +1243,7 @@ function newGamePlus() {
   G.ng = (G.ng || 0) + 1;
   G.waypoints = [];
   G.deepest = 1;
+  G.conquered = [];   // the gates seal again — reconquer the worlds
   const p = G.p;
   recalc(); p.hp = G.d.maxHp; p.mp = G.d.maxMp;
   $('victoryScreen').classList.add('hidden');
@@ -1878,6 +1909,7 @@ function saveGame() {
       autoEquip: G.autoEquip, autoSell: G.autoSell, portalFloor: G.portalFloor || 0,
       bagSlots: p.bagSlots || 24, merc: G.merc || null,
       maxRiftTier: G.maxRiftTier || 1, riftBest: G.riftBest || {},
+      conquered: G.conquered || [],
       pets: p.pets || [], activePet: p.activePet !== undefined ? p.activePet : -1,
     }));
     saveDirty = false;
@@ -1922,6 +1954,7 @@ function startGame(clsId, save, slot) {
     merc: (save && save.merc) || null,
     maxRiftTier: (save && save.maxRiftTier) || 1,
     riftBest: (save && save.riftBest) || {},
+    conquered: save ? (save.conquered || inferConquered(save.deepest || 1)) : [],
     anchor: null, offPortal: true,
   };
   recalc();
@@ -2761,6 +2794,8 @@ function render() {
   const y0 = Math.max(0, Math.floor((cam.y - VH / 2 / ZOOM) / TILE) - 1);
   const y1 = Math.min(MAP_H - 1, Math.ceil((cam.y + VH / 2 / ZOOM) / TILE) + 1);
   const wrld = WORLDS[G.world || 0], pal = wrld.pal;
+  // boss floors replace the plain stairs with the next world's gate
+  const bossGate = G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
     if (t === T_WALL) {
@@ -2850,7 +2885,7 @@ function render() {
         ctx.fillStyle = '#6a5a3a';
         for (let s = 0; s < 3; s++) ctx.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
       }
-      if (t === T_DOWN) {
+      if (t === T_DOWN && !bossGate) {
         const locked = G.lvl.locked;
         ctx.fillStyle = '#050302'; ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
         ctx.strokeStyle = locked ? '#8a2c1a' : '#d9c65a';
@@ -2951,6 +2986,13 @@ function render() {
   /* shrines & chests */
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const ch of G.lvl.chests || []) drawChest(ch);
+
+  /* world gates: the town's row of realm doors + the boss floor's exit */
+  if (G.lvl.gates) for (const gt of G.lvl.gates) drawWorldGate(gt.x, gt.y, gt.w, gateUnlocked(gt.w), 1, true);
+  if (bossGate) {
+    const ex = G.lvl.exitTile;
+    drawWorldGate(ex.x * TILE + TILE / 2, ex.y * TILE + TILE * 0.4, worldOf(G.dlvl + 1), !G.lvl.locked, 1.4, false);
+  }
 
   /* town vendor, stash trunk, stable & rift obelisk */
   if (G.lvl.vendor) drawVendor(G.lvl.vendor);
@@ -3130,6 +3172,9 @@ function drawLights() {
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
+  if (G.lvl.gates) for (const gt of G.lvl.gates) hole(gt.x, gt.y - 12, gateUnlocked(gt.w) ? 95 : 60, gateUnlocked(gt.w) ? 0.85 : 0.5);
+  if (G.dlvl > 0 && G.dlvl % 5 === 0 && !G.rift && !G.cowLevel)
+    hole(G.lvl.exitTile.x * TILE + TILE / 2, G.lvl.exitTile.y * TILE, 110, 0.85);
   if (G.lvl.stable) hole(G.lvl.stable.x, G.lvl.stable.y, 130, 0.85);
   if (G.dlvl === 0 && G.lvl.portal && G.anchor) hole(G.lvl.portal.x, G.lvl.portal.y - 6, 90, 0.85);
   if (G.anchor && G.dlvl === G.anchor.dlvl && G.lvl === G.anchor.lvl) hole(G.anchor.x, G.anchor.y - 6, 90, 0.85);
@@ -4265,6 +4310,116 @@ function drawTrunk(s) {
   ctx.fillText('🧳 Trunk', s.x, s.y - 26);
 }
 
+/* ---------------- world gates ----------------
+   Each realm has its own archway. Locked gates hang with chains until
+   the previous world's boss falls; open gates glow with the realm's
+   colors and lead straight to that world's first floor. */
+function drawWorldGate(x, y, w, unlocked, s, label) {
+  s = s || 1;
+  const wr = WORLDS[w], acc = wr.pal.acc, t = G.time;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  // dark opening with a living glow when unlocked
+  const glow = unlocked ? 0.35 + Math.sin(t * 2.4 + w) * 0.15 : 0;
+  ctx.fillStyle = '#050308';
+  ctx.beginPath();
+  ctx.moveTo(-13, 10);
+  ctx.lineTo(-13, -16);
+  ctx.quadraticCurveTo(0, -30, 13, -16);
+  ctx.lineTo(13, 10);
+  ctx.closePath(); ctx.fill();
+  if (unlocked) {
+    const g = ctx.createRadialGradient(0, -6, 0, 0, -6, 22);
+    g.addColorStop(0, hexA(acc, glow + 0.25));
+    g.addColorStop(1, hexA(acc, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-12, 10); ctx.lineTo(-12, -15);
+    ctx.quadraticCurveTo(0, -28, 12, -15); ctx.lineTo(12, 10);
+    ctx.closePath(); ctx.fill();
+    // drifting motes in the portal
+    ctx.fillStyle = hexA(acc, 0.8);
+    for (let k = 0; k < 3; k++) {
+      const my = 8 - ((t * 9 + k * 13 + w * 7) % 30);
+      ctx.fillRect(-6 + k * 6 + Math.sin(t * 2 + k) * 2, my, 1.8, 1.8);
+    }
+  }
+  // per-realm arch dressing
+  if (w === 0) {          // living archway: trunks and leaves
+    ctx.strokeStyle = '#5a4226'; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-16, -14, -4, -24); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(14, 11); ctx.quadraticCurveTo(16, -14, 4, -24); ctx.stroke();
+    ctx.fillStyle = '#4a7a34';
+    for (const [lx, ly, lr] of [[-13, -14, 5], [-8, -21, 5.5], [0, -25, 6], [8, -21, 5.5], [13, -14, 5]]) {
+      ctx.beginPath(); ctx.arc(lx, ly, lr, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#d8b84a';
+    ctx.fillRect(-9, -19, 2, 2); ctx.fillRect(7, -17, 2, 2); ctx.fillRect(-1, -23, 2, 2);
+  } else if (w === 1) {   // ice arch with icicles
+    ctx.strokeStyle = '#9cc4e0'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.lineTo(-14, -14); ctx.quadraticCurveTo(0, -28, 14, -14); ctx.lineTo(14, 11); ctx.stroke();
+    ctx.strokeStyle = '#e8f4ff'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-12, 6); ctx.lineTo(-12, -13); ctx.quadraticCurveTo(0, -25, 12, -13); ctx.stroke();
+    ctx.fillStyle = '#cfe8f8';
+    for (const [ix, iy, len] of [[-8, -18, 6], [0, -22, 8], [8, -18, 6]]) {
+      ctx.beginPath(); ctx.moveTo(ix - 2, iy); ctx.lineTo(ix, iy + len); ctx.lineTo(ix + 2, iy); ctx.closePath(); ctx.fill();
+    }
+  } else if (w === 2) {   // obsidian gate, lava-lit
+    ctx.fillStyle = '#241c1a';
+    ctx.fillRect(-18, -16, 6, 27);
+    ctx.fillRect(12, -16, 6, 27);
+    ctx.beginPath(); ctx.moveTo(-18, -14); ctx.quadraticCurveTo(0, -32, 18, -14); ctx.lineTo(18, -8); ctx.quadraticCurveTo(0, -25, -18, -8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = hexA('#ff6a2a', unlocked ? 0.8 : 0.3); ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-15, 8); ctx.lineTo(-15, -12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(15, 8); ctx.lineTo(15, -12); ctx.stroke();
+    ctx.fillStyle = '#ff8a3a';
+    ctx.beginPath(); ctx.moveTo(0, -29); ctx.lineTo(-3, -24); ctx.lineTo(3, -24); ctx.closePath(); ctx.fill();
+  } else if (w === 3) {   // arch of ribs with a skull keystone
+    ctx.strokeStyle = '#b8ab8f'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(sd * 15, 11); ctx.quadraticCurveTo(sd * 17, -12, sd * 3, -22); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sd * 12, 2); ctx.quadraticCurveTo(sd * 13, -8, sd * 5, -15); ctx.stroke();
+    }
+    ctx.fillStyle = '#d8cdb4';
+    ctx.beginPath(); ctx.arc(0, -23, 5.5, 0, 7); ctx.fill();
+    ctx.fillRect(-3, -19.5, 6, 3);
+    ctx.fillStyle = '#181018';
+    ctx.fillRect(-3.2, -25, 2.4, 2.6); ctx.fillRect(0.8, -25, 2.4, 2.6);
+  } else {                // coral arch, bubbling
+    ctx.strokeStyle = '#3f7a70'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-14, 11); ctx.quadraticCurveTo(-15, -16, 0, -25); ctx.quadraticCurveTo(15, -16, 14, 11); ctx.stroke();
+    ctx.fillStyle = '#e87a6a';
+    for (const [cx2, cy2] of [[-14, -6], [-10, -18], [0, -25], [10, -18], [14, -6]]) {
+      ctx.beginPath(); ctx.arc(cx2, cy2, 3, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx2 + 2.5, cy2 - 2, 1.8, 0, 7); ctx.fill();
+    }
+    if (unlocked) {
+      ctx.strokeStyle = '#bfe8ff88'; ctx.lineWidth = 1;
+      const by = 6 - ((t * 7 + w) % 26);
+      ctx.beginPath(); ctx.arc(5, by, 2, 0, 7); ctx.stroke();
+    }
+  }
+  // chains & lock over sealed gates
+  if (!unlocked) {
+    ctx.strokeStyle = '#6a6a72'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(-14, -10); ctx.lineTo(14, 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-14, 2); ctx.lineTo(14, -10); ctx.stroke();
+    ctx.fillStyle = '#8a8a92';
+    ctx.fillRect(-4, -8, 8, 7);
+    ctx.strokeStyle = '#8a8a92'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, -8, 3, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = '#3a3a42';
+    ctx.fillRect(-1, -6, 2, 3);
+  }
+  ctx.restore();
+  if (label) {
+    ctx.font = '10.5px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = unlocked ? '#c9b98a' : '#6a6a72';
+    ctx.fillText((unlocked ? '' : '🔒 ') + WORLDS[w].name, x, y - 36 * s);
+  }
+}
+
 function drawObelisk(o) {
   const t = G.time;
   const pulse = 0.5 + Math.sin(t * 2.2) * 0.25;
@@ -5187,6 +5342,21 @@ cvs.addEventListener('pointerup', e => {
     if (dist(p.x, p.y, G.lvl.stable.x, G.lvl.stable.y) < 110) togglePanel('stablePanel');
     else setMoveTarget(G.lvl.stable.x, G.lvl.stable.y + 44);
     return;
+  }
+  // world gate?
+  if (G.lvl.gates) for (const gt of G.lvl.gates) {
+    if (dist(w.x, w.y, gt.x, gt.y - 12) < 42) {
+      if (dist(p.x, p.y, gt.x, gt.y) < 100) {
+        if (gateUnlocked(gt.w)) {
+          spark(p.x, p.y, WORLDS[gt.w].pal.acc, 20, 220);
+          enterLevel(WORLD_START(gt.w), false);
+        } else {
+          banner('🔒 Conquer ' + WORLDS[gt.w - 1].name + ' to open this gate');
+          sfx.hurt();
+        }
+      } else setMoveTarget(gt.x, gt.y + 44);
+      return;
+    }
   }
   // drop?
   for (const dr of G.drops) {
