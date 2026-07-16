@@ -492,6 +492,25 @@ function fusableGems(inv) {
   const gs = fusableGroups(inv);
   return gs.length ? gs[0].idx : null;
 }
+/* auto-merge: apply fusions until none remain, cascading up the ladder
+   (three fresh Rubies made by quality-fuses will themselves fuse on) */
+function fuseAll(p) {
+  let count = 0, finest = null;
+  const order = ['common', 'magic', 'rare', 'unique', 'exotic'];
+  for (let guard = 0; guard < 400; guard++) {
+    const gs = fusableGroups(p.inv);
+    if (!gs.length) break;
+    const g = gs[0];
+    for (let k = g.idx.length - 1; k >= 0; k--) p.inv.splice(g.idx[k], 1);
+    p.inv.push(g.result);
+    count++;
+    if (!finest ||
+      order.indexOf(g.result.rarity) > order.indexOf(finest.rarity) ||
+      (g.result.rarity === finest.rarity && gemQ(g.result) > gemQ(finest)))
+      finest = g.result;
+  }
+  return { count, finest };
+}
 /* charms: power that lives in your bag — the slot it occupies is the cost */
 const CHARM_SUFFIX = {
   str: 'of the Bear', dex: 'of the Fox', vit: 'of the Oak', ene: 'of the Mind',
@@ -7634,9 +7653,19 @@ function renderFuse() {
     <div class="invactions" style="flex-direction:column">
       ${rows || '<div class="derived" style="text-align:center">Nothing left to fuse — gather three of a kind.</div>'}
     </div>
+    ${groups.length ? '<div class="invactions"><button class="smallbtn" data-fuseall2>⚡ Fuse all</button></div>' : ''}
     <div class="derived" style="text-align:center">Three of a kind climb the ladder: Chipped → Gem → Flawless,<br>
     then Flawless grades ascend all the way to <span class="rc-exotic">Celestial</span>.</div>`;
   $('fusePanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  const fa = $('fusePanel').querySelector('[data-fuseall2]');
+  if (fa) fa.addEventListener('click', () => {
+    const { count, finest } = fuseAll(p);
+    if (!count) return;
+    banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
+    spark(p.x, p.y - 10, GEMS[finest.g].color, 16, 200);
+    sfx.level(); saveDirty = true;
+    renderFuse();
+  });
   $('fusePanel').querySelectorAll('[data-fuserow]').forEach(b => b.addEventListener('click', () => {
     const g = groups[+b.dataset.fuserow];
     if (!g) return;
@@ -7865,6 +7894,7 @@ function renderInv() {
       <button class="smallbtn" data-buy="mp" ${p.gold < potCost || p.challenge === 'ascetic' ? 'disabled' : ''}>🔮 Potion (${potCost}g)</button>
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
       <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 matching gems into a finer one">⚗ Fuse gems${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
+      <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Apply every possible fusion, cascading up the ladder">⚡ Fuse all</button>
       ${p.bagSlots < 48
         ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
         : ''}
@@ -7920,6 +7950,13 @@ function renderInv() {
   $('invPanel').querySelector('[data-fuse]').addEventListener('click', () => {
     if (!fusableGroups(p.inv).length) return;
     togglePanel('fusePanel');
+  });
+  $('invPanel').querySelector('[data-fuseall]').addEventListener('click', () => {
+    const { count, finest } = fuseAll(p);
+    if (!count) return;
+    banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
+    spark(p.x, p.y - 10, GEMS[finest.g].color, 16, 200);
+    sfx.level(); saveDirty = true; renderInv(); updateHUD();
   });
   const gb = $('invPanel').querySelector('[data-gamble]');
   gb.addEventListener('click', () => {
