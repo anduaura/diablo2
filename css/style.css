@@ -95,10 +95,22 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   font-size:13px; color:#fff; text-shadow:0 1px 2px #000, 0 0 4px #000; pointer-events:none;
 }
 #hudmid { flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; min-width:0; }
+#xprow { width:94%; display:flex; align-items:center; gap:7px; }
 #xpbar {
-  width:92%; height:7px; border-radius:4px; overflow:hidden;
+  flex:1; height:7px; border-radius:4px; overflow:hidden;
   background:#0e0a06; border:1px solid #4a3417;
 }
+#btnAuto {
+  flex:none; display:flex; align-items:center; gap:3px;
+  height:26px; padding:0 8px; font-size:13px; border-radius:13px;
+  background:#1c130a; border:1px solid #57431f; color:#7a6a4c;
+}
+#btnAuto span { font-size:10px; letter-spacing:1px; }
+#btnAuto.on {
+  background:linear-gradient(#4d3a1a, #241708); border-color:#d9c65a; color:#ffe9b0;
+  box-shadow:0 0 8px #d9c65a55;
+}
+#btnAuto:active { transform:scale(.94); }
 #xpFill { height:100%; width:0%; background:linear-gradient(90deg, #7a6a2c, #d9c65a); transition:width .25s; }
 #skillrow { display:flex; gap:min(1.5vw, 9px); justify-content:center; }
 .skillbtn {
