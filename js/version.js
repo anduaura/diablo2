@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.11.1';
+const SANCTUARY_VERSION = '1.12.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.12.0', date: '2026-07-16', title: 'Bottomless bags & trunks',
+    notes: [
+      'Bag and trunk can now grow all the way to 1,000 slots — a flat 100 gold per +6, every time',
+      'The trunk gains its own +6 slots button (upgrades are shared by all heroes, like the trunk itself)',
+    ],
+  },
   {
     v: '1.11.1', date: '2026-07-16', title: 'Roomier bags',
     notes: [
