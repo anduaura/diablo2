@@ -42,6 +42,8 @@ const DRAGONS = [
   { name: 'PRISMATRIX, THE CRYSTAL WYRM', body: '#4a3a6e', belly: '#c28aff', ele: 'light' },
   { name: 'HAEMOVORE, THE GARDEN TYRANT', body: '#5a1e2a', belly: '#ff5a6a', ele: 'fire' },
   { name: 'NULLSCALE, DEVOURER OF STARS', body: '#14141e', belly: '#8a9aff', ele: 'light', final: true },
+  { name: 'ZEPHYRAX, TYRANT OF THE OPEN SKY', body: '#7a8ff0', belly: '#f6f9fd', ele: 'light' },
+  { name: 'MECHAGORATH, THE OMEGA ENGINE', body: '#4a525e', belly: '#4affd4', ele: 'fire', final: true },
 ];
 
 /* five themed worlds, one per 5-floor arc (cycling after floor 25).
@@ -68,6 +70,10 @@ const WORLDS = [
     pal: { f: ['#3c1e22', '#422226', '#361a1e'], w: '#2c1418', wt: '#3e2026', m: '#160a0c', acc: '#ff5a6a' } },
   { name: 'Nullvoid', deco: 'void', flame: '#8a9aff',
     pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
+  { name: 'Skyreach Isles', deco: 'sky', flame: '#ffd76a',
+    pal: { f: ['#a8c2d8', '#b0cade', '#9fbad2'], w: '#dde4ee', wt: '#f6f9fd', m: '#8a94ac', acc: '#ffd76a' } },
+  { name: 'The Chrome Bastion', deco: 'tech', flame: '#4affd4',
+    pal: { f: ['#232830', '#282d36', '#1e232b'], w: '#343b46', wt: '#4a525e', m: '#12151a', acc: '#4affd4' } },
 ];
 // worlds no longer cycle: past the last arc the deepest world holds forever
 const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 25), WORLDS.length - 1);
@@ -163,7 +169,7 @@ function bellNote(freq, t, vol) {
     o.start(t); o.stop(t + 3.2);
   } catch (e) { }
 }
-const MUSIC_OFFS = [0, -2, -5, 3, -7, -4, 1, 6, -9, -12];   // key offset per world (semitones)
+const MUSIC_OFFS = [0, -2, -5, 3, -7, -4, 1, 6, -9, -12, 8, -1];   // key offset per world (semitones)
 const PENTATONIC = [0, 3, 5, 7, 10, 12, 15];
 function musicTick() {
   if (!AC || AC.state !== 'running') return;
@@ -303,6 +309,13 @@ const MTYPES = [
   { id: 'archer', name: 'Bone Archer', hp: 18, dmg: [4, 9], spd: 80, r: 12, xp: 17, gold: [4, 10], atkCd: 1.7, range: 250, ranged: true, minL: 3, w: 2, color: '#b8ab8f' },
   { id: 'ghoul', name: 'Ghoul', hp: 46, dmg: [7, 12], spd: 108, r: 14, xp: 24, gold: [5, 13], atkCd: 0.9, range: 32, minL: 5, w: 2, color: '#7a5a8a' },
   { id: 'brute', name: 'Hell Brute', hp: 100, dmg: [11, 18], spd: 66, r: 20, xp: 45, gold: [10, 24], atkCd: 1.5, range: 42, minL: 7, w: 1, color: '#8a2c1a' },
+  /* wOnly monsters haunt a single world and nowhere else */
+  { id: 'harpy', name: 'Storm Harpy', hp: 60, dmg: [10, 16], spd: 132, r: 13, xp: 55, gold: [12, 26], atkCd: 0.9, range: 30, minL: 1, wOnly: 10, w: 8, color: '#bfe0ff' },
+  { id: 'djinn', name: 'Cloud Djinn', hp: 85, dmg: [12, 19], spd: 88, r: 15, xp: 70, gold: [15, 32], atkCd: 1.6, range: 240, ranged: true, minL: 1, wOnly: 10, w: 5, color: '#9adcff' },
+  { id: 'roc', name: 'Thunder Roc', hp: 145, dmg: [15, 24], spd: 74, r: 20, xp: 95, gold: [20, 40], atkCd: 1.4, range: 44, minL: 1, wOnly: 10, w: 3, color: '#7a8ff0' },
+  { id: 'scrapbot', name: 'Scrap Skitterer', hp: 55, dmg: [10, 17], spd: 142, r: 11, xp: 60, gold: [14, 30], atkCd: 0.8, range: 26, minL: 1, wOnly: 11, w: 8, color: '#8a94a4' },
+  { id: 'sentinel', name: 'Laser Sentinel', hp: 80, dmg: [13, 20], spd: 70, r: 13, xp: 75, gold: [18, 36], atkCd: 1.5, range: 260, ranged: true, minL: 1, wOnly: 11, w: 5, color: '#4affd4' },
+  { id: 'warbot', name: 'Siege Automaton', hp: 175, dmg: [17, 26], spd: 58, r: 20, xp: 110, gold: [24, 48], atkCd: 1.6, range: 46, minL: 1, wOnly: 11, w: 3, color: '#5a6472' },
 ];
 /* hell bovines only graze in the secret pasture — never in the dungeon pool */
 const COW_TYPE = { id: 'cow', name: 'Hell Bovine', hp: 42, dmg: [6, 11], spd: 108, r: 14, xp: 22, gold: [8, 18], atkCd: 1.0, range: 34, minL: 1, w: 0, color: '#e8e4da' };
@@ -703,7 +716,7 @@ function genLevel(dlvl, riftMode) {
   const wf = worldFloor(dlvl);
   const isDragonFloor = wf === 25 && !riftMode;             // the realm's tyrant
   const isBossFloor = (wf % 5 === 0 && !riftMode) || isDragonFloor;   // mini-bosses every 5th
-  const pool = MTYPES.filter(t => t.minL <= dlvl);
+  const pool = MTYPES.filter(t => t.minL <= dlvl && (t.wOnly === undefined || t.wOnly === wIdx));
   const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
   const eff = effDepth(dlvl);
   const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
@@ -958,12 +971,12 @@ function genTown() {
     stash: { x: (R.x + 9) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
     stable: { x: (R.x + 14) * TILE + TILE / 2, y: (R.y + 3) * TILE + TILE / 2 },
     obelisk: { x: (R.x + 4) * TILE + TILE / 2, y: (R.y + 10) * TILE + TILE / 2 },
-    // world gates: first five realms along the north wall, the five
-    // realms beyond the Abyss along the south wall
+    // world gates: first six realms along the north wall, the six
+    // realms beyond along the south wall
     gates: Array.from({ length: WORLDS.length }, (_, i) => ({
       w: i,
-      x: (R.x + 2.5 + (i % 5) * 3.5) * TILE,
-      y: (i < 5 ? R.y : R.y + R.h) * TILE + TILE * 0.9,
+      x: (R.x + 1.8 + (i % 6) * 3.1) * TILE,
+      y: (i < 6 ? R.y : R.y + R.h) * TILE + TILE * 0.9,
     })),
     petStock: Array.from({ length: 3 }, () => makePetData(ri(0, PET_SPECIES.length - 1), rollPetRarity())),
     npcs: [
@@ -1011,6 +1024,12 @@ const QUESTS = [
   { npc: 'The Lost Cartographer', type: 'cull', count: 15, match: null,
     ask: 'I map the void and the void objects. Silence 15 of its residents so I can finish my survey.',
     thanks: 'The chart is complete… and it says you deserve this. Maps never lie.' },
+  { npc: 'Skyship Captain Lorra', type: 'satchel', floorOff: 2,
+    ask: 'A harpy gale tore my chart satchel off the deck — it landed on an isle two floors below. My whole trade route is in there!',
+    thanks: 'The charts, dry and whole! Take this — salvage from a wreck no other soul will ever reach.' },
+  { npc: 'Tinker Juno', type: 'cull', count: 12, match: ['scrapbot', 'sentinel', 'warbot'],
+    ask: 'The machines turned on their makers an age ago. Scrap a dozen of them and I\'ll open my private vault to you.',
+    thanks: 'Twelve heaps of quiet scrap — music to a tinker\'s ears. The vault is yours.' },
 ];
 function questState(w) { return (G.quests || {})[w] || null; }
 function questReward(w) {
@@ -1049,6 +1068,7 @@ const ELDER_LINES = [
   'I once knew a hero who hoarded every potion. The graveyard lists them alphabetically.',
   'They say the deepest gate leads back to the beginning, only crueler. NG+, the scholars call it.',
   'Stranded wanderers camp on the first floor of every realm. Help them — they pay better than the merchant.',
+  'Past the void the world turns strange: isles adrift in open sky, and above them a bastion of chrome where the machines still march.',
 ];
 
 /* ---------------- shared town stash ---------------- */
@@ -2958,6 +2978,81 @@ function drawWallTile(deco, px, py, tx, ty, h, pal) {
       ctx.moveTo(rx - 3, ry + 1); ctx.lineTo(rx + 3, ry + 1);
       ctx.stroke();
     }
+  } else if (deco === 'sky') {
+    /* ---- sun-washed marble crowned with clinging cloud ---- */
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#f6f9fd'); g.addColorStop(1, '#c8d2e2');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#9aa4bc'; ctx.lineWidth = 1.4;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 14 + 8;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // gilded cap
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillRect(px, py, TILE, 3.5);
+    ctx.fillStyle = '#b8922e';
+    ctx.fillRect(px, py + 3.5, TILE, 1.2);
+    // sun glints in the polish
+    if (h2 > 0.55) {
+      ctx.strokeStyle = '#ffffffbb'; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(px + 8 + h * 12, py + 30); ctx.lineTo(px + 20 + h * 12, py + 10); ctx.stroke();
+    }
+    // cloud wisps clinging to the foot of the wall
+    if (floorBelow && h > 0.4) {
+      ctx.fillStyle = '#ffffffcc';
+      const dx2 = Math.sin(G.time * 0.7 + tx) * 3;
+      ctx.beginPath(); ctx.ellipse(px + 12 + h2 * 18 + dx2, py + TILE - 2, 10, 4, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(px + 26 + h3 * 10 + dx2, py + TILE + 1, 8, 3.4, 0, 0, 7); ctx.fill();
+    }
+  } else if (deco === 'tech') {
+    /* ---- riveted alloy bulkheads threaded with neon conduit ---- */
+    const g = ctx.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#454d5a'); g.addColorStop(0.5, '#343b46'); g.addColorStop(1, '#262c34');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1.8;
+    for (let row = 0; row < 2; row++) {
+      const ry = py + 1 + row * 21;
+      ctx.beginPath(); ctx.moveTo(px, ry + 20); ctx.lineTo(px + TILE, ry + 20); ctx.stroke();
+      const off = ((tx + ty + row) % 2) * 16 + 6;
+      ctx.beginPath(); ctx.moveTo(px + off, ry); ctx.lineTo(px + off, ry + 20); ctx.stroke();
+    }
+    // rivets at panel corners
+    ctx.fillStyle = '#5a6472';
+    for (const [rx, ry2] of [[5, 6], [TILE - 5, 6], [5, TILE - 6], [TILE - 5, TILE - 6]]) {
+      ctx.beginPath(); ctx.arc(px + rx, py + ry2, 1.6, 0, 7); ctx.fill();
+    }
+    // a neon conduit runs down some panels
+    if (h > 0.6) {
+      const cxp = px + 8 + h2 * 28;
+      const glow = 0.5 + Math.sin(G.time * 2.4 + tx * 2 + ty) * 0.3;
+      ctx.strokeStyle = hexA('#4affd4', glow); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cxp, py + 2); ctx.lineTo(cxp, py + TILE - 2); ctx.stroke();
+      ctx.strokeStyle = '#12151a'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(cxp, py + 14); ctx.lineTo(cxp, py + 18); ctx.stroke();
+    }
+    // blinking status diode
+    if (h2 > 0.8) {
+      const on = Math.sin(G.time * 3 + tx * 5 + ty * 3) > 0;
+      ctx.fillStyle = on ? '#ff5a3a' : '#4a1a12';
+      ctx.beginPath(); ctx.arc(px + 8 + h3 * 26, py + 8 + h * 8, 1.8, 0, 7); ctx.fill();
+    }
+    // hazard chevrons along the base above walkways
+    if (floorBelow) {
+      ctx.fillStyle = '#e8c05a';
+      ctx.fillRect(px, py + TILE - 5, TILE, 5);
+      ctx.fillStyle = '#1a1408';
+      for (let k = 0; k < 4; k++) {
+        ctx.beginPath();
+        ctx.moveTo(px + k * 12, py + TILE); ctx.lineTo(px + k * 12 + 5, py + TILE - 5);
+        ctx.lineTo(px + k * 12 + 9, py + TILE - 5); ctx.lineTo(px + k * 12 + 4, py + TILE);
+        ctx.closePath(); ctx.fill();
+      }
+    }
   } else {
     /* ---- classic brick (fallback) ---- */
     ctx.fillStyle = pal.w;
@@ -3231,6 +3326,64 @@ function drawFloorTile(deco, px, py, tx, ty, h, pal) {
       ctx.lineTo(px + 18, py + 22); ctx.lineTo(px + 24, py + 26); ctx.lineTo(px + 36, py + 14);
       ctx.stroke();
     }
+  } else if (deco === 'sky') {
+    /* ---- cloudstone: pale sky-slabs with drifting wisps ---- */
+    ctx.fillStyle = ['#a8c2d8', '#b0cade', '#9fbad2'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#8a94ac55'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    // soft cloud shadows sliding over the stone
+    ctx.fillStyle = '#ffffff44';
+    const dx2 = Math.sin(G.time * 0.5 + tx * 0.7) * 4;
+    ctx.beginPath(); ctx.ellipse(px + TILE * h2 + dx2, py + TILE * h3, 12, 5, 0.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7a94b433';
+    ctx.beginPath(); ctx.ellipse(px + TILE * (1 - h3), py + TILE * h2, 9, 4, -0.2, 0, 7); ctx.fill();
+    if (h > 0.62 && h < 0.74) {   // gilded inlay in the slab
+      ctx.strokeStyle = '#ffd76a88'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 9, 0, 7); ctx.stroke();
+    }
+    if (h < 0.04) {   // a gap of open sky between the slabs
+      ctx.fillStyle = '#4a7ab0';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE / 2, 12, 8, h * 20, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffffaa';
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2 - 3 + Math.sin(G.time * 0.8 + tx) * 3, py + TILE / 2 + 1, 5, 1.8, 0, 0, 7); ctx.fill();
+    }
+    if (h3 > 0.93) { ctx.fillStyle = '#fff2c8'; ctx.fillRect(px + h * 40, py + h2 * 40, 1.8, 1.8); }
+  } else if (deco === 'tech') {
+    /* ---- deck plating: brushed alloy, rivets and live conduits ---- */
+    ctx.fillStyle = ['#232830', '#282d36', '#1e232b'][Math.floor(h * 3) % 3];
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+    // brushed sheen
+    ctx.fillStyle = '#ffffff08';
+    ctx.fillRect(px, py + 4 + h2 * 8, TILE, 3);
+    // corner rivets
+    ctx.fillStyle = '#454d5a';
+    for (const [rx, ry2] of [[4, 4], [TILE - 4, 4], [4, TILE - 4], [TILE - 4, TILE - 4]]) {
+      ctx.beginPath(); ctx.arc(px + rx, py + ry2, 1.4, 0, 7); ctx.fill();
+    }
+    if (h > 0.72 && h < 0.86) {   // glowing floor conduit
+      const glow = 0.4 + Math.sin(G.time * 2.2 + tx + ty * 2) * 0.25;
+      ctx.strokeStyle = hexA('#4affd4', glow); ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(px, py + TILE * h2);
+      ctx.lineTo(px + TILE * 0.45, py + TILE * h2); ctx.lineTo(px + TILE * 0.55, py + TILE * h3);
+      ctx.lineTo(px + TILE, py + TILE * h3);
+      ctx.stroke();
+    }
+    if (h < 0.05) {   // vent grate breathing faint steam
+      ctx.fillStyle = '#12151a';
+      ctx.fillRect(px + 10, py + 14, 24, 16);
+      ctx.fillStyle = '#454d5a';
+      for (let k = 0; k < 4; k++) ctx.fillRect(px + 12, py + 16 + k * 4, 20, 1.6);
+      ctx.fillStyle = hexA('#8adfff', 0.12 + Math.max(0, Math.sin(G.time * 1.4 + tx)) * 0.1);
+      ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + 10, 8, 5, 0, 0, 7); ctx.fill();
+    }
+    if (h3 > 0.9) {   // blinking deck diode
+      ctx.fillStyle = Math.sin(G.time * 4 + tx * 3) > 0.2 ? '#4affd4' : '#12403a';
+      ctx.fillRect(px + 6 + h * 30, py + 6 + h2 * 30, 2, 2);
+    }
   } else {
     /* ---- classic flagstone (fallback) ---- */
     ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
@@ -3390,6 +3543,29 @@ function render() {
           if (h > 0.97) {
             ctx.strokeStyle = '#8a9aff44'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(cx3, cy3 - 2, 5 + Math.sin(G.time * 1.6) * 1.5, 0, 7); ctx.stroke();
+          }
+        } else if (wrld.deco === 'sky') {   // drifting cloud tufts
+          ctx.fillStyle = '#ffffffbb';
+          const cdx = Math.sin(G.time * 0.6 + cx3 * 0.1) * 4;
+          ctx.beginPath(); ctx.ellipse(cx3 + cdx, cy3, 8, 3.2, 0, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(cx3 + cdx - 5, cy3 + 2, 5, 2.4, 0, 0, 7); ctx.fill();
+          if (h > 0.96) {   // a golden feather left behind
+            ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 1.4;
+            ctx.beginPath(); ctx.moveTo(cx3 - 4, cy3 + 4); ctx.quadraticCurveTo(cx3, cy3 - 4, cx3 + 5, cy3 - 6); ctx.stroke();
+          }
+        } else if (wrld.deco === 'tech') {   // scattered machine litter
+          if (h > 0.96) {   // sparking severed cable
+            const on = Math.sin(G.time * 6 + cx3) > 0.4;
+            ctx.strokeStyle = '#5a6472'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(cx3 - 7, cy3 + 3); ctx.quadraticCurveTo(cx3, cy3 - 3, cx3 + 6, cy3 + 1); ctx.stroke();
+            if (on) { ctx.fillStyle = '#8adfff'; ctx.fillRect(cx3 + 5, cy3 - 2, 2.4, 2.4); }
+          } else {   // loose bolts and a gear
+            ctx.fillStyle = '#5a6472';
+            ctx.beginPath(); ctx.arc(cx3 - 3, cy3, 3, 0, 7); ctx.fill();
+            ctx.fillStyle = '#232830';
+            ctx.beginPath(); ctx.arc(cx3 - 3, cy3, 1.2, 0, 7); ctx.fill();
+            ctx.fillStyle = '#454d5a';
+            ctx.fillRect(cx3 + 4, cy3 - 1, 2, 2); ctx.fillRect(cx3 + 7, cy3 + 2, 2, 2);
           }
         } else {   // shells & bubbles
           ctx.strokeStyle = '#7ac8bc'; ctx.lineWidth = 1.4;
@@ -4425,6 +4601,212 @@ function drawMonster(m) {
     for (const [sx, sy] of [[-8, -13], [-1, -15], [6, -13]]) {
       ctx.beginPath(); ctx.moveTo(sx - 2, sy + 2); ctx.lineTo(sx, sy - 5); ctx.lineTo(sx + 2.4, sy + 2); ctx.closePath(); ctx.fill();
     }
+  } else if (t.id === 'harpy') {
+    /* -------- storm harpy: winged shrieker riding the gale -------- */
+    ctx.scale(rr / 13, rr / 13);
+    const flap = Math.sin(time * 11 + ph);
+    ctx.fillStyle = W('#8fb2d8');   // beating wings
+    for (const sd of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sd * 3, -6);
+      ctx.quadraticCurveTo(sd * 12, -12 - flap * 5, sd * 16, -6 - flap * 7);
+      ctx.quadraticCurveTo(sd * 12, -3 - flap * 3, sd * 3, -2);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = W('#bfe0ff'); ctx.lineWidth = 1;   // feather lines
+      ctx.beginPath(); ctx.moveTo(sd * 5, -5); ctx.lineTo(sd * 13, -7 - flap * 5); ctx.stroke();
+    }
+    ctx.fillStyle = W('#a9c6e4');   // feathered body
+    ctx.beginPath(); ctx.ellipse(0, -3, 4.6, 6.5, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#e8c05a'); ctx.lineWidth = 1.8;   // talons trailing
+    ctx.beginPath(); ctx.moveTo(-1.5, 3); ctx.lineTo(-2.5, 8 + flap); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(1.5, 3); ctx.lineTo(2.8, 8 - flap); ctx.stroke();
+    ctx.fillStyle = W('#c9dcf0');   // head
+    ctx.beginPath(); ctx.arc(1.5, -10.5, 3.6, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#e8c05a');   // hooked beak
+    ctx.beginPath(); ctx.moveTo(4.4, -10.5); ctx.lineTo(8, -9.5); ctx.lineTo(4.4, -8.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd23a';
+    ctx.fillRect(1.6, -11.8, 1.7, 1.7);
+    ctx.strokeStyle = W('#7a8ff0'); ctx.lineWidth = 1;   // storm-crest
+    ctx.beginPath(); ctx.moveTo(-1, -13.5); ctx.lineTo(-3, -16.5); ctx.moveTo(1, -14); ctx.lineTo(0.2, -17); ctx.stroke();
+
+  } else if (t.id === 'djinn') {
+    /* -------- cloud djinn: torso trailing into vapor -------- */
+    ctx.scale(rr / 15, rr / 15);
+    const swirl = time * 2.4 + ph;
+    ctx.fillStyle = W('#c9dcf0');   // vapor tail instead of legs
+    ctx.beginPath();
+    ctx.moveTo(-5, -1);
+    ctx.quadraticCurveTo(-3 + Math.sin(swirl) * 2, 5, 0, 9);
+    ctx.quadraticCurveTo(3 - Math.sin(swirl) * 2, 5, 5, -1);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#ffffff88');
+    ctx.beginPath(); ctx.ellipse(Math.sin(swirl) * 3, 7.5, 5.5, 2, 0, 0, 7); ctx.fill();
+    const g = ctx.createLinearGradient(0, -12, 0, 2);
+    g.addColorStop(0, W('#e8f2fc')); g.addColorStop(1, W('#9ec2e0'));
+    ctx.fillStyle = g;   // billowing torso
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.quadraticCurveTo(-7.5, -9, 0, -10.5);
+    ctx.quadraticCurveTo(7.5, -9, 6, 0);
+    ctx.quadraticCurveTo(0, 2.5, -6, 0);
+    ctx.closePath(); ctx.fill();
+    // arms gathering a storm
+    ctx.strokeStyle = W('#c9dcf0'); ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(5, -7); ctx.quadraticCurveTo(10, -6, 11, -1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-5, -7); ctx.quadraticCurveTo(-10, -6, -11, -1); ctx.stroke();
+    const bz = 0.5 + Math.sin(time * 5 + ph) * 0.4;   // crackling orb
+    ctx.fillStyle = hexA('#9adcff', bz);
+    ctx.beginPath(); ctx.arc(11, 1, 3, 0, 7); ctx.fill();
+    ctx.strokeStyle = hexA('#ffffff', bz); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(9.5, -0.5); ctx.lineTo(11.5, 1); ctx.lineTo(10, 2.5); ctx.stroke();
+    ctx.fillStyle = W('#e8f2fc');   // hooded head
+    ctx.beginPath(); ctx.arc(0, -13, 4.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#5ab0ff';
+    ctx.fillRect(-2.6, -14, 2, 1.8); ctx.fillRect(0.8, -14, 2, 1.8);
+
+  } else if (t.id === 'roc') {
+    /* -------- thunder roc: storm-bird bruiser -------- */
+    ctx.scale(rr / 20, rr / 20);
+    const flap = Math.sin(time * 7 + ph);
+    for (const sd of [-1, 1]) {   // vast wings
+      ctx.fillStyle = W('#5a6ec0');
+      ctx.beginPath();
+      ctx.moveTo(sd * 4, -8);
+      ctx.quadraticCurveTo(sd * 14, -16 - flap * 6, sd * 21, -8 - flap * 9);
+      ctx.quadraticCurveTo(sd * 16, -2 - flap * 4, sd * 4, -1);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = W('#7a8ff0');   // wing coverts
+      ctx.beginPath();
+      ctx.moveTo(sd * 5, -7);
+      ctx.quadraticCurveTo(sd * 12, -11 - flap * 4, sd * 16, -7 - flap * 6);
+      ctx.quadraticCurveTo(sd * 11, -4 - flap * 2, sd * 5, -3);
+      ctx.closePath(); ctx.fill();
+    }
+    const g = ctx.createLinearGradient(0, -12, 0, 10);
+    g.addColorStop(0, W('#6a7ed8')); g.addColorStop(1, W('#3a4a90'));
+    ctx.fillStyle = g;   // barrel body
+    ctx.beginPath(); ctx.ellipse(0, -2, 9, 11, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#9aacf4');   // breast feathers
+    ctx.beginPath(); ctx.ellipse(2, 1, 5, 7, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#e8c05a'); ctx.lineWidth = 2.4;   // talons
+    ctx.beginPath(); ctx.moveTo(-3, 8); ctx.lineTo(-4, 13 + stride); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3, 8); ctx.lineTo(4, 13 - stride); ctx.stroke();
+    ctx.fillStyle = W('#6a7ed8');   // proud head
+    ctx.beginPath(); ctx.arc(4, -13, 5.5, 0, 7); ctx.fill();
+    ctx.fillStyle = W('#ffd23a');   // heavy beak
+    ctx.beginPath(); ctx.moveTo(8.6, -13.5); ctx.lineTo(14, -11.5); ctx.lineTo(8.6, -10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = Math.sin(time * 3 + ph) > 0.6 ? '#ffffff' : '#ffd23a';   // lightning glare
+    ctx.fillRect(4.2, -15, 2.2, 2.2);
+    ctx.strokeStyle = hexA('#9adcff', 0.5 + Math.sin(time * 6 + ph) * 0.4);   // static arcing off the crest
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(1, -17.5); ctx.lineTo(3, -20); ctx.lineTo(4.4, -18); ctx.lineTo(6.4, -21); ctx.stroke();
+
+  } else if (t.id === 'scrapbot') {
+    /* -------- scrap skitterer: rusty spider-bot -------- */
+    ctx.scale(rr / 11, rr / 11);
+    ctx.strokeStyle = W('#5a6472'); ctx.lineWidth = 1.8;   // four skittering legs
+    for (const [sd, k] of [[-1, 0], [-1, 1], [1, 0], [1, 1]]) {
+      const lp = stride * (k ? 1 : -1) * 2.5;
+      ctx.beginPath();
+      ctx.moveTo(sd * 3, -1 + k * 2);
+      ctx.lineTo(sd * (7 + k * 2), -4 + k * 3 + lp * 0.4);
+      ctx.lineTo(sd * (9 + k * 2), 8 + lp);
+      ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -8, 0, 4);
+    g.addColorStop(0, W('#8a94a4')); g.addColorStop(1, W('#4a525e'));
+    ctx.fillStyle = g;   // dented chassis
+    ctx.beginPath();
+    ctx.moveTo(-6, 2); ctx.lineTo(-5.5, -6); ctx.lineTo(5.5, -6); ctx.lineTo(6, 2); ctx.lineTo(0, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = W('#6a4a2a');   // rust patches
+    ctx.beginPath(); ctx.arc(-3, -2, 1.8, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(4, 0.5, 1.3, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#5a6472'); ctx.lineWidth = 1;   // panel seam + bolts
+    ctx.beginPath(); ctx.moveTo(-5.5, -2); ctx.lineTo(6, -2); ctx.stroke();
+    ctx.fillStyle = '#12151a';
+    ctx.fillRect(-4.4, -5, 1.2, 1.2); ctx.fillRect(3.2, -5, 1.2, 1.2);
+    const on = Math.sin(time * 8 + ph) > -0.4;   // single mad eye
+    ctx.fillStyle = on ? '#ff5a3a' : '#4a1a12';
+    ctx.beginPath(); ctx.arc(2, -8.5, 2.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd8c8';
+    ctx.beginPath(); ctx.arc(2.6, -9.1, 0.9, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#8a94a4'); ctx.lineWidth = 1.2;   // waving antenna
+    ctx.beginPath(); ctx.moveTo(-2, -8); ctx.quadraticCurveTo(-4, -12, -3 + Math.sin(time * 9) * 1.5, -14); ctx.stroke();
+    ctx.strokeStyle = W('#c8ccd4'); ctx.lineWidth = 1.6;   // snipping claw
+    ctx.beginPath(); ctx.moveTo(6, -3); ctx.lineTo(9.5, -5 + stride); ctx.moveTo(6, -3); ctx.lineTo(9.5, -1 + stride); ctx.stroke();
+
+  } else if (t.id === 'sentinel') {
+    /* -------- laser sentinel: hovering hunter-orb -------- */
+    ctx.scale(rr / 13, rr / 13);
+    const hover = Math.sin(time * 3 + ph) * 1.5;
+    ctx.fillStyle = hexA('#4affd4', 0.35 + Math.sin(time * 6 + ph) * 0.15);   // thruster wash
+    ctx.beginPath(); ctx.ellipse(0, 8 + hover * 0.4, 4, 6, 0, 0, 7); ctx.fill();
+    ctx.translate(0, hover);
+    const g = ctx.createRadialGradient(-2, -8, 1, 0, -5, 10);
+    g.addColorStop(0, W('#aab4c0')); g.addColorStop(1, W('#3a424e'));
+    ctx.fillStyle = g;   // armored sphere
+    ctx.beginPath(); ctx.arc(0, -5, 7.5, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1;   // hull seams
+    ctx.beginPath(); ctx.arc(0, -5, 7.5, 0.4, 2.7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-7.5, -5); ctx.lineTo(7.5, -5); ctx.stroke();
+    const charge = 0.5 + Math.sin(time * 4 + ph) * 0.4;   // main lens
+    ctx.fillStyle = '#12151a';
+    ctx.beginPath(); ctx.arc(3, -5, 3.6, 0, 7); ctx.fill();
+    ctx.fillStyle = hexA('#ff3a3a', charge);
+    ctx.beginPath(); ctx.arc(3, -5, 2.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd8c8';
+    ctx.beginPath(); ctx.arc(3.8, -5.8, 0.8, 0, 7); ctx.fill();
+    ctx.strokeStyle = W('#5a6472'); ctx.lineWidth = 1.6;   // side vanes
+    ctx.beginPath(); ctx.moveTo(-7, -8); ctx.lineTo(-11, -10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-7, -2); ctx.lineTo(-11, 0); ctx.stroke();
+    ctx.fillStyle = Math.sin(time * 5 + ph) > 0.3 ? '#4affd4' : '#173a34';   // status blip
+    ctx.fillRect(-3.5, -10.5, 1.6, 1.6);
+
+  } else if (t.id === 'warbot') {
+    /* -------- siege automaton: hulking mech -------- */
+    ctx.scale(rr / 20, rr / 20);
+    ctx.fillStyle = W('#343b46');   // piston legs
+    for (const sd of [-1, 1]) {
+      const lp = stride * 3 * sd;
+      ctx.fillRect(sd * 6 - 2.6, 4, 5.2, 6);
+      ctx.fillRect(sd * 6 - 3.4 + lp * 0.5, 10, 6.8, 5);
+      ctx.strokeStyle = W('#5a6472'); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(sd * 6, 5); ctx.lineTo(sd * 6 + lp * 0.5, 11); ctx.stroke();
+    }
+    const g = ctx.createLinearGradient(0, -14, 0, 6);
+    g.addColorStop(0, W('#6a7482')); g.addColorStop(1, W('#3a424e'));
+    ctx.fillStyle = g;   // slab torso
+    ctx.beginPath();
+    ctx.moveTo(-12, 5); ctx.lineTo(-13, -9); ctx.lineTo(-7, -13); ctx.lineTo(7, -13); ctx.lineTo(13, -9); ctx.lineTo(12, 5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1.2;   // armor plating seams
+    ctx.beginPath(); ctx.moveTo(-13, -4); ctx.lineTo(13, -4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(0, -4); ctx.stroke();
+    ctx.fillStyle = '#5a6472';
+    for (const [bx2, by2] of [[-10, -7], [10, -7], [-9, 1], [9, 1]]) {
+      ctx.beginPath(); ctx.arc(bx2, by2, 1.4, 0, 7); ctx.fill();
+    }
+    const core = 0.5 + Math.sin(time * 2.6 + ph) * 0.3;   // reactor core
+    ctx.fillStyle = hexA('#4affd4', core);
+    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = hexA('#8affe4', core); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, 4.8, time * 2, time * 2 + 2); ctx.stroke();
+    // pile-driver arms
+    ctx.strokeStyle = W('#4a525e'); ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-12, -8); ctx.lineTo(-16, 0 + stride * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(12, -8); ctx.lineTo(16, 0 - stride * 2); ctx.stroke();
+    ctx.fillStyle = W('#8a94a4');   // hammer fists
+    ctx.fillRect(-19.5, -1 + stride * 2, 7, 6);
+    ctx.fillRect(12.5, -1 - stride * 2, 7, 6);
+    ctx.fillStyle = W('#262c34');   // low sensor head
+    ctx.fillRect(-5, -18, 10, 6);
+    const scan = Math.sin(time * 4 + ph);   // sweeping eye-bar
+    ctx.fillStyle = '#ff5a3a';
+    ctx.fillRect(-3.5 + scan * 3, -16.6, 3, 2);
+    ctx.fillStyle = hexA('#ff5a3a', 0.35);
+    ctx.fillRect(-4.5, -16.6, 9, 2);
+
   } else {
     /* -------- hell brute / boss demon -------- */
     ctx.scale(rr / 20, rr / 20);
@@ -4905,6 +5287,41 @@ function drawExit(px, py, locked, wrld) {
       }
       break;
     }
+    case 'sky': {   // a gap in the clouds, open air below
+      ctx.fillStyle = '#3a6aa0';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 15, 11, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#254a78';
+      ctx.beginPath(); ctx.ellipse(cx, cy + 1, 9, 6, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffffd8';   // cloud ring around the drop
+      for (let k = 0; k < 6; k++) {
+        const a = k / 6 * Math.PI * 2 + t * 0.3;
+        ctx.beginPath();
+        ctx.ellipse(cx + Math.cos(a) * 14, cy + Math.sin(a) * 10, 6, 3, a * 0.3, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#ffffff88';   // a tiny cloud drifting far below
+      ctx.beginPath(); ctx.ellipse(cx + Math.sin(t * 0.9) * 4, cy + 2, 4, 1.4, 0, 0, 7); ctx.fill();
+      break;
+    }
+    case 'tech': {   // freight elevator hatch
+      ctx.fillStyle = '#12151a';
+      ctx.fillRect(px + 6, py + 7, TILE - 12, TILE - 14);
+      ctx.strokeStyle = '#5a6472'; ctx.lineWidth = 2;
+      ctx.strokeRect(px + 6, py + 7, TILE - 12, TILE - 14);
+      ctx.fillStyle = '#e8c05a';   // hazard-striped lip
+      ctx.fillRect(px + 6, py + 7, TILE - 12, 4);
+      ctx.fillStyle = '#1a1408';
+      for (let k = 0; k < 4; k++) ctx.fillRect(px + 8 + k * 8, py + 7, 4, 4);
+      const ph2 = (t * 1.6) % 1;   // descending chevrons
+      for (let k = 0; k < 3; k++) {
+        const yy = py + 14 + ((ph2 + k / 3) % 1) * 18;
+        ctx.strokeStyle = hexA('#4affd4', 0.9 - ((ph2 + k / 3) % 1) * 0.7);
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.moveTo(cx - 6, yy); ctx.lineTo(cx, yy + 4); ctx.lineTo(cx + 6, yy); ctx.stroke();
+      }
+      ctx.fillStyle = Math.sin(t * 5) > 0 ? '#ff5a3a' : '#4a1a12';   // call light
+      ctx.beginPath(); ctx.arc(px + TILE - 9, py + TILE - 11, 1.8, 0, 7); ctx.fill();
+      break;
+    }
     default: {   // void rift
       ctx.fillStyle = '#000006';
       ctx.beginPath(); ctx.ellipse(cx, cy, 6 + Math.sin(t * 1.8) * 1.5, 16, 0.5, 0, 7); ctx.fill();
@@ -5274,6 +5691,74 @@ function drawProp(pr) {
       ctx.beginPath(); ctx.moveTo(x + 6, y - 17); ctx.quadraticCurveTo(x + 2, y - 8, x + 5, y + 2); ctx.stroke();
       ctx.fillStyle = hexA('#ff8a9a', pulse + 0.15);
       ctx.beginPath(); ctx.arc(x, y - 10, 3.4, 0, 7); ctx.fill();
+    }
+  } else if (pr.w === 10) {
+    if (pr.v === 0) {   /* broken marble column, gold capital */
+      ctx.fillStyle = '#dde4ee';
+      ctx.fillRect(x - 6, y - 24, 12, 28);
+      const g = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
+      g.addColorStop(0, '#aab4c8'); g.addColorStop(0.4, '#f6f9fd'); g.addColorStop(1, '#aab4c8');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 6, y - 24, 12, 28);
+      ctx.fillStyle = '#ffd76a';   // gilded capital, snapped at an angle
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y - 24); ctx.lineTo(x + 8, y - 24); ctx.lineTo(x + 8, y - 28); ctx.lineTo(x - 8, y - 30);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8a94ac';   // fallen drum beside it
+      ctx.beginPath(); ctx.ellipse(x + 12, y + 2, 6, 3.4, 0.3, 0, 7); ctx.fill();
+      // a cloud drifting through the ruin
+      ctx.fillStyle = '#ffffffb0';
+      const cdx = Math.sin(t * 0.8 + pr.tx) * 4;
+      ctx.beginPath(); ctx.ellipse(x + cdx, y - 12, 9, 3.4, 0, 0, 7); ctx.fill();
+    } else {            /* hovering cloud tuft raining gold motes */
+      const hover = Math.sin(t * 1.4 + pr.tx) * 2.5;
+      ctx.fillStyle = '#ffffffd8';
+      for (const [bx2, by2, br] of [[-7, -18, 6], [3, -21, 7.5], [10, -17, 5], [-1, -15, 6.5]]) {
+        ctx.beginPath(); ctx.arc(x + bx2, y + by2 + hover, br, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#c8d2e2aa';
+      ctx.beginPath(); ctx.ellipse(x + 1, y - 14 + hover, 11, 3.4, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = hexA('#ffd76a', 0.5 + Math.sin(t * 2.4 + pr.ty) * 0.3);
+      for (let k = 0; k < 3; k++) {
+        const fy = (t * 8 + k * 9 + pr.tx * 3) % 16;
+        ctx.fillRect(x - 6 + k * 6, y - 10 + hover + fy, 1.6, 1.6);
+      }
+    }
+  } else if (pr.w === 11) {
+    if (pr.v === 0) {   /* humming server obelisk */
+      ctx.fillStyle = '#262c34';
+      ctx.fillRect(x - 8, y - 30, 16, 36);
+      ctx.strokeStyle = '#454d5a'; ctx.lineWidth = 1.2;
+      ctx.strokeRect(x - 8, y - 30, 16, 36);
+      for (let row = 0; row < 4; row++) {   // blinking light banks
+        for (let col = 0; col < 3; col++) {
+          const on = Math.sin(t * (2 + row) + col * 2.1 + pr.tx) > 0.3;
+          ctx.fillStyle = on ? ['#4affd4', '#ff5a3a', '#ffd23a'][(row + col) % 3] : '#12151a';
+          ctx.fillRect(x - 5 + col * 4.5, y - 26 + row * 7, 2.4, 2.4);
+        }
+      }
+      ctx.strokeStyle = '#5a6472'; ctx.lineWidth = 1.6;   // antenna
+      ctx.beginPath(); ctx.moveTo(x + 5, y - 30); ctx.lineTo(x + 8, y - 40); ctx.stroke();
+      ctx.fillStyle = hexA('#ff5a3a', 0.4 + Math.max(0, Math.sin(t * 2)) * 0.5);
+      ctx.beginPath(); ctx.arc(x + 8, y - 41, 1.8, 0, 7); ctx.fill();
+    } else {            /* slumped derelict robot */
+      ctx.fillStyle = '#343b46';   // tilted torso
+      ctx.save();
+      ctx.translate(x, y - 8); ctx.rotate(0.18);
+      ctx.fillRect(-8, -10, 16, 18);
+      ctx.strokeStyle = '#12151a'; ctx.lineWidth = 1;
+      ctx.strokeRect(-8, -10, 16, 18);
+      ctx.fillStyle = '#262c34';   // dented head
+      ctx.fillRect(-5, -17, 10, 8);
+      const flick = Math.sin(t * 7 + pr.ty) > 0.7;
+      ctx.fillStyle = flick ? '#4affd4' : '#173a34';   // one eye still flickers
+      ctx.fillRect(-2.6, -14.5, 3, 2.4);
+      ctx.restore();
+      ctx.strokeStyle = '#454d5a'; ctx.lineWidth = 3; ctx.lineCap = 'round';   // limp arm
+      ctx.beginPath(); ctx.moveTo(x + 7, y - 6); ctx.quadraticCurveTo(x + 13, y, x + 12, y + 6); ctx.stroke();
+      ctx.fillStyle = '#5a6472';   // scattered parts
+      ctx.beginPath(); ctx.arc(x - 12, y + 4, 2.6, 0, 7); ctx.fill();
+      if (Math.random() < 0.015) G.parts.push({ x: x + rand(-4, 4), y: y - 14, vx: rand(-14, 14), vy: rand(-20, -6), r: 1.2, color: '#8adfff', life: 0.4, glow: true });
     }
   } else {
     if (pr.v === 0) {   /* hovering void shard */
