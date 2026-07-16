@@ -1407,7 +1407,15 @@ function recordBestiary(pd) {
 }
 
 const STASH_KEY = 'sanctuary_stash';
-const STASH_MAX = 48;
+const STASH_BASE = 48, STASH_LIMIT = 1000, SLOT_COST = 100;
+const STASH_SIZE_KEY = 'sanctuary_stash_size';
+function stashMax() {
+  try { return Math.min(STASH_LIMIT, parseInt(localStorage.getItem(STASH_SIZE_KEY)) || STASH_BASE); }
+  catch (e) { return STASH_BASE; }
+}
+function growStash() {
+  try { localStorage.setItem(STASH_SIZE_KEY, Math.min(STASH_LIMIT, stashMax() + 6)); } catch (e) { }
+}
 function loadStash() { try { return JSON.parse(localStorage.getItem(STASH_KEY)) || []; } catch (e) { return []; } }
 function saveStash(s) { try { localStorage.setItem(STASH_KEY, JSON.stringify(s)); } catch (e) { } }
 
@@ -7640,16 +7648,21 @@ function renderStable() {
 }
 
 function renderStash() {
-  const p = G.p, stash = loadStash();
+  const p = G.p, stash = loadStash(), sMax = stashMax();
   const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) + gradeBadge(it) : ''}</button>`;
-  let sg = ''; for (let i = 0; i < STASH_MAX; i++) sg += cell(stash[i], 'st', i);
-  let bg = ''; for (let i = 0; i < p.bagSlots; i++) bg += cell(p.inv[i], 'bg', i);
+  // show filled slots plus a row of empties — huge trunks stay fast
+  const shownSt = Math.min(sMax, Math.ceil((stash.length + 6) / 6) * 6);
+  const shownBg = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
+  let sg = ''; for (let i = 0; i < shownSt; i++) sg += cell(stash[i], 'st', i);
+  if (sMax > shownSt) sg += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${sMax - shownSt} more empty slots</div>`;
+  let bg = ''; for (let i = 0; i < shownBg; i++) bg += cell(p.inv[i], 'bg', i);
   $('stashPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">🧳 Trunk · ${stash.length}/${STASH_MAX}</div>
+    <div class="ptitle">🧳 Trunk · ${stash.length}/${sMax}</div>
     <div class="invactions">
-      <button class="smallbtn" data-all-in ${!p.inv.length || stash.length >= STASH_MAX ? 'disabled' : ''}>⬇ Stash whole bag</button>
+      <button class="smallbtn" data-all-in ${!p.inv.length || stash.length >= sMax ? 'disabled' : ''}>⬇ Stash whole bag</button>
       <button class="smallbtn" data-all-out ${!stash.length || p.inv.length >= p.bagSlots ? 'disabled' : ''}>⬆ Take everything</button>
+      ${sMax < STASH_LIMIT ? `<button class="smallbtn" data-trunk ${p.gold < SLOT_COST ? 'disabled' : ''}>🧳 +6 slots (${SLOT_COST}g)</button>` : ''}
     </div>
     <div class="invgrid">${sg}</div>
     <div class="ptitle" style="margin-top:12px">🎒 Your bag · ${p.inv.length}/${p.bagSlots}</div>
@@ -7665,20 +7678,28 @@ function renderStash() {
   }));
   $('stashPanel').querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => {
     const s2 = loadStash(), it = p.inv[+b.dataset.bg];
-    if (!it || s2.length >= STASH_MAX) return;
+    if (!it || s2.length >= stashMax()) return;
     p.inv.splice(+b.dataset.bg, 1);
     s2.push(it);
     saveStash(s2); recalc(); saveDirty = true; sfx.pickup(); renderStash();
   }));
   $('stashPanel').querySelector('[data-all-in]').addEventListener('click', () => {
     const s2 = loadStash();
-    while (p.inv.length && s2.length < STASH_MAX) s2.push(p.inv.shift());
+    while (p.inv.length && s2.length < stashMax()) s2.push(p.inv.shift());
     saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
   });
   $('stashPanel').querySelector('[data-all-out]').addEventListener('click', () => {
     const s2 = loadStash();
     while (s2.length && p.inv.length < p.bagSlots) p.inv.push(s2.shift());
     saveStash(s2); recalc(); saveDirty = true; sfx.gold(); renderStash();
+  });
+  const trunkBtn = $('stashPanel').querySelector('[data-trunk]');
+  if (trunkBtn) trunkBtn.addEventListener('click', () => {
+    if (p.gold < SLOT_COST || stashMax() >= STASH_LIMIT) return;
+    p.gold -= SLOT_COST;
+    growStash();
+    banner('Trunk expanded — ' + stashMax() + ' slots!');
+    sfx.level(); renderStash(); updateHUD(); saveDirty = true;
   });
 }
 
@@ -8016,7 +8037,7 @@ function renderChar() {
   $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
 }
 
-const BAG_COSTS = [500, 1500, 4000, 10000];   // 24 → 30 → 36 → 42 → 48 slots
+const BAG_MAX = 1000;   // 100g per +6 slots, all the way up
 const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
 // bulk-sellable: everything of the tier (gems included) except socketed
 // gem hosts, charms (their power is live from the bag) and quest sigils
@@ -8047,10 +8068,13 @@ function renderInv() {
     return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
-  for (let i = 0; i < p.bagSlots; i++) {
+  // show every filled slot plus a row of empties — huge bags stay fast
+  const shownBag = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
+  for (let i = 0; i < shownBag; i++) {
     const it = p.inv[i];
     grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}</button>`;
   }
+  if (p.bagSlots > shownBag) grid += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${p.bagSlots - shownBag} more empty slots</div>`;
   $('invPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🎒 Inventory · 🪙 ${p.gold}</div>
@@ -8061,8 +8085,8 @@ function renderInv() {
       <button class="smallbtn" data-gamble ${p.gold < gambleCost ? 'disabled' : ''}>🎲 Gamble (${gambleCost}g)</button>
       <button class="smallbtn" data-fuse ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Combine 3 of a kind into a finer one">⚗ Fuse${fusableGroups(p.inv).length ? ' (' + fusableGroups(p.inv).length + ')' : ''}</button>
       <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Apply every possible fusion, cascading up the ladder">⚡ Fuse all</button>
-      ${p.bagSlots < 48
-        ? `<button class="smallbtn" data-bag ${p.gold < BAG_COSTS[(p.bagSlots - 24) / 6] ? 'disabled' : ''}>🎒 +6 slots (${BAG_COSTS[(p.bagSlots - 24) / 6]}g)</button>`
+      ${p.bagSlots < BAG_MAX
+        ? `<button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button>`
         : ''}
     </div>
     <div class="invactions" style="margin-top:-4px">
@@ -8106,10 +8130,9 @@ function renderInv() {
   }));
   const bagBtn = $('invPanel').querySelector('[data-bag]');
   if (bagBtn) bagBtn.addEventListener('click', () => {
-    const cost = BAG_COSTS[(p.bagSlots - 24) / 6];
-    if (p.gold < cost || p.bagSlots >= 48) return;
-    p.gold -= cost;
-    p.bagSlots += 6;
+    if (p.gold < SLOT_COST || p.bagSlots >= BAG_MAX) return;
+    p.gold -= SLOT_COST;
+    p.bagSlots = Math.min(BAG_MAX, p.bagSlots + 6);
     banner('Bag expanded — ' + p.bagSlots + ' slots!');
     sfx.level(); renderInv(); updateHUD(); saveDirty = true;
   });

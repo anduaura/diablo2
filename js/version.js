@@ -3,16 +3,29 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.12.0';
+const SANCTUARY_VERSION = '1.13.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
   {
-    v: '1.12.0', date: '2026-07-16', title: 'Set grades, visible & fusable',
+    v: '1.13.0', date: '2026-07-16', title: 'Set grades, visible & fusable',
     notes: [
       'Set pieces join the fusion ladder: three copies of the same piece at the same grade forge the next grade, Fine through Celestial (socketed gems must come out first)',
       'Graded set items now show their grade at a glance — a colored ✦ star on the drop label and on bag, equipment and trunk slots',
+    ],
+  },
+  {
+    v: '1.12.0', date: '2026-07-16', title: 'Bottomless bags & trunks',
+    notes: [
+      'Bag and trunk can now grow all the way to 1,000 slots — a flat 100 gold per +6, every time',
+      'The trunk gains its own +6 slots button (upgrades are shared by all heroes, like the trunk itself)',
+    ],
+  },
+  {
+    v: '1.11.1', date: '2026-07-16', title: 'Roomier bags',
+    notes: [
+      'Bag upgrades are far cheaper: +6 slots now starts at just 100 gold (then 200, 400, 800 up to 48 slots)',
     ],
   },
   {
