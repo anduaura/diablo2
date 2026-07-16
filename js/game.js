@@ -856,8 +856,34 @@ function genLevel(dlvl, riftMode) {
 
   if (curse && curse.spd) for (const mm of monsters) mm.spd *= curse.spd;
 
+  // a secret vault sometimes hides behind a cracked wall: a 3x3 chamber
+  // carved into solid rock, sealed by one crumbling tile
+  let crack = null;
+  if (!riftMode) {
+    outer:
+    for (let tries = 0; tries < (Math.random() < 0.28 ? 30 : 0); tries++) {
+      const room = rooms[ri(1, rooms.length - 1)];
+      const dir = choice([[-1, 0], [1, 0], [0, -1], [0, 1]]);
+      const cx2 = dir[0] === 0 ? room.cx : (dir[0] < 0 ? room.x - 1 : room.x + room.w);
+      const cy2 = dir[1] === 0 ? room.cy : (dir[1] < 0 ? room.y - 1 : room.y + room.h);
+      const vx = cx2 + dir[0] * 2, vy = cy2 + dir[1] * 2;
+      if (vx < 3 || vx > MAP_W - 4 || vy < 3 || vy > MAP_H - 4) continue;
+      if (map[cy2][cx2] !== T_WALL) continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const tx2 = vx + dx, ty2 = vy + dy;
+        if (tx2 === cx2 && ty2 === cy2) continue;
+        if (map[ty2][tx2] !== T_WALL || propSet.has(ty2 * MAP_W + tx2)) continue outer;
+      }
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) map[vy + dy][vx + dx] = T_FLOOR;
+      chests.push({ x: vx * TILE + TILE / 2, y: vy * TILE + TILE / 2, opened: false, vault: true });
+      goldPiles.push({ x: (vx - dir[0]) * TILE + TILE / 2, y: (vy - dir[1]) * TILE + TILE / 2 });
+      crack = { tx: cx2, ty: cy2, open: false, t: 0 };
+      break;
+    }
+  }
+
   return {
-    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders, curse,
+    map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders, curse, crack,
     props, propSet, questNpc, satchel,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor || !!riftMode,
@@ -1318,6 +1344,40 @@ function makeItem(slot, ilvl, forceRarity) {
   }
   return it;
 }
+/* ---------------- realm relics ----------------
+   Each world hoards exactly one signature unique that drops only
+   there — a reason to return to every realm. mods: stat → [base, per-ilvl] */
+const RELICS = [
+  { name: 'Thornwing, the Verdant Edge', slot: 'weapon', mods: { poisonDmg: [5, 1.4], dmgPct: [10, 2.2], hp: [12, 2.5] } },
+  { name: 'Isafrost Diadem', slot: 'helm', mods: { coldDmg: [4, 1.3], armor: [8, 2], mp: [10, 2.2] } },
+  { name: 'Cindermaw Signet', slot: 'ring', mods: { fireDmg: [5, 1.4], dmgPct: [10, 2.2], str: [3, 0.6] } },
+  { name: 'Ossuary Plate', slot: 'armor', mods: { armor: [10, 2.4], hp: [14, 2.8], leech: [3, 0.15] } },
+  { name: 'Tide Pearl of the Abyss', slot: 'amulet', mods: { coldDmg: [4, 1.3], mp: [12, 2.4], mf: [12, 1.8] } },
+  { name: 'Myceliar Treads', slot: 'boots', mods: { poisonDmg: [4, 1.3], dex: [3, 0.7], hp: [10, 2.2] } },
+  { name: 'Simoom Windband', slot: 'ring', mods: { lightDmg: [5, 1.4], dex: [3, 0.7], mf: [10, 1.6] } },
+  { name: 'Prismatrix Shard', slot: 'amulet', mods: { lightDmg: [5, 1.4], ene: [3, 0.7], mf: [12, 1.8] } },
+  { name: 'Haemovore Carapace', slot: 'armor', mods: { leech: [4, 0.18], hp: [16, 3], str: [3, 0.7] } },
+  { name: 'Nullscale Crown', slot: 'helm', mods: { lightDmg: [4, 1.3], ene: [4, 0.8], mf: [14, 2] } },
+  { name: 'Zephyrax Talon', slot: 'weapon', mods: { lightDmg: [5, 1.5], dex: [4, 0.8], dmgPct: [12, 2.4] } },
+  { name: 'Omega Core', slot: 'ring', mods: { fireDmg: [5, 1.4], armor: [10, 2.2], dmgPct: [10, 2.2] } },
+];
+function makeRelic(w, ilvl) {
+  const rl = RELICS[w];
+  const it = {
+    slot: rl.slot, base: rl.name, name: rl.name,
+    icon: rl.slot === 'weapon' ? choice(WEAPON_ICONS[G.p.cls]) : SLOT_ICONS[rl.slot],
+    rarity: 'unique', lvl: ilvl, mods: {}, relic: w,
+  };
+  for (const k in rl.mods) {
+    let v = Math.max(1, Math.round(rl.mods[k][0] + rl.mods[k][1] * ilvl));
+    if (k === 'leech') v = Math.min(15, v);
+    it.mods[k] = v;
+  }
+  if (rl.slot === 'weapon') { it.dmg = [4 + ilvl * 2, 8 + ilvl * 3]; it.sockets = 1; it.gems = []; }
+  else if (rl.slot !== 'ring' && rl.slot !== 'amulet') { it.armor = 6 + ilvl * 3; it.sockets = 1; it.gems = []; }
+  return it;
+}
+
 const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200, set: 120, exotic: 320 }[it.rarity] + it.lvl * 6
   + (it.grade ? ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(it.grade) * 40 : 0));
 /* rough power score used by auto-equip to compare items */
@@ -1350,6 +1410,7 @@ function modLines(it) {
   }
   if (it.slot === 'charm') lines.push('Works from your bag');
   if (it.slot === 'sigil') { lines.push('It smells faintly of hay…'); lines.push('Use in town to open a strange portal'); }
+  if (it.relic !== undefined) lines.push('★ Relic of ' + WORLDS[it.relic].name + ' — found only there');
   return lines;
 }
 
@@ -1478,16 +1539,16 @@ function activateShrine(s) {
 
 function openChest(ch) {
   const ilvl = Math.max(1, G.dlvl + (G.ng || 0) * 8);
-  G.drops.push({ kind: 'gold', amt: Math.round(ri(20, 60) * (1 + G.dlvl * 0.3) * (1 + (G.ng || 0) * 0.6)), x: ch.x + rand(-18, 18), y: ch.y + 26 });
-  const n = ri(1, 2);
+  G.drops.push({ kind: 'gold', amt: Math.round(ri(20, 60) * (1 + G.dlvl * 0.3) * (1 + (G.ng || 0) * 0.6) * (ch.vault ? 1.8 : 1)), x: ch.x + rand(-18, 18), y: ch.y + 26 });
+  const n = ri(1, 2) + (ch.vault ? 1 : 0);   // vault chests hold a little more
   for (let i = 0; i < n; i++) {
-    G.drops.push({ kind: 'item', item: makeItem(choice(SLOTS), ilvl, Math.random() < 0.25 ? 'rare' : null), x: ch.x + rand(-24, 24), y: ch.y + rand(16, 32) });
+    G.drops.push({ kind: 'item', item: makeItem(choice(SLOTS), ilvl, Math.random() < (ch.vault ? 0.55 : 0.25) ? 'rare' : null), x: ch.x + rand(-24, 24), y: ch.y + rand(16, 32) });
   }
-  if (Math.random() < 0.3) G.drops.push({ kind: 'item', item: makeGem(ilvl), x: ch.x, y: ch.y + 36 });
+  if (Math.random() < (ch.vault ? 0.6 : 0.3)) G.drops.push({ kind: 'item', item: makeGem(ilvl), x: ch.x, y: ch.y + 36 });
   burst(ch.x, ch.y - 6, '#e8c14d', 14, 140);
   spark(ch.x, ch.y - 6, '#ffe9b0', 8, 160);
   sfx.gold();
-  banner('Treasure!');
+  banner(ch.vault ? '💎 Vault treasure!' : 'Treasure!');
 }
 
 /* ---------------- world wonders ----------------
@@ -1820,6 +1881,12 @@ function dropLoot(m) {
   if (Math.random() < (m.boss ? 0.35 : 0.04)) G.drops.push({ kind: 'item', item: makeCharm(Math.max(1, dlvl + ngb * 8)), ...scatter() });
   if (m.boss && m.type.id !== 'cowking' && Math.random() < 0.2)
     G.drops.push({ kind: 'item', item: makeSigil(dlvl), ...scatter() });
+  // realm relics: rare, and only from the world that hoards them
+  if (!G.rift && !G.cowLevel && dlvl > 0 && !m.type.flee) {
+    const rRelic = m.boss ? 0.08 : m.champ ? 0.012 : 0.0018;
+    if (Math.random() < rRelic)
+      G.drops.push({ kind: 'item', item: makeRelic(worldOf(dlvl), Math.max(1, dlvl + ngb * 8)), ...scatter() });
+  }
 }
 
 function hurtPlayer(dmg, mlvl) {
@@ -2579,6 +2646,26 @@ function update(dt) {
   }
   tryOpenChests(p.x, p.y, 40);
   updateWonders(dt);
+
+  // a cracked wall crumbles if you linger beside it
+  const ck = G.lvl.crack;
+  if (ck && !ck.open) {
+    const wx = ck.tx * TILE + TILE / 2, wy = ck.ty * TILE + TILE / 2;
+    if (dist(p.x, p.y, wx, wy) < 70) {
+      ck.t += dt;
+      if (Math.random() < dt * 7) burst(wx + rand(-14, 14), wy + rand(-8, 16), '#8a8078', 1, 60);
+      if (ck.t >= 0.8) {
+        ck.open = true;
+        G.lvl.map[ck.ty][ck.tx] = T_FLOOR;
+        burst(wx, wy, '#8a8078', 24, 180);
+        burst(wx, wy, '#3a3230', 12, 90);
+        shake(0.2);
+        banner('🕳 A hidden vault crumbles open!');
+        sfx.boss();
+        saveDirty = true;
+      }
+    } else ck.t = 0;
+  }
 
   // the lost quest satchel is picked up by walking over it
   const sq = G.lvl.satchel;
@@ -3944,6 +4031,27 @@ function render() {
     }
   }
 
+  /* the cracked wall hiding a vault */
+  const ck2 = G.lvl.crack;
+  if (ck2 && !ck2.open) {
+    const px2 = ck2.tx * TILE, py2 = ck2.ty * TILE;
+    ctx.strokeStyle = '#0a0806cc'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(px2 + 8, py2 + 4);
+    ctx.lineTo(px2 + 18, py2 + 16); ctx.lineTo(px2 + 12, py2 + 26); ctx.lineTo(px2 + 22, py2 + 40);
+    ctx.moveTo(px2 + 18, py2 + 16); ctx.lineTo(px2 + 30, py2 + 20); ctx.lineTo(px2 + 38, py2 + 12);
+    ctx.moveTo(px2 + 12, py2 + 26); ctx.lineTo(px2 + 27, py2 + 32);
+    ctx.stroke();
+    // a thread of treasure-light leaks through the widest seam
+    ctx.strokeStyle = hexA('#ffd76a', 0.3 + Math.max(0, Math.sin(G.time * 1.8)) * 0.35);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px2 + 18, py2 + 16); ctx.lineTo(px2 + 12, py2 + 26); ctx.stroke();
+    if (ck2.t > 0) {   // crumble progress
+      ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.arc(px2 + TILE / 2, py2 - 8, 8, -Math.PI / 2, -Math.PI / 2 + (ck2.t / 0.8) * Math.PI * 2); ctx.stroke();
+    }
+  }
+
   /* torches */
   for (const t of G.lvl.torches) {
     if (t.x < cam.x - VW / ZOOM || t.x > cam.x + VW / ZOOM || t.y < cam.y - VH / ZOOM || t.y > cam.y + VH / ZOOM) continue;
@@ -4339,6 +4447,7 @@ function drawLights() {
   }
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   for (const wo of G.lvl.wonders || []) if (!wo.used || wo.w === 2 || wo.on > 0) hole(wo.x, wo.y - 10, 75, 0.7);
+  if (G.lvl.crack && !G.lvl.crack.open) hole(G.lvl.crack.tx * TILE + TILE / 2, G.lvl.crack.ty * TILE + TILE / 2, 55, 0.4);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
   if (G.lvl.obelisk) hole(G.lvl.obelisk.x, G.lvl.obelisk.y - 16, 110, 0.9);
