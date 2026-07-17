@@ -788,11 +788,15 @@ const xpNext = lvl => Math.round(80 * Math.pow(lvl, 1.6));
    silhouette so the map edge can't be predicted — the old full square is
    just one rare shape among ovals, blobs, rings, bands, crosses and Ls */
 function pickFootprint() {
-  const cxm = MAP_W / 2 + ri(-5, 5), cym = MAP_H / 2 + ri(-5, 5);
+  const cxm = MAP_W / 2 + ri(-9, 9), cym = MAP_H / 2 + ri(-9, 9);
   const shape = choice(['ellipse', 'ellipse', 'blob', 'blob', 'band', 'ring', 'cross', 'corner', 'full']);
-  if (shape === 'ellipse') {
-    const rx = ri(17, 23), ry = ri(15, 23);
-    return (x, y) => ((x - cxm) / rx) ** 2 + ((y - cym) / ry) ** 2 <= 1;
+  if (shape === 'ellipse') {   // an oval at a random tilt, drifting off-center
+    const rx = ri(15, 23), ry = ri(13, 23), a0 = rand(0, Math.PI);
+    const ca = Math.cos(a0), sa = Math.sin(a0);
+    return (x, y) => {
+      const dx = x - cxm, dy = y - cym;
+      return ((dx * ca + dy * sa) / rx) ** 2 + ((dy * ca - dx * sa) / ry) ** 2 <= 1;
+    };
   }
   if (shape === 'blob') {   // 2–3 overlapping lobes, drifting off-center
     const lobes = [];
@@ -1105,6 +1109,7 @@ function genLevel(dlvl, riftMode) {
     locked: isBossFloor || !!riftMode,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
     exitTile: { x: exit.cx, y: exit.cy },
+    upTile: { x: r0.cx, y: r0.cy },
   };
 }
 
@@ -7563,27 +7568,45 @@ function drawVendor(v) {
 }
 
 function drawMinimap() {
-  const s = 124 * DPR / Math.max(MAP_W, MAP_H);
+  // a scrolling window centered on the hero, not a view of the whole grid —
+  // so the frame's edges say nothing about where the level begins or ends
+  const VIEW = 30;                        // tiles across the window
+  const S2 = 124 * DPR, s = S2 / VIEW;
+  const fx = G.p.x / TILE, fy = G.p.y / TILE;
+  const sx = tx => (tx - fx) * s + S2 / 2, sy = ty => (ty - fy) * s + S2 / 2;
   mmCtx.setTransform(1, 0, 0, 1, 0, 0);
   mmCtx.clearRect(0, 0, mmCvs.width, mmCvs.height);
-  for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
+  const x0 = Math.max(0, Math.floor(fx - VIEW / 2) - 1), x1 = Math.min(MAP_W - 1, Math.ceil(fx + VIEW / 2) + 1);
+  const y0 = Math.max(0, Math.floor(fy - VIEW / 2) - 1), y1 = Math.min(MAP_H - 1, Math.ceil(fy + VIEW / 2) + 1);
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     if (!G.lvl.seen[ty * MAP_W + tx]) continue;
     const t = G.lvl.map[ty][tx];
     if (t === T_WALL) continue;
     mmCtx.fillStyle = t === T_DOWN ? (G.lvl.locked ? '#c8281e' : '#ffd76a') : t === T_UP ? '#8fb3ff' : t === T_WP ? '#5ab0ff' : '#5a4a34';
-    mmCtx.fillRect(tx * s, ty * s, Math.max(1.5, s), Math.max(1.5, s));
+    mmCtx.fillRect(sx(tx), sy(ty), Math.max(1.5, s + 0.5), Math.max(1.5, s + 0.5));
   }
-  // player
+  // discovered landmarks outside the window cling to its edge as markers
+  const mark = (tx, ty, color) => {
+    if (!G.lvl.seen[ty * MAP_W + tx]) return;
+    const mx = sx(tx + 0.5), my = sy(ty + 0.5);
+    if (mx >= 0 && mx <= S2 && my >= 0 && my <= S2) return;   // in view: drawn as a tile
+    mmCtx.fillStyle = color;
+    mmCtx.fillRect(Math.max(2, Math.min(S2 - 5, mx)) - 1.5, Math.max(2, Math.min(S2 - 5, my)) - 1.5, 5, 5);
+  };
+  if (G.lvl.exitTile) mark(G.lvl.exitTile.x, G.lvl.exitTile.y, G.lvl.locked ? '#c8281e' : '#ffd76a');
+  if (G.lvl.upTile) mark(G.lvl.upTile.x, G.lvl.upTile.y, '#8fb3ff');
+  if (G.lvl.wp) mark(Math.floor(G.lvl.wp.x / TILE), Math.floor(G.lvl.wp.y / TILE), '#5ab0ff');
+  // player, centered
   mmCtx.fillStyle = '#fff';
-  mmCtx.fillRect(G.p.x / TILE * s - 2, G.p.y / TILE * s - 2, 4, 4);
+  mmCtx.fillRect(S2 / 2 - 2, S2 / 2 - 2, 4, 4);
   // aggroed monsters
   mmCtx.fillStyle = '#ff5a3a';
-  for (const m of G.lvl.monsters) if (m.hp > 0 && m.aggro) mmCtx.fillRect(m.x / TILE * s - 1.5, m.y / TILE * s - 1.5, 3, 3);
+  for (const m of G.lvl.monsters) if (m.hp > 0 && m.aggro) mmCtx.fillRect(sx(m.x / TILE) - 1.5, sy(m.y / TILE) - 1.5, 3, 3);
   // high-rarity loot pings
   for (const dr of G.drops) {
     if (dr.kind !== 'item' || dr.item.g || dr.item.rarity === 'common' || dr.item.rarity === 'magic') continue;
     mmCtx.fillStyle = rarityColor(dr.item.rarity);
-    mmCtx.fillRect(dr.x / TILE * s - 1.5, dr.y / TILE * s - 1.5, 3, 3);
+    mmCtx.fillRect(sx(dr.x / TILE) - 1.5, sy(dr.y / TILE) - 1.5, 3, 3);
   }
 }
 
