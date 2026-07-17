@@ -888,11 +888,27 @@ function genLevel(dlvl, riftMode) {
     }
   }
 
-  // entrance = room 0, exit = farthest room
+  // entrance = room 0; the way down goes to the room that takes the
+  // LONGEST WALK to reach. Straight-line distance lies on rings and
+  // canyons — a room two tiles away across a wall can be half the
+  // floor away on foot, and vice versa. BFS over the walkable grid
+  // measures the truth, so the end door is never found too easily.
   const r0 = rooms[0];
+  const walkDist = new Int32Array(MAP_W * MAP_H).fill(-1);
+  {
+    const q = [r0.cy * MAP_W + r0.cx];
+    walkDist[q[0]] = 0;
+    for (let qi = 0; qi < q.length; qi++) {
+      const cur = q[qi], cx3 = cur % MAP_W, cy3 = (cur / MAP_W) | 0, dd = walkDist[cur];
+      if (cx3 > 0 && walkDist[cur - 1] === -1 && map[cy3][cx3 - 1] !== T_WALL) { walkDist[cur - 1] = dd + 1; q.push(cur - 1); }
+      if (cx3 < MAP_W - 1 && walkDist[cur + 1] === -1 && map[cy3][cx3 + 1] !== T_WALL) { walkDist[cur + 1] = dd + 1; q.push(cur + 1); }
+      if (cy3 > 0 && walkDist[cur - MAP_W] === -1 && map[cy3 - 1][cx3] !== T_WALL) { walkDist[cur - MAP_W] = dd + 1; q.push(cur - MAP_W); }
+      if (cy3 < MAP_H - 1 && walkDist[cur + MAP_W] === -1 && map[cy3 + 1][cx3] !== T_WALL) { walkDist[cur + MAP_W] = dd + 1; q.push(cur + MAP_W); }
+    }
+  }
   let exit = rooms[1] || r0, best = -1;
   for (let i = 1; i < rooms.length; i++) {
-    const d = dist(r0.cx, r0.cy, rooms[i].cx, rooms[i].cy);
+    const d = walkDist[rooms[i].cy * MAP_W + rooms[i].cx];
     if (d > best) { best = d; exit = rooms[i]; }
   }
   map[r0.cy][r0.cx] = T_UP;
