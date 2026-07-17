@@ -1934,12 +1934,33 @@ function banner(txt) {
 /* ---------------- combat ---------------- */
 function playerAtk() { return Math.round(ri(G.d.dmgLo, G.d.dmgHi) * (G.p.rageT > 0 ? 1.6 : 1) * (G.buffDmg > 0 ? 1.4 : 1)); }
 
+/* deep-world monsters shrug off flat elemental damage — the one hero
+   damage channel no taper touches. World 0 barely notices; the void
+   resists up to 70%. */
+function eleResist(m) {
+  const d = m.dlvl || 0;
+  const eff = d > 0 ? worldOf(d) * 20 + worldFloor(d) : 0;
+  return Math.min(0.7, eff * 0.012);
+}
+
 function hitMonster(m, dmg, opts) {
   opts = opts || {};
   if (m.hp <= 0) return;
   const crit = !opts.noCrit && Math.random() < G.d.crit;
   if (crit) dmg = Math.round(dmg * 1.8);
   if (m.curseT > 0) dmg = Math.round(dmg * 1.5);
+  // boss aegis: however mighty the build, a boss loses at most ~5% of its
+  // life per second (after a 10% opening allowance) — capping damage per
+  // HIT fails against fast attacks, so the budget refills over time and
+  // every damage source draws from it. A boss fight is always a fight.
+  if (m.boss) {
+    const now = G.time;
+    if (m.aegisT === undefined) { m.aegis = m.maxHp * 0.10; m.aegisT = now; }
+    m.aegis = Math.min(m.maxHp * 0.10, m.aegis + (now - m.aegisT) * m.maxHp * 0.05);
+    m.aegisT = now;
+    dmg = Math.min(dmg, Math.max(1, Math.round(m.aegis)));
+    m.aegis = Math.max(0, m.aegis - dmg);
+  }
   dmg = Math.max(1, Math.round(dmg));
   m.hp -= dmg; m.hurtT = 0.15; m.hitT = 0; m.aggro = true;
   if (opts.stun) m.stunT = Math.max(m.stunT, opts.stun);
@@ -1953,11 +1974,13 @@ function hitMonster(m, dmg, opts) {
   if (crit) G.rings.push({ x: m.x, y: m.y - m.r * 0.5, r: 2, max: 16, color: '#ffd76a', life: 0.15 });
   sfx.hit();
   if (opts.ele) {   // weapon elemental procs (basic attacks & physical skills)
-    const d2 = G.d;
-    if (d2.fire > 0) { m.hp -= d2.fire; ftext(m.x + 9, m.y - m.r - 4, d2.fire, '#ff8a3a', 12); spark(m.x, m.y - m.r / 2, '#ff8a3a', 3, 130); }
-    if (d2.cold > 0) { m.hp -= d2.cold; m.slowT = Math.max(m.slowT, 1.3); ftext(m.x - 9, m.y - m.r - 4, d2.cold, '#7ac8ff', 12); spark(m.x, m.y - m.r / 2, '#bfe8ff', 3, 110); }
-    if (d2.light > 0) { m.hp -= d2.light; ftext(m.x, m.y - m.r - 20, d2.light, '#ffd23a', 12); spark(m.x, m.y - m.r / 2, '#ffd23a', 4, 220); }
-    if (d2.poison > 0) { m.poisonT = 3; m.poisonDps = d2.poison / 3; m.pTick = 0; }
+    const d2 = G.d, keep = 1 - eleResist(m);
+    const fire = Math.round(d2.fire * keep), cold = Math.round(d2.cold * keep),
+      light = Math.round(d2.light * keep), poison = Math.round(d2.poison * keep);
+    if (fire > 0) { m.hp -= fire; ftext(m.x + 9, m.y - m.r - 4, fire, '#ff8a3a', 12); spark(m.x, m.y - m.r / 2, '#ff8a3a', 3, 130); }
+    if (cold > 0) { m.hp -= cold; m.slowT = Math.max(m.slowT, 1.3); ftext(m.x - 9, m.y - m.r - 4, cold, '#7ac8ff', 12); spark(m.x, m.y - m.r / 2, '#bfe8ff', 3, 110); }
+    if (light > 0) { m.hp -= light; ftext(m.x, m.y - m.r - 20, light, '#ffd23a', 12); spark(m.x, m.y - m.r / 2, '#ffd23a', 4, 220); }
+    if (poison > 0) { m.poisonT = 3; m.poisonDps = poison / 3; m.pTick = 0; }
   }
   // leech heals at most a fifth of the pool per hit — steal sustains, it
   // no longer resurrects: one lucky swing can't undo a whole beating

@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.25.0';
+const SANCTUARY_VERSION = '1.26.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.26.0', date: '2026-07-17', title: 'The boss aegis',
+    notes: [
+      'Bosses can no longer be burst down: an aegis limits their life loss to ~5% per second (after a 10% opening strike), so every boss fight lasts long enough to be a fight — whatever your build',
+      'Deep-world monsters now resist flat elemental damage, up to 70% in the furthest realms — the first world barely notices',
+      'Ordinary monsters and champions are untouched: clearing trash keeps its rhythm',
+    ],
+  },
   {
     v: '1.25.0', date: '2026-07-17', title: 'Gold & purple sets',
     notes: [
