@@ -91,9 +91,23 @@ const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 25), WO
    and slaying it conquers the world and opens the next gate in town */
 const WORLD_START = w => w * 25 + 1;
 const worldFloor = dlvl => dlvl - 25 * worldOf(dlvl);   // 1..25 within the realm
-/* monster scaling depth: within-world floors count in full, but each
-   completed realm only adds 15 — keeps ten 25-floor worlds climbable */
-const effDepth = dlvl => dlvl <= 0 ? 0 : worldOf(dlvl) * 15 + worldFloor(dlvl);
+/* the one monster power curve, shared by every spawner. Later worlds count
+   for more (w*20) so foes keep pace with gear, damage climbs faster than it
+   used to, NG+ grows per world instead of a flat lap bonus — a second lap
+   hero carries a second lap of gear — and challenge heroes fight hardened
+   monsters everywhere, not just fancier ones. */
+const CH_MON = { hp: 1.25, dmg: 1.35 };
+function depthScales(dlvl) {
+  const w = worldOf(dlvl);
+  const eff = dlvl <= 0 ? 0 : w * 20 + worldFloor(dlvl);
+  const ngm = 1 + (G && G.ng || 0) * (0.8 + 0.25 * w);
+  const hard = G && G.p && G.p.challenge;
+  return {
+    hp: (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm * (hard ? CH_MON.hp : 1),
+    dmg: (1 + 0.3 * (eff - 1)) * ngm * (hard ? CH_MON.dmg : 1),
+    xp: (1 + 0.3 * (eff - 1)) * ngm,
+  };
+}
 const gateUnlocked = w => w === 0 || (G.conquered || []).includes(w - 1);
 /* re-derive conquests from depth: you must at least have reached a
    realm's 25th floor for its tyrant to be dead */
@@ -414,7 +428,7 @@ const AFFIXES = [
   { stat: 'mp', txt: v => `+${v} Mana`, roll: l => ri(4, 8 + l * 3) },
   { stat: 'dmgPct', txt: v => `+${v}% Damage`, roll: l => ri(5, 10 + l * 4) },
   { stat: 'armor', txt: v => `+${v} Armor`, roll: l => ri(3, 6 + l * 3) },
-  { stat: 'leech', txt: v => `${v}% Life Steal`, roll: l => ri(2, 3 + Math.floor(l / 3)) },
+  { stat: 'leech', txt: v => `${v}% Life Steal`, roll: l => ri(2, Math.min(10, 3 + Math.floor(l / 3))) },
   { stat: 'mf', txt: v => `+${v}% Magic Find`, roll: l => ri(5, 10 + l * 3) },
   { stat: 'fireDmg', txt: v => `+${v} Fire Damage`, roll: l => ri(2, 4 + l * 2) },
   { stat: 'coldDmg', txt: v => `+${v} Cold Damage & Chill`, roll: l => ri(2, 3 + l * 2) },
@@ -766,7 +780,7 @@ function derived(p) {
     dmgHi: Math.max(2, Math.round(wdmg[1] * mult)),
     armor: Math.round(warmor + m.armor + dex * 0.25),
     crit: Math.min(0.6, 0.05 + dex * 0.002 + 0.02 * passiveRank(p, 'precision')),
-    leech: m.leech / 100, mf: m.mf,
+    leech: Math.min(m.leech, 15) / 100, mf: m.mf,   // life steal caps at 15% total
     fire: Math.round(m.fireDmg * eleMult), cold: Math.round(m.coldDmg * eleMult),
     light: Math.round(m.lightDmg * eleMult), poison: Math.round(m.poisonDmg * eleMult),
     hpRegen: 1 + vit * 0.03,
@@ -979,11 +993,10 @@ function genLevel(dlvl, riftMode) {
   const isBossFloor = (wf % 5 === 0 && !riftMode) || isDragonFloor;   // mini-bosses every 5th
   const pool = MTYPES.filter(t => t.minL <= dlvl && (t.wOnly === undefined || t.wOnly === wIdx));
   const curse = (!riftMode && G && wf !== 25 && Math.random() < 0.13) ? choice(CURSES) : null;
-  const ngm = 1 + (G && G.ng || 0) * 0.8;   // New Game+ multiplier
-  const eff = effDepth(dlvl);
-  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm * (curse && curse.hp || 1);
-  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm * (curse && curse.dmg || 1);
-  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm * (curse && curse.xp || 1);
+  const sc = depthScales(dlvl);
+  const scaleHp = sc.hp * (curse && curse.hp || 1);
+  const scaleDmg = sc.dmg * (curse && curse.dmg || 1);
+  const scaleXp = sc.xp * (curse && curse.xp || 1);
   const wpick = () => {
     let tot = 0; for (const t of pool) tot += t.w;
     let r = Math.random() * tot;
@@ -1214,11 +1227,10 @@ function enterRift(tier) {
 }
 function spawnRiftGuardian() {
   const ex = G.lvl.exitTile;
+  const rsc = depthScales(G.dlvl);
   const guard = makeMonster(RIFT_GUARDIAN,
     ex.x * TILE + TILE / 2, ex.y * TILE - TILE,
-    (1 + 0.4 * (effDepth(G.dlvl) - 1) + 0.05 * (effDepth(G.dlvl) - 1) * (effDepth(G.dlvl) - 1)),
-    (1 + 0.22 * (effDepth(G.dlvl) - 1)),
-    (1 + 0.3 * (effDepth(G.dlvl) - 1)),
+    rsc.hp, rsc.dmg, rsc.xp,
     false, true, G.dlvl);
   guard.aggro = true;
   G.lvl.monsters.push(guard);
@@ -1280,11 +1292,7 @@ function genCowLevel(depth, golden) {
   const torches = [];
   for (let i = 0; i < 14; i++) torches.push({ x: ri(R.x + 1, R.x + R.w - 2) * TILE + TILE / 2, y: ri(R.y + 1, R.y + R.h - 2) * TILE + TILE * 0.9 });
   // the herd
-  const ngm = 1 + (G && G.ng || 0) * 0.8;
-  const eff = effDepth(depth);
-  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
-  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
-  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
+  const { hp: scaleHp, dmg: scaleDmg, xp: scaleXp } = depthScales(depth);
   const monsters = [];
   for (let i = 0; i < 52; i++) {
     let mx, my, tries = 0;
@@ -1346,11 +1354,7 @@ function genPetLair(spIdx, rarity, depth) {
   // the beast: harder with rarity grade and species tier
   const spd = PET_SPECIES[spIdx];
   const rIdx = PET_RARITIES.indexOf(rarity);
-  const ngm = 1 + (G && G.ng || 0) * 0.8;
-  const eff = effDepth(depth);
-  const scaleHp = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
-  const scaleDmg = (1 + 0.22 * (eff - 1)) * ngm;
-  const scaleXp = (1 + 0.3 * (eff - 1)) * ngm;
+  const { hp: scaleHp, dmg: scaleDmg, xp: scaleXp } = depthScales(depth);
   const tier = 1 + (spd.world || 0) * 0.06 + (spd.whelp ? 0.7 : 0);
   const ranged = spd.form === 'drake' || spd.form === 'dragon' || spd.form === 'wisp';
   const wt = {
@@ -1895,7 +1899,10 @@ function hitMonster(m, dmg, opts) {
     if (d2.light > 0) { m.hp -= d2.light; ftext(m.x, m.y - m.r - 20, d2.light, '#ffd23a', 12); spark(m.x, m.y - m.r / 2, '#ffd23a', 4, 220); }
     if (d2.poison > 0) { m.poisonT = 3; m.poisonDps = d2.poison / 3; m.pTick = 0; }
   }
-  if (!opts.noLeech && G.d.leech > 0) G.p.hp = Math.min(G.d.maxHp, G.p.hp + dmg * G.d.leech);
+  // leech heals at most a fifth of the pool per hit — steal sustains, it
+  // no longer resurrects: one lucky swing can't undo a whole beating
+  if (!opts.noLeech && G.d.leech > 0)
+    G.p.hp = Math.min(G.d.maxHp, G.p.hp + Math.min(dmg * G.d.leech, G.d.maxHp * 0.2));
   if (m.hp <= 0) killMonster(m);
 }
 
@@ -1938,9 +1945,7 @@ function activateShrine(s) {
       break;
     }
     case 'bandit': {   // a burst of gilded imps, scattering with the loot
-      const eff = effDepth(G.dlvl), ngm = 1 + (G.ng || 0) * 0.8;
-      const sh = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
-      const sxp = (1 + 0.3 * (eff - 1)) * ngm;
+      const { hp: sh, xp: sxp } = depthScales(G.dlvl);
       for (let k = 0; k < 4; k++) {
         const imp = makeMonster(TIMP_TYPE, s.x + rand(-46, 46), s.y + rand(-34, 34), sh, 1, sxp, false, false, G.dlvl);
         imp.aggro = true;
@@ -1981,9 +1986,8 @@ const WONDER_NAMES = ['Fae Ring', 'Frozen Adventurer', 'Lava Geyser', 'Restless 
   'Heart of the Garden', 'Void Tear', 'Zephyr Shrine', 'Dormant Turret'];
 
 function wonderAmbush(x, y, n) {
-  const dlvl = G.dlvl, eff = effDepth(dlvl), ngm = 1 + (G.ng || 0) * 0.8;
-  const sh = (1 + 0.4 * (eff - 1) + 0.05 * (eff - 1) * (eff - 1)) * ngm;
-  const sd = (1 + 0.22 * (eff - 1)) * ngm, sx = (1 + 0.3 * (eff - 1)) * ngm;
+  const dlvl = G.dlvl;
+  const { hp: sh, dmg: sd, xp: sx } = depthScales(dlvl);
   const pool = MTYPES.filter(t => t.minL <= dlvl && !t.flee && (t.wOnly === undefined || t.wOnly === worldOf(dlvl)));
   for (let k = 0; k < n; k++) {
     const mm = makeMonster(choice(pool), x + rand(-52, 52), y + rand(-40, 40), sh, sd, sx, false, false, dlvl);
@@ -8441,7 +8445,7 @@ function renderChar() {
     <div class="derived">
       Damage: <b>${d.dmgLo}–${d.dmgHi}</b> · Armor: <b>${d.armor}</b> · Crit: <b>${Math.round(d.crit * 100)}%</b><br>
       Life: <b>${Math.ceil(p.hp)}/${d.maxHp}</b> · Mana: <b>${Math.ceil(p.mp)}/${d.maxMp}</b><br>
-      Magic Find: <b>+${d.mf}%</b> · Life Steal: <b>${Math.round(d.leech * 100)}%</b><br>
+      Magic Find: <b>+${d.mf}%</b> · Life Steal: <b>${Math.round(d.leech * 100)}%${d.leech >= 0.15 ? ' (max)' : ''}</b><br>
       ${(d.fire + d.cold + d.light + d.poison) > 0
         ? 'Elemental: <b>' + [d.fire ? '🔥' + d.fire : '', d.cold ? '❄️' + d.cold : '', d.light ? '⚡' + d.light : '', d.poison ? '☠️' + d.poison : ''].filter(Boolean).join(' ') + '</b><br>'
         : ''}
@@ -8922,7 +8926,7 @@ $('chToggle').addEventListener('click', () => {
   const i = CHALLENGES.findIndex(c => c.id === challengeNext);
   const next = i + 1 < CHALLENGES.length ? CHALLENGES[i + 1] : null;   // …last one wraps to OFF
   challengeNext = next ? next.id : null;
-  $('chToggle').textContent = next ? `🏆 ${next.icon} ${next.name} — ${next.desc}` : '🏆 Challenge: OFF';
+  $('chToggle').textContent = next ? `🏆 ${next.icon} ${next.name} — ${next.desc} · all foes hardened (+25% life, +35% damage)` : '🏆 Challenge: OFF';
   $('chToggle').style.color = next ? '#e8d45a' : '';
 });
 
