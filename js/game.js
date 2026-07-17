@@ -426,7 +426,7 @@ const AFFIXES = [
   { stat: 'ene', txt: v => `+${v} Energy`, roll: l => ri(1, 2 + Math.floor(l * 0.8)) },
   { stat: 'hp', txt: v => `+${v} Life`, roll: l => ri(5, 10 + l * 4) },
   { stat: 'mp', txt: v => `+${v} Mana`, roll: l => ri(4, 8 + l * 3) },
-  { stat: 'dmgPct', txt: v => `+${v}% Damage`, roll: l => ri(5, 10 + l * 4) },
+  { stat: 'dmgPct', txt: v => `+${v}% Damage`, roll: l => ri(5, Math.min(120, 10 + l * 2)) },
   { stat: 'armor', txt: v => `+${v} Armor`, roll: l => ri(3, 6 + l * 3) },
   { stat: 'leech', txt: v => `${v}% Life Steal`, roll: l => ri(2, Math.min(10, 3 + Math.floor(l / 3))) },
   { stat: 'mf', txt: v => `+${v}% Magic Find`, roll: l => ri(5, 10 + l * 3) },
@@ -726,6 +726,17 @@ function newPlayer(clsId) {
   };
 }
 
+/* only the mightiest few charms whisper from the bag — a bottomless bag
+   is storage, not a stat stick. Highest tier wins, then level, then the
+   sum of its blessings. */
+const CHARM_LIMIT = 6;
+const charmScore = it => (it.ct || 0) * 1e6 + (it.lvl || 0) * 1e3 + Object.values(it.mods || {}).reduce((s, v) => s + v, 0);
+function activeCharms(p) {
+  return p.inv.filter(it => it.slot === 'charm')
+    .sort((a, b) => charmScore(b) - charmScore(a))
+    .slice(0, CHARM_LIMIT);
+}
+
 function derived(p) {
   const c = CLASSES[p.cls];
   const m = { str: 0, dex: 0, vit: 0, ene: 0, hp: 0, mp: 0, dmgPct: 0, armor: 0, leech: 0, mf: 0, fireDmg: 0, coldDmg: 0, lightDmg: 0, poisonDmg: 0 };
@@ -739,9 +750,8 @@ function derived(p) {
     const rw = runewordOf(it);
     if (rw) for (const k in rw.mods) m[k] = (m[k] || 0) + rw.mods[k];
   }
-  // charms grant their mods straight from the bag
-  for (const it of p.inv) {
-    if (it.slot !== 'charm') continue;
+  // charms grant their mods straight from the bag — the strongest six only
+  for (const it of activeCharms(p)) {
     for (const k in it.mods) m[k] = (m[k] || 0) + it.mods[k];
   }
   // active companion's aura buffs the hero
@@ -771,7 +781,13 @@ function derived(p) {
   const mpMult = 1 + 0.06 * (passiveRank(p, 'focus') + passiveRank(p, 'occult'));
   const eleMult = 1 + 0.08 * passiveRank(p, 'attune');
   const fleet = passiveRank(p, 'fleet');
-  const mult = (1 + prim * 0.012) * (1 + m.dmgPct / 100);
+  // primary stat and +dmg% both taper off — power keeps growing at the
+  // top end, it just stops going vertical
+  const primEff = prim <= 150 ? prim : 150 + (prim - 150) * 0.5;
+  const dp = m.dmgPct <= 250 ? m.dmgPct
+    : m.dmgPct <= 550 ? 250 + (m.dmgPct - 250) * 0.5
+      : 400 + (m.dmgPct - 550) * 0.25;
+  const mult = (1 + primEff * 0.012) * (1 + dp / 100);
   return {
     str, dex, vit, ene,
     maxHp: Math.round((40 + vit * 3.5 + p.level * 8 + m.hp) * hpMult),
@@ -1592,7 +1608,10 @@ const CHAMP_AFFIXES = {
   vampiric: { name: 'Vampiric', color: '#c8281e' },
 };
 function makeMonster(t, x, y, sh, sd, sx, champ, isBoss, dlvl) {
-  const hp = Math.round(t.hp * sh * (champ ? 2.2 : 1) * (isBoss ? 1 : 1));
+  // bosses bulk up with depth: hero damage grows superlinearly with gear,
+  // so a flat boss pool melts in a hit or two by the mid-game
+  const beff = dlvl > 0 ? worldOf(dlvl) * 20 + worldFloor(dlvl) : 0;
+  const hp = Math.round(t.hp * sh * (champ ? 2.2 : 1) * (isBoss ? 1 + beff / 40 : 1));
   const affix = champ ? choice(Object.keys(CHAMP_AFFIXES)) : null;
   const swift = G && G.p.challenge === 'swift' ? 1.25 : 1;   // Swift Death challenge
   return {
@@ -8512,13 +8531,19 @@ function renderInv() {
     return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
+  // beyond the strongest CHARM_LIMIT, charms sleep — mark them so
+  const actCh = new Set(activeCharms(p));
+  const nCharms = p.inv.filter(it => it.slot === 'charm').length;
   // show every filled slot plus a row of empties — huge bags stay fast
   const shownBag = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
   for (let i = 0; i < shownBag; i++) {
     const it = p.inv[i];
-    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}</button>`;
+    const dormant = it && it.slot === 'charm' && !actCh.has(it);
+    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}${dormant ? ' dormant' : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}${dormant ? '<span class="zz">💤</span>' : ''}</button>`;
   }
   if (p.bagSlots > shownBag) grid += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${p.bagSlots - shownBag} more empty slots</div>`;
+  const charmNote = nCharms > CHARM_LIMIT
+    ? `<div class="derived" style="text-align:center">only your ${CHARM_LIMIT} mightiest charms act — the rest 💤 sleep</div>` : '';
   $('invPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🎒 Inventory · 🪙 ${p.gold}</div>
@@ -8544,6 +8569,7 @@ function renderInv() {
       <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Fuse every 3-of-a-kind, cascading up the ladder">⚡ Fuse all</button>
     </div>
     <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms, sigils and eggs always stay.</div>
+    ${charmNote}
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
   $('invPanel').querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => {

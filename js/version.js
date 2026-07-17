@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.23.0';
+const SANCTUARY_VERSION = '1.24.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.24.0', date: '2026-07-17', title: 'Bosses fight back',
+    notes: [
+      'Only your 6 mightiest charms now act from the bag — the rest sleep (marked 💤); a bottomless bag is storage, not a stat stick',
+      'Primary stat and +damage% taper at the top end — power keeps growing, it just stops going vertical',
+      'Bosses bulk up with depth: mini-bosses, tyrants and guardians carry real health pools in the later worlds instead of melting in a hit or two',
+      'New +% damage affixes roll up to +120% instead of scaling forever',
+    ],
+  },
   {
     v: '1.23.0', date: '2026-07-17', title: 'Death rejoins the game',
     notes: [

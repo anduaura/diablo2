@@ -240,6 +240,12 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .shoprow .socks i { font-style:normal; }
 .islot.eq { aspect-ratio:auto; height:52px; font-size:24px; }
 .islot:active { transform:scale(.93); }
+/* charms beyond the active limit sleep in the bag */
+.islot.dormant { opacity:.45; }
+.islot .zz {
+  position:absolute; top:0; right:1px; font-size:11px; line-height:1;
+  pointer-events:none; opacity:1;
+}
 .islot.r-common { border-color:#5b5b5b; }
 .islot.r-magic  { border-color:#4a6adf; box-shadow:0 0 7px #4a6adf44; }
 .islot.r-rare   { border-color:#d9c65a; box-shadow:0 0 7px #d9c65a44; }
