@@ -1118,11 +1118,68 @@ function genLevel(dlvl, riftMode) {
     }
   }
 
+  // exit seal: on every ordinary floor the end door is locked behind a
+  // small puzzle — rune stones tapped in order, a crystal song to echo,
+  // linked levers to set upright, or a Key Warden to hunt down. Boss
+  // floors keep their guardian lock instead.
+  let puzzle = null;
+  if (!riftMode && G && !isBossFloor) {
+    const kind = ri(0, 3);
+    const prooms = rooms.filter(r => r !== r0 && r !== exit);
+    // a random open tile inside a room, in world px
+    const spot = room => {
+      for (let t = 0; t < 12; t++) {
+        const x = ri(room.x + 1, room.x + room.w - 2), y = ri(room.y + 1, room.y + room.h - 2);
+        if (map[y][x] === T_FLOOR && !propSet.has(y * MAP_W + x))
+          return { x: x * TILE + TILE / 2, y: y * TILE + TILE / 2 };
+      }
+      return null;
+    };
+    if (kind === 0 && prooms.length) {          // rune stones, tapped I → IV
+      const order = [1, 2, 3, 4];
+      for (let i = order.length - 1; i > 0; i--) { const j = ri(0, i); [order[i], order[j]] = [order[j], order[i]]; }
+      const stones = [];
+      for (let i = 0; i < 4; i++) {
+        const s = spot(prooms[(i * 2 + ri(0, 1)) % prooms.length]);
+        if (s) stones.push({ x: s.x, y: s.y, n: order[i], lit: false });
+      }
+      if (stones.length === 4) puzzle = { kind: 0, solved: false, stones, next: 1 };
+    } else if (kind === 1 && prooms.length) {   // singing crystals: echo the song
+      const s = spot(choice(prooms));
+      if (s) {
+        const len = 3 + Math.min(2, Math.floor(wIdx / 4));
+        const seq = []; for (let i = 0; i < len; i++) seq.push(ri(0, 3));
+        const crystals = [];
+        for (let i = 0; i < 4; i++) {
+          const a = Math.PI * (0.15 + i * 0.235);
+          crystals.push({ x: s.x + Math.cos(a) * 58, y: s.y + Math.sin(a) * 44 + 8, c: i });
+        }
+        puzzle = { kind: 1, solved: false, px: s.x, py: s.y - 2, crystals, seq, progress: 0, showing: false, showIdx: 0, t: 0, cd: 0, flash: -1, flashT: 0 };
+      }
+    } else if (kind === 2 && prooms.length) {   // ancient levers: linked toggles
+      const s = spot(choice(prooms));
+      if (s) {
+        const on = [true, true, true];
+        const flip = i => { for (let j = Math.max(0, i - 1); j <= Math.min(2, i + 1); j++) on[j] = !on[j]; };
+        while (on[0] && on[1] && on[2]) for (let k = 0; k < ri(1, 3); k++) flip(ri(0, 2));
+        puzzle = { kind: 2, solved: false, levers: on.map((v, i) => ({ x: s.x + (i - 1) * 46, y: s.y, on: v })) };
+      }
+    } else if (prooms.length) {                 // the Key Warden roams the floor
+      const room = choice(prooms);
+      const wm = makeMonster(wpick(), room.cx * TILE + 16, room.cy * TILE, scaleHp * 1.7, scaleDmg, scaleXp, true, false, dlvl);
+      wm.name = 'Key Warden';
+      wm.keyWarden = true;
+      monsters.push(wm);
+      puzzle = { kind: 3, solved: false, warden: wm };
+    }
+  }
+
   return {
     map, rooms, torches, monsters, boss, wp, shrines, chests, goldPiles, wonders, curse, crack,
-    props, propSet, questNpc, satchel,
+    props, propSet, questNpc, satchel, puzzle,
     seen: new Uint8Array(MAP_W * MAP_H),
     locked: isBossFloor || !!riftMode,
+    keyLock: !!puzzle,
     entrance: { x: r0.cx * TILE + TILE / 2, y: r0.cy * TILE + TILE / 2 + TILE * 0.7 },
     exitTile: { x: exit.cx, y: exit.cy },
     upTile: { x: r0.cx, y: r0.cy },
@@ -2113,6 +2170,199 @@ function updateWonders(dt) {
   }
 }
 
+/* ---------------- exit seals ----------------
+   Every ordinary floor locks its end door behind a small puzzle; solving
+   it forges the exit key. 0 rune stones · 1 singing crystals · 2 ancient
+   levers · 3 Key Warden (solved from killMonster). */
+const SEAL_HINTS = [
+  '🔒 Sealed — wake the four rune stones in order, I to IIII',
+  '🔒 Sealed — echo the singing crystals\' song',
+  '🔒 Sealed — set every ancient lever upright',
+  '🔒 Sealed — the Key Warden roams this floor with the key',
+];
+const CRYSTAL_COLORS = ['#ff6a5a', '#5ab0ff', '#7adf6a', '#e8c14d'];
+const CRYSTAL_NOTES = [392, 523, 659, 784];
+
+function solvePuzzle() {
+  const pz = G.lvl.puzzle;
+  if (!pz || pz.solved) return;
+  pz.solved = true;
+  G.lvl.keyLock = false;
+  const ex = G.lvl.exitTile;
+  if (ex) spark(ex.x * TILE + TILE / 2, ex.y * TILE + TILE / 2, '#ffd76a', 22, 240);
+  spark(G.p.x, G.p.y - 12, '#ffd76a', 18, 220);
+  G.rings.push({ x: G.p.x, y: G.p.y - 8, r: 8, max: 60, color: '#ffd76a', life: 0.4 });
+  banner('🗝 The exit seal shatters — the way down is open!');
+  sfx.level();
+}
+
+function updatePuzzle(dt) {
+  const pz = G.lvl.puzzle;
+  if (!pz || pz.solved || pz.kind !== 1) return;
+  pz.flashT = Math.max(0, pz.flashT - dt);
+  if (pz.showing) {
+    pz.t -= dt;
+    if (pz.t <= 0) {
+      if (pz.showIdx >= pz.seq.length) { pz.showing = false; pz.cd = 5; }
+      else {
+        pz.flash = pz.seq[pz.showIdx];
+        pz.flashT = 0.42;
+        blip(CRYSTAL_NOTES[pz.flash], 0.3, 'sine', 0.05, 0);
+        pz.showIdx++;
+        pz.t = 0.6;
+      }
+    }
+  } else {
+    // the pedestal sings its riddle whenever an untangled hero draws near
+    pz.cd = Math.max(0, pz.cd - dt);
+    if (pz.cd <= 0 && pz.progress === 0 && dist(G.p.x, G.p.y, pz.px, pz.py) < 300) {
+      pz.showing = true; pz.showIdx = 0; pz.t = 0.4;
+    }
+  }
+}
+
+/* a tap aimed at a puzzle piece: interact when close, walk over otherwise.
+   Returns true when the tap was claimed. */
+function puzzleTap(w) {
+  const pz = G.lvl.puzzle;
+  if (!pz || pz.solved) return false;
+  const p = G.p;
+  const go = (x, y) => { setMoveTarget(x, y + 30); return true; };
+  if (pz.kind === 0) {
+    for (const st of pz.stones) {
+      if (dist(w.x, w.y, st.x, st.y - 10) > 34) continue;
+      if (dist(p.x, p.y, st.x, st.y) > 95) return go(st.x, st.y);
+      if (st.lit) return true;
+      if (st.n === pz.next) {
+        st.lit = true; pz.next++;
+        spark(st.x, st.y - 14, '#6ae8e8', 12, 170);
+        blip(CRYSTAL_NOTES[st.n - 1], 0.25, 'sine', 0.05, 60);
+        if (pz.next > 4) solvePuzzle();
+      } else {
+        for (const s2 of pz.stones) s2.lit = false;
+        pz.next = 1;
+        G.rings.push({ x: st.x, y: st.y - 8, r: 5, max: 40, color: '#c8281e', life: 0.3 });
+        ftext(st.x, st.y - 34, 'the runes go dark…', '#ff8a7a', 12);
+        sfx.hurt();
+      }
+      return true;
+    }
+  } else if (pz.kind === 1) {
+    for (const c of pz.crystals) {
+      if (dist(w.x, w.y, c.x, c.y - 8) > 26) continue;
+      if (dist(p.x, p.y, c.x, c.y) > 95) return go(c.x, c.y);
+      if (pz.showing) { ftext(c.x, c.y - 30, 'listen…', '#c9b98a', 11); return true; }
+      pz.flash = c.c; pz.flashT = 0.3;
+      blip(CRYSTAL_NOTES[c.c], 0.25, 'sine', 0.05, 0);
+      if (c.c === pz.seq[pz.progress]) {
+        pz.progress++;
+        spark(c.x, c.y - 10, CRYSTAL_COLORS[c.c], 8, 140);
+        if (pz.progress >= pz.seq.length) solvePuzzle();
+      } else {
+        pz.progress = 0; pz.cd = 1.2;
+        ftext(c.x, c.y - 30, 'wrong note — listen again', '#ff8a7a', 12);
+        sfx.hurt();
+      }
+      return true;
+    }
+    if (dist(w.x, w.y, pz.px, pz.py - 12) < 30) {   // tap the pedestal to replay
+      if (dist(p.x, p.y, pz.px, pz.py) > 95) return go(pz.px, pz.py);
+      if (!pz.showing && pz.progress === 0) { pz.showing = true; pz.showIdx = 0; pz.t = 0.3; }
+      return true;
+    }
+  } else if (pz.kind === 2) {
+    for (let i = 0; i < pz.levers.length; i++) {
+      const lv = pz.levers[i];
+      if (dist(w.x, w.y, lv.x, lv.y - 8) > 24) continue;
+      if (dist(p.x, p.y, lv.x, lv.y) > 95) return go(lv.x, lv.y);
+      for (let j = Math.max(0, i - 1); j <= Math.min(pz.levers.length - 1, i + 1); j++)
+        pz.levers[j].on = !pz.levers[j].on;
+      blip(220, 0.1, 'square', 0.05, -80);
+      spark(lv.x, lv.y - 10, '#c9b98a', 6, 120);
+      if (pz.levers.every(l2 => l2.on)) solvePuzzle();
+      return true;
+    }
+  }
+  return false;
+}
+
+function drawPuzzle() {
+  const pz = G.lvl.puzzle;
+  if (!pz) return;
+  const pulse = 0.6 + Math.sin(G.time * 3) * 0.25;
+  if (pz.kind === 0) {
+    for (const st of pz.stones) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(st.x, st.y + 4, 13, 5, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = st.lit ? '#4a6a6e' : '#4e4a44';
+      ctx.beginPath();
+      ctx.moveTo(st.x - 10, st.y + 4); ctx.lineTo(st.x - 7, st.y - 24);
+      ctx.quadraticCurveTo(st.x, st.y - 30, st.x + 7, st.y - 24);
+      ctx.lineTo(st.x + 10, st.y + 4); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.5; ctx.stroke();
+      // the pips are the guide: I to IIII
+      ctx.fillStyle = st.lit || pz.solved ? '#6ae8e8' : '#8a8078';
+      for (let k = 0; k < st.n; k++)
+        ctx.fillRect(st.x - (st.n - 1) * 3 + k * 6 - 1.25, st.y - 16, 2.5, 7);
+      if (st.lit && !pz.solved) {
+        ctx.fillStyle = `rgba(106,232,232,${0.18 * pulse})`;
+        ctx.beginPath(); ctx.arc(st.x, st.y - 12, 20, 0, 7); ctx.fill();
+      }
+    }
+  } else if (pz.kind === 1) {
+    // pedestal
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(pz.px, pz.py + 4, 12, 5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#565048';
+    ctx.fillRect(pz.px - 6, pz.py - 18, 12, 22);
+    ctx.fillRect(pz.px - 9, pz.py - 22, 18, 5);
+    ctx.fillRect(pz.px - 9, pz.py + 1, 18, 4);
+    const gemY = pz.py - 30 + Math.sin(G.time * 2.2) * 2;
+    ctx.fillStyle = pz.solved ? '#6a625a' : '#e8e2ff';
+    ctx.save(); ctx.translate(pz.px, gemY); ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-4, -4, 8, 8); ctx.restore();
+    // the four singing crystals
+    for (const c of pz.crystals) {
+      const hot = pz.flash === c.c && pz.flashT > 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(c.x, c.y + 3, 9, 4, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = pz.solved ? '#6a625a' : CRYSTAL_COLORS[c.c];
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y - 26 - (hot ? 4 : 0));
+      ctx.lineTo(c.x + 7, c.y - 8); ctx.lineTo(c.x + 4, c.y + 2);
+      ctx.lineTo(c.x - 4, c.y + 2); ctx.lineTo(c.x - 7, c.y - 8);
+      ctx.closePath(); ctx.fill();
+      if (hot) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+      else { ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.2; ctx.stroke(); }
+    }
+  } else if (pz.kind === 2) {
+    for (const lv of pz.levers) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(lv.x, lv.y + 3, 10, 4, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#565048';
+      ctx.fillRect(lv.x - 8, lv.y - 6, 16, 9);
+      ctx.strokeStyle = lv.on ? '#e8c14d' : '#7a7268';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(lv.x, lv.y - 4);
+      if (lv.on) ctx.lineTo(lv.x, lv.y - 24);
+      else ctx.lineTo(lv.x - 13, lv.y - 18);
+      ctx.stroke();
+      ctx.fillStyle = lv.on ? '#ffd76a' : '#8a8078';
+      ctx.beginPath(); ctx.arc(lv.on ? lv.x : lv.x - 13, lv.on ? lv.y - 24 : lv.y - 18, 4, 0, 7); ctx.fill();
+    }
+  } else if (pz.kind === 3 && pz.warden && pz.warden.hp > 0) {
+    // a golden key bobs over the warden's head
+    const m = pz.warden;
+    const ky = m.y - m.r * 2 - 22 + Math.sin(G.time * 3) * 3;
+    ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(m.x, ky - 4, 4, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m.x, ky); ctx.lineTo(m.x, ky + 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m.x, ky + 9); ctx.lineTo(m.x + 4, ky + 9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m.x, ky + 5); ctx.lineTo(m.x + 3, ky + 5); ctx.stroke();
+  }
+}
+
 function killMonster(m) {
   if (m.wild) {   // subdued, not slain: the wild beast yields and is tamed
     const p2 = G.p, data = m.wild.data;
@@ -2184,6 +2434,7 @@ function killMonster(m) {
       if (!G.rift.guardian && G.rift.kills >= G.rift.need) spawnRiftGuardian();
     }
   }
+  if (m.keyWarden) solvePuzzle();
   if (m.boss) {
     G.lvl.locked = false;
     banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
@@ -2937,6 +3188,13 @@ function enterLevel(dlvl, fresh, fromBelow) {
       : wf % 5 === 0 ? tierName + ' — ' + wf + '/25  ⚠ a great evil stirs…'
         : tierName + ' — Floor ' + wf + '/25');
     if (wf % 5 === 0) sfx.boss(); else sfx.stairs();
+    if (G.lvl.puzzle && !G.sealHint) {   // teach the exit seal once per session
+      G.sealHint = true;
+      const cur2 = G.lvl;
+      setTimeout(() => {
+        if (G && G.lvl === cur2 && cur2.keyLock) banner('🔒 The end door is sealed — a riddle on this floor holds the key');
+      }, 2400);
+    }
     if (G.lvl.curse) {   // announce the curse once the floor banner clears
       $('floorLabel').textContent += ' · ☠' + G.lvl.curse.name;
       const cur = G.lvl;
@@ -3093,6 +3351,7 @@ function update(dt) {
   }
   tryOpenChests(p.x, p.y, 40);
   updateWonders(dt);
+  updatePuzzle(dt);
 
   // a cracked wall crumbles if you linger beside it
   const ck = G.lvl.crack;
@@ -4502,7 +4761,7 @@ function render() {
         ctx.fillStyle = '#6a5a3a';
         for (let s = 0; s < 3; s++) ctx.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
       }
-      if (t === T_DOWN && !bossGate) drawExit(px, py, G.lvl.locked, wrld);
+      if (t === T_DOWN && !bossGate) drawExit(px, py, G.lvl.locked || G.lvl.keyLock, wrld);
     }
   }
 
@@ -4628,6 +4887,7 @@ function render() {
   for (const s of G.lvl.shrines || []) drawShrine(s);
   for (const wo of G.lvl.wonders || []) drawWonder(wo);
   for (const ch of G.lvl.chests || []) drawChest(ch);
+  drawPuzzle();
 
   /* world gates: the town's row of realm doors + the boss floor's exit */
   if (G.lvl.gates) for (const gt of G.lvl.gates) drawWorldGate(gt.x, gt.y, gt.w, gateUnlocked(gt.w), 1, true);
@@ -4937,6 +5197,12 @@ function drawLights() {
   }
   for (const s of G.lvl.shrines || []) if (!s.used) hole(s.x, s.y - 14, 85, 0.8);
   for (const wo of G.lvl.wonders || []) if (!wo.used || wo.w === 2 || wo.on > 0) hole(wo.x, wo.y - 10, 75, 0.7);
+  const pzl = G.lvl.puzzle;
+  if (pzl && !pzl.solved) {
+    if (pzl.kind === 0) for (const st of pzl.stones) hole(st.x, st.y - 12, 70, 0.7);
+    else if (pzl.kind === 1) hole(pzl.px, pzl.py - 10, 110, 0.8);
+    else if (pzl.kind === 2) hole(pzl.levers[1].x, pzl.levers[1].y - 8, 95, 0.75);
+  }
   if (G.lvl.crack && !G.lvl.crack.open) hole(G.lvl.crack.tx * TILE + TILE / 2, G.lvl.crack.ty * TILE + TILE / 2, 55, 0.4);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
   if (G.lvl.stash) hole(G.lvl.stash.x, G.lvl.stash.y, 100, 0.85);
@@ -7598,7 +7864,7 @@ function drawMinimap() {
     if (!G.lvl.seen[ty * MAP_W + tx]) continue;
     const t = G.lvl.map[ty][tx];
     if (t === T_WALL) continue;
-    mmCtx.fillStyle = t === T_DOWN ? (G.lvl.locked ? '#c8281e' : '#ffd76a') : t === T_UP ? '#8fb3ff' : t === T_WP ? '#5ab0ff' : '#5a4a34';
+    mmCtx.fillStyle = t === T_DOWN ? (G.lvl.locked || G.lvl.keyLock ? '#c8281e' : '#ffd76a') : t === T_UP ? '#8fb3ff' : t === T_WP ? '#5ab0ff' : '#5a4a34';
     mmCtx.fillRect(sx(tx), sy(ty), Math.max(1.5, s + 0.5), Math.max(1.5, s + 0.5));
   }
   // discovered landmarks outside the window cling to its edge as markers
@@ -7609,9 +7875,21 @@ function drawMinimap() {
     mmCtx.fillStyle = color;
     mmCtx.fillRect(Math.max(2, Math.min(S2 - 5, mx)) - 1.5, Math.max(2, Math.min(S2 - 5, my)) - 1.5, 5, 5);
   };
-  if (G.lvl.exitTile) mark(G.lvl.exitTile.x, G.lvl.exitTile.y, G.lvl.locked ? '#c8281e' : '#ffd76a');
+  if (G.lvl.exitTile) mark(G.lvl.exitTile.x, G.lvl.exitTile.y, G.lvl.locked || G.lvl.keyLock ? '#c8281e' : '#ffd76a');
   if (G.lvl.upTile) mark(G.lvl.upTile.x, G.lvl.upTile.y, '#8fb3ff');
   if (G.lvl.wp) mark(Math.floor(G.lvl.wp.x / TILE), Math.floor(G.lvl.wp.y / TILE), '#5ab0ff');
+  // discovered exit-seal pieces glow cyan so a found puzzle is never lost again
+  const pzm = G.lvl.puzzle;
+  if (pzm && !pzm.solved) {
+    const spots = pzm.kind === 0 ? pzm.stones : pzm.kind === 1 ? [{ x: pzm.px, y: pzm.py }] : pzm.kind === 2 ? [pzm.levers[1]] : [];
+    for (const sp2 of spots) {
+      const tx3 = Math.floor(sp2.x / TILE), ty3 = Math.floor(sp2.y / TILE);
+      if (!G.lvl.seen[ty3 * MAP_W + tx3]) continue;
+      mmCtx.fillStyle = '#6ae8e8';
+      const mx3 = sx(tx3 + 0.5), my3 = sy(ty3 + 0.5);
+      mmCtx.fillRect(Math.max(2, Math.min(S2 - 5, mx3)) - 1.5, Math.max(2, Math.min(S2 - 5, my3)) - 1.5, 4, 4);
+    }
+  }
   // player, centered
   mmCtx.fillStyle = '#fff';
   mmCtx.fillRect(S2 / 2 - 2, S2 / 2 - 2, 4, 4);
@@ -8740,6 +9018,8 @@ cvs.addEventListener('pointerup', e => {
       return;
     }
   }
+  // an exit-seal puzzle piece?
+  if (puzzleTap(w)) return;
   // a door? stairs answer only to a tap — never to walking over them
   {
     const tx2 = Math.floor(w.x / TILE), ty2 = Math.floor(w.y / TILE);
@@ -8750,6 +9030,9 @@ cvs.addEventListener('pointerup', e => {
       if (dist(p.x, p.y, cx2, cy2) < 95) {
         if (t2 === T_DOWN && G.lvl.locked) {
           banner('The door is sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!');
+          sfx.hurt();
+        } else if (t2 === T_DOWN && G.lvl.keyLock && G.lvl.puzzle) {
+          banner(SEAL_HINTS[G.lvl.puzzle.kind]);
           sfx.hurt();
         } else if (G.petLair && G.lvl.monsters.some(mm => mm.wild && mm.hp > 0)) {
           // the egg is spent — leaving an unbeaten lair forfeits the beast

@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.21.0';
+const SANCTUARY_VERSION = '1.22.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.22.0', date: '2026-07-17', title: 'Exit seals',
+    notes: [
+      'Every ordinary floor now locks its end door behind a small puzzle — solve it to forge the exit key',
+      'Four seals to meet: wake the rune stones in pip order, echo the singing crystals\' song, set the linked ancient levers upright, or hunt down the gold-marked Key Warden',
+      'Discovered puzzle pieces glow cyan on the minimap; the door and its map marker burn red until the seal breaks',
+      'Boss floors are untouched — their guardian is the lock, as ever',
+    ],
+  },
   {
     v: '1.21.0', date: '2026-07-17', title: 'No beast left behind by accident',
     notes: [

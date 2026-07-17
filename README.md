@@ -76,6 +76,10 @@ python3 -m http.server 8000
   only there, from Thornwing's Verdant Edge to the Omega Core
 - **Secret vaults** — some floors hide a treasure chamber behind a
   cracked, faintly glowing wall; linger beside it and it crumbles open
+- **Exit seals** — every ordinary floor locks its end door behind a
+  small puzzle: wake four rune stones in pip order, echo the singing
+  crystals' song, set three linked levers upright, or hunt the
+  gold-marked Key Warden; solve it to forge the exit key
 - **Wild beasts** — pets prowl their home realms (hounds in the meadow,
   wolves in the tundra, drakes in the caldera, dragons in the highest
   realms); subdue one in battle and it joins your stable, rarity and
