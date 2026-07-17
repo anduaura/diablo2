@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.18.0';
+const SANCTUARY_VERSION = '1.19.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.19.0', date: '2026-07-17', title: 'A minimap that keeps secrets',
+    notes: [
+      'The minimap is now a scrolling window around your hero instead of a view of the whole level — its frame no longer betrays where the map ends or which way is left to explore',
+      'Landmarks you\'ve already found (stairs, waypoints) cling to the window\'s edge as colored markers so you can still navigate back',
+      'Level footprints drift further off-center and ovals roll at random tilts — even less square, even less predictable',
+    ],
+  },
   {
     v: '1.18.0', date: '2026-07-16', title: 'A tidier bag & livelier pets',
     notes: [
