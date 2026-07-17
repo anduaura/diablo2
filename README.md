@@ -99,8 +99,8 @@ python3 -m http.server 8000
   at a flat 100 gold per +6 slots
 - **Diablo-style loot** — common/magic/rare/set/unique/exotic items with
   random affixes, 6 equipment slots, sockets & gems, runewords, charms
-  that work from your bag, gambling, potions, gold — and rare drops land
-  with a chime and a beam of light
+  (your six mightiest work from your bag), gambling, potions, gold —
+  and rare drops land with a chime and a beam of light
 - **Timed rifts** — a town obelisk opens single-floor challenges: summon
   and slay the Rift Guardian before the clock dies to unlock higher tiers
 - **A mercenary** — hire a man-at-arms, hand him weapons & armor, revive
