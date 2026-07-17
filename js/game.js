@@ -63,11 +63,11 @@ const DRAGONS = [
    `dark`/`veil` set the ambient light — open-air realms bathe in daylight
    while the true underworlds keep their torch-lit gloom. */
 const WORLDS = [
-  { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a', stage: 'Field', verb: 'Press on', dark: 0.3, veil: '14,22,10',
+  { name: 'Verdant Fields', open: 1, deco: 'flowers', flame: '#ffb03a', stage: 'Field', verb: 'Press on', dark: 0.3, veil: '14,22,10',
     pal: { f: ['#3d5a2e', '#446234', '#37522a'], w: '#4c5a3e', wt: '#66755a', m: '#242e1a', acc: '#d8b84a' } },
-  { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff', stage: 'Expanse', verb: 'Push on', dark: 0.3, veil: '22,32,42',
+  { name: 'Frozen Tundra', open: 1, deco: 'snow', flame: '#9adcff', stage: 'Expanse', verb: 'Push on', dark: 0.3, veil: '22,32,42',
     pal: { f: ['#aebdca', '#b6c5d2', '#a6b5c2'], w: '#6f9cc0', wt: '#b8d8ee', m: '#2f5a78', acc: '#bfe8ff' } },
-  { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a', stage: 'Ridge', verb: 'Cross', dark: 0.58, veil: '36,10,4',
+  { name: 'Molten Caldera', open: 1.6, deco: 'lava', flame: '#ff6a2a', stage: 'Ridge', verb: 'Cross', dark: 0.58, veil: '36,10,4',
     pal: { f: ['#2c2422', '#302826', '#282020'], w: '#221a18', wt: '#322624', m: '#100a08', acc: '#ff6a2a' } },
   { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a', stage: 'Plain', verb: 'Wander on', dark: 0.74, veil: '8,10,6',
     pal: { f: ['#38323e', '#3c3642', '#342e3a'], w: '#2a2430', wt: '#38323e', m: '#120e16', acc: '#9adc8a' } },
@@ -75,15 +75,15 @@ const WORLDS = [
     pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
   { name: 'Fungal Depths', deco: 'spores', flame: '#6adfb8', stage: 'Cavern', verb: 'Burrow down', dark: 0.8, veil: '4,10,8',
     pal: { f: ['#243430', '#283a34', '#20302c'], w: '#1a2824', wt: '#28403a', m: '#0c1512', acc: '#6adfb8' } },
-  { name: 'Screaming Sands', deco: 'sand', flame: '#ffcf6a', stage: 'Dune', verb: 'March on', dark: 0.32, veil: '44,32,12',
+  { name: 'Screaming Sands', open: 1, deco: 'sand', flame: '#ffcf6a', stage: 'Dune', verb: 'March on', dark: 0.32, veil: '44,32,12',
     pal: { f: ['#5a4c30', '#625434', '#52442c'], w: '#44381e', wt: '#5a4c2a', m: '#241c0e', acc: '#e8c05a' } },
   { name: 'Crystal Hollows', deco: 'crystal', flame: '#c28aff', stage: 'Hollow', verb: 'Delve', dark: 0.76, veil: '10,4,18',
     pal: { f: ['#2e2440', '#332948', '#2a203a'], w: '#241c34', wt: '#342a48', m: '#100c1a', acc: '#c28aff' } },
-  { name: 'The Blood Gardens', deco: 'veins', flame: '#ff5a6a', stage: 'Garden', verb: 'Prowl on', dark: 0.58, veil: '22,4,8',
+  { name: 'The Blood Gardens', open: 1.5, deco: 'veins', flame: '#ff5a6a', stage: 'Garden', verb: 'Prowl on', dark: 0.58, veil: '22,4,8',
     pal: { f: ['#3c1e22', '#422226', '#361a1e'], w: '#2c1418', wt: '#3e2026', m: '#160a0c', acc: '#ff5a6a' } },
   { name: 'Nullvoid', deco: 'void', flame: '#8a9aff', stage: 'Rift', verb: 'Drift on', dark: 0.86, veil: '3,2,10',
     pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
-  { name: 'Skyreach Isles', deco: 'sky', flame: '#ffd76a', stage: 'Isle', verb: 'Leap', dark: 0.16, veil: '26,34,52',
+  { name: 'Skyreach Isles', open: 0.6, deco: 'sky', flame: '#ffd76a', stage: 'Isle', verb: 'Leap', dark: 0.16, veil: '26,34,52',
     pal: { f: ['#a8c2d8', '#b0cade', '#9fbad2'], w: '#dde4ee', wt: '#f6f9fd', m: '#8a94ac', acc: '#ffd76a' } },
   { name: 'The Chrome Bastion', deco: 'tech', flame: '#4affd4', stage: 'Sector', verb: 'Breach', dark: 0.56, veil: '4,10,14',
     pal: { f: ['#232830', '#282d36', '#1e232b'], w: '#343b46', wt: '#4a525e', m: '#12151a', acc: '#4affd4' } },
@@ -958,6 +958,28 @@ function genLevel(dlvl, riftMode) {
     }
   }
 
+  // open-air realms are TERRAIN, not architecture: the whole footprint
+  // becomes rolling open ground (its edge is the horizon — isle rim,
+  // forest line, dune crest) and scattered outcrop clusters give cover
+  // and shape natural paths. Rooms live on as invisible points of
+  // interest that anchor stairs, spawns, quests and puzzles.
+  const wIdx = worldOf(dlvl);
+  const openAir = WORLDS[wIdx].open;
+  if (openAir) {
+    for (let y = 2; y < MAP_H - 2; y++) for (let x = 2; x < MAP_W - 2; x++)
+      if (map[y][x] === T_WALL && inMask(x, y)) map[y][x] = T_FLOOR;
+    const nearPoi = (x, y) => rooms.some(r => Math.abs(x - r.cx) <= 2 && Math.abs(y - r.cy) <= 2);
+    const blobs = Math.round(ri(18, 28) * openAir);
+    for (let b = 0; b < blobs; b++) {
+      let bx = ri(3, MAP_W - 4), by = ri(3, MAP_H - 4);
+      for (let k = ri(2, 7); k > 0; k--) {
+        if (inMask(bx, by) && map[by][bx] === T_FLOOR && !nearPoi(bx, by)) map[by][bx] = T_WALL;
+        bx = clamp(bx + ri(-1, 1), 3, MAP_W - 4);
+        by = clamp(by + ri(-1, 1), 3, MAP_H - 4);
+      }
+    }
+  }
+
   // entrance = room 0; the way down goes to the room that takes the
   // LONGEST WALK to reach. Straight-line distance lies on rings and
   // canyons — a room two tiles away across a wall can be half the
@@ -1001,7 +1023,6 @@ function genLevel(dlvl, riftMode) {
   // neighbours are all open floor qualify, so a prop can never choke a
   // corridor or wall in the stairs.
   const props = [];
-  const wIdx = worldOf(dlvl);
   for (const room of rooms) {
     if (room === r0) continue;   // keep the arrival room clear
     const n = Math.random() < 0.7 ? ri(1, 2) : 0;
@@ -1038,7 +1059,7 @@ function genLevel(dlvl, riftMode) {
   // torches on walls adjacent to floor
   const torches = [];
   for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
-    if (map[y][x] === T_WALL && map[y + 1][x] >= T_FLOOR && !propSet.has(y * MAP_W + x) && thash(x, y) < 0.09)
+    if (map[y][x] === T_WALL && map[y + 1][x] >= T_FLOOR && !propSet.has(y * MAP_W + x) && thash(x, y) < (openAir ? 0.025 : 0.09))
       torches.push({ x: x * TILE + TILE / 2, y: y * TILE + TILE * 0.9 });
   }
 

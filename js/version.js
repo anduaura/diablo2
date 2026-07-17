@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.27.0';
+const SANCTUARY_VERSION = '1.28.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.28.0', date: '2026-07-17', title: 'Terrain, not architecture',
+    notes: [
+      'Open-air realms are now truly open ground: meadows, tundra, dunes, lava ridges, blood gardens and sky isles spread as one rolling expanse with scattered outcrops — no more rooms and corridors under the open sky',
+      'The map edge is the horizon: an isle\'s rim, the forest line, a dune crest',
+      'Roughly three times the walkable ground per stage in open realms; the crypts, caverns and the void keep their winding halls',
+    ],
+  },
   {
     v: '1.27.0', date: '2026-07-17', title: 'Worlds, not dungeons',
     notes: [
