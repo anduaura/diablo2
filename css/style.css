@@ -251,6 +251,8 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 .islot.r-rare   { border-color:#d9c65a; box-shadow:0 0 7px #d9c65a44; }
 .islot.r-unique { border-color:#c8763a; box-shadow:0 0 9px #c8763a66; }
 .islot.r-set    { border-color:#4adf6a; box-shadow:0 0 8px #4adf6a55; }
+.islot.r-set.st1 { border-color:#ffcf4d; box-shadow:0 0 9px #ffcf4d66; }
+.islot.r-set.st2 { border-color:#b96aff; box-shadow:0 0 10px #b96aff77; }
 .islot.r-exotic { border-color:#e86ae8; box-shadow:0 0 10px #e86ae877; }
 .invactions { display:flex; gap:8px; margin:4px 0 10px; flex-wrap:wrap; }
 .smallbtn {

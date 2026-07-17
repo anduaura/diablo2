@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.24.0';
+const SANCTUARY_VERSION = '1.25.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.25.0', date: '2026-07-17', title: 'Gold & purple sets',
+    notes: [
+      'Sets now come in three tiers: the green classics, rarer gold sets (Dragonfell Regalia, Sanctum of the Dawn) and the rarest purple sets (Void Tyrant\'s Dominion, Weave of Eternity)',
+      'Higher tiers hit harder — stronger pieces, bigger set bonuses — and still roll grades: a Celestial purple piece is the mightiest gear in the game',
+      'Tier shows everywhere: item names, bag borders, drop labels and beams glow gold or purple',
+    ],
+  },
   {
     v: '1.24.0', date: '2026-07-17', title: 'Bosses fight back',
     notes: [

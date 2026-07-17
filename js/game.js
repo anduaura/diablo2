@@ -613,6 +613,7 @@ function runewordOf(it) {
 /* wearable sets: fixed per-piece mods plus escalating bonuses (index =
    pieces worn) that activate as you equip more of the same set */
 const SETS = {
+  /* tier 0 — green sets: the classics */
   gravewarden: {
     name: "Gravewarden's Vigil",
     pieces: { helm: 'Gravewarden Casque', armor: 'Gravewarden Carapace', boots: 'Gravewarden Treads', amulet: 'Gravewarden Sigil' },
@@ -631,7 +632,40 @@ const SETS = {
     pieceMods: { dex: 8, dmgPct: 8 },
     bonuses: [null, null, { dex: 12, mf: 15 }, { dmgPct: 15, leech: 4 }, { dex: 25, dmgPct: 30 }],
   },
+  /* tier 1 — gold sets: rarer, inherently mightier */
+  dragonfell: {
+    name: 'Dragonfell Regalia', tier: 1,
+    pieces: { weapon: 'Dragonfell Talon', helm: 'Dragonfell Visage', armor: 'Dragonfell Scalemail', boots: 'Dragonfell Greaves' },
+    pieceMods: { str: 12, dmgPct: 12, fireDmg: 6 },
+    bonuses: [null, null, { dmgPct: 25, hp: 60 }, { str: 20, fireDmg: 15 }, { dmgPct: 45, hp: 150, leech: 6 }],
+  },
+  dawnsanctum: {
+    name: 'Sanctum of the Dawn', tier: 1,
+    pieces: { helm: 'Dawn Halo', armor: 'Dawn Aegis', ring: 'Dawn Seal', amulet: 'Dawn Reliquary' },
+    pieceMods: { vit: 12, armor: 18, mp: 20 },
+    bonuses: [null, null, { armor: 40, hp: 80 }, { vit: 22, mf: 25 }, { hp: 200, dmgPct: 30, lightDmg: 18 }],
+  },
+  /* tier 2 — purple sets: the rarest and strongest gear there is */
+  voidtyrant: {
+    name: "Void Tyrant's Dominion", tier: 2,
+    pieces: { weapon: 'Tyrant Fang', helm: 'Tyrant Gaze', armor: 'Tyrant Mantle', ring: 'Tyrant Knuckle' },
+    pieceMods: { str: 10, dex: 10, dmgPct: 16, poisonDmg: 8 },
+    bonuses: [null, null, { dmgPct: 35, leech: 6 }, { str: 25, dex: 25, mf: 30 }, { dmgPct: 70, hp: 220, fireDmg: 20, coldDmg: 20 }],
+  },
+  eternity: {
+    name: 'Weave of Eternity', tier: 2,
+    pieces: { armor: 'Eternity Shroud', boots: 'Eternity Striders', ring: 'Eternity Coil', amulet: 'Eternity Knot' },
+    pieceMods: { ene: 14, hp: 30, mp: 30, coldDmg: 8 },
+    bonuses: [null, null, { hp: 100, mp: 60 }, { ene: 30, dmgPct: 30, mf: 35 }, { hp: 260, dmgPct: 60, lightDmg: 25, poisonDmg: 25 }],
+  },
 };
+/* set tiers: green (classic) < gold < purple — tier colors the item and
+   multiplies the piece's weapon damage / armor on top of its grade */
+const SET_TIER_COLOR = [null, '#ffcf4d', '#b96aff'];
+const SET_TIER_MULT = [1, 1.35, 1.75];
+const setTierColor = it => it && it.rarity === 'set' && it.st ? SET_TIER_COLOR[it.st] : null;
+/* an item's display color: gem stone > set tier > rarity */
+const itemColor = it => it.g ? GEMS[it.g].color : setTierColor(it) || rarityColor(it.rarity);
 const EXOTIC_NAMES = ['Voidfang', 'Starweaver', 'Nightmare Coil', 'Soulrender', 'Dawnbreaker', 'Chaosbrand', 'The Unmaking'];
 
 const UNIQUES = [
@@ -1700,17 +1734,19 @@ const setGradeIdx = it => Math.max(0, GEM_GRADES.indexOf(it.grade || 'common'));
 function makeSetPiece(sid, slot, ilvl, gIdx) {
   const def = SETS[sid];
   const mult = SET_GRADE_MULT[gIdx];
+  const tier = def.tier || 0;
+  const tmult = mult * SET_TIER_MULT[tier];   // piece mods are authored per tier; raw dmg/armor scale by it
   const mods = {};
   for (const k in def.pieceMods) mods[k] = Math.max(1, Math.round(def.pieceMods[k] * mult));
   const it = {
-    slot, set: sid, grade: GEM_GRADES[gIdx],
+    slot, set: sid, grade: GEM_GRADES[gIdx], st: tier,
     base: def.pieces[slot],
     name: SET_GRADE_NAMES[gIdx] + def.pieces[slot],
     icon: slot === 'weapon' ? choice(WEAPON_ICONS[G.p.cls]) : SLOT_ICONS[slot],
     rarity: 'set', lvl: ilvl, mods,
   };
-  if (slot === 'weapon') it.dmg = [Math.round((2 + ilvl * 2) * mult), Math.round((5 + ilvl * 3) * mult)];
-  else if (slot !== 'ring' && slot !== 'amulet') it.armor = Math.round((3 + ilvl * 2.5) * mult);
+  if (slot === 'weapon') it.dmg = [Math.round((2 + ilvl * 2) * tmult), Math.round((5 + ilvl * 3) * tmult)];
+  else if (slot !== 'ring' && slot !== 'amulet') it.armor = Math.round((3 + ilvl * 2.5) * tmult);
   if ((slot === 'weapon' || slot === 'helm' || slot === 'armor') && Math.random() < 0.25) { it.sockets = 1; it.gems = []; }
   return it;
 }
@@ -1724,7 +1760,11 @@ function makeItem(slot, ilvl, forceRarity) {
       : r < 0.13 * mf ? 'rare' : r < 0.43 * mf ? 'magic' : 'common';
   }
   if (rarity === 'set') {
-    const pool = Object.keys(SETS).filter(k => SETS[k].pieces[slot]);
+    // tier roll: green common, gold rare, purple rarest
+    const tr = Math.random();
+    const tier = tr < 0.08 ? 2 : tr < 0.3 ? 1 : 0;
+    let pool = Object.keys(SETS).filter(k => (SETS[k].tier || 0) === tier && SETS[k].pieces[slot]);
+    if (!pool.length) pool = Object.keys(SETS).filter(k => SETS[k].pieces[slot]);
     const sid = choice(pool);
     const gr = Math.random();
     const gIdx = gr < 0.04 ? 4 : gr < 0.12 ? 3 : gr < 0.3 ? 2 : gr < 0.6 ? 1 : 0;
@@ -1810,7 +1850,8 @@ function makeRelic(w, ilvl) {
 }
 
 const sellPrice = it => ({ common: 8, magic: 25, rare: 70, unique: 200, set: 120, exotic: 320 }[it.rarity] + it.lvl * 6
-  + (it.grade ? ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(it.grade) * 40 : 0));
+  + (it.grade ? ['common', 'magic', 'rare', 'unique', 'exotic'].indexOf(it.grade) * 40 : 0)
+  + (it.st || 0) * 120);
 /* rough power score used by auto-equip to compare items */
 function itemScore(it) {
   if (!it) return -1;
@@ -1827,7 +1868,7 @@ function itemScore(it) {
   const rw = runewordOf(it);
   if (rw) for (const k in rw.mods) s += rw.mods[k];
   s += (it.sockets || 0) * 4;
-  if (it.set) s += 10;   // set potential counts for something
+  if (it.set) s += 10 + (it.st || 0) * 10;   // set potential counts for something
   return s;
 }
 function modLines(it) {
@@ -3587,7 +3628,7 @@ function update(dt) {
     dr.ann = true;
     const rr2 = dr.item.rarity;
     if (dr.item.g || rr2 === 'common' || rr2 === 'magic') continue;
-    const col = rarityColor(rr2);
+    const col = itemColor(dr.item);
     G.rings.push({ x: dr.x, y: dr.y, r: 4, max: 46, color: col, life: 0.45 });
     spark(dr.x, dr.y - 6, col, rr2 === 'rare' ? 8 : 16, 200);
     if (rr2 === 'rare') sfx.rare(); else sfx.epic();
@@ -4836,7 +4877,7 @@ function render() {
       ctx.beginPath(); ctx.arc(dr.x, dr.y + bob * 0.5, 6, 0, 7); ctx.fill();
       ctx.fillStyle = '#c9b98a'; ctx.fillRect(dr.x - 2, dr.y - 10 + bob * 0.5, 4, 5);
     } else {
-      const col = dr.item.g ? GEMS[dr.item.g].color : rarityColor(dr.item.rarity);
+      const col = itemColor(dr.item);
       // beacon of light over rare+ loot so a big drop reads from across the room
       if (!dr.item.g && dr.item.rarity !== 'common' && dr.item.rarity !== 'magic') {
         const pulse2 = 0.5 + Math.sin(G.time * 2.6 + dr.x) * 0.18;
@@ -7922,7 +7963,7 @@ function drawMinimap() {
   // high-rarity loot pings
   for (const dr of G.drops) {
     if (dr.kind !== 'item' || dr.item.g || dr.item.rarity === 'common' || dr.item.rarity === 'magic') continue;
-    mmCtx.fillStyle = rarityColor(dr.item.rarity);
+    mmCtx.fillStyle = itemColor(dr.item);
     mmCtx.fillRect(sx(dr.x / TILE) - 1.5, sy(dr.y / TILE) - 1.5, 3, 3);
   }
 }
@@ -8101,7 +8142,7 @@ function renderStable() {
 
 function renderStash() {
   const p = G.p, stash = loadStash(), sMax = stashMax();
-  const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) + gradeBadge(it) : ''}</button>`;
+  const cell = (it, attr, i) => `<button class="islot ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}" data-${attr}="${i}">${it ? it.icon + sockBadge(it) + gradeBadge(it) : ''}</button>`;
   // show filled slots plus a row of empties — huge trunks stay fast
   const shownSt = Math.min(sMax, Math.ceil((stash.length + 6) / 6) * 6);
   const shownBg = Math.min(p.bagSlots, Math.ceil((p.inv.length + 6) / 6) * 6);
@@ -8272,7 +8313,8 @@ function renderFuse() {
   const groups = fusableGroups(p.inv);
   // graded set pieces tint by their grade so the upgrade reads in the row
   const tint = it => it.rarity === 'set' && setGradeIdx(it) > 0
-    ? ` style="color:${rarityColor(it.grade)}"` : '';
+    ? ` style="color:${rarityColor(it.grade)}"`
+    : setTierColor(it) ? ` style="color:${setTierColor(it)}"` : '';
   const rows = groups.map((g, i) => `
     <button class="smallbtn" data-fuserow="${i}" style="width:100%">
       ${g.result.icon} 3× <span class="rc-${p.inv[g.idx[0]].rarity}"${tint(p.inv[g.idx[0]])}>${g.from}</span>
@@ -8528,7 +8570,7 @@ function renderInv() {
   const p = G.p;
   const eqSlot = s => {
     const it = p.equip[s];
-    return `<button class="islot eq ${it ? 'r-' + it.rarity : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
+    return `<button class="islot eq ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
   // beyond the strongest CHARM_LIMIT, charms sleep — mark them so
@@ -8539,7 +8581,7 @@ function renderInv() {
   for (let i = 0; i < shownBag; i++) {
     const it = p.inv[i];
     const dormant = it && it.slot === 'charm' && !actCh.has(it);
-    grid += `<button class="islot ${it ? 'r-' + it.rarity : ''}${dormant ? ' dormant' : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}${dormant ? '<span class="zz">💤</span>' : ''}</button>`;
+    grid += `<button class="islot ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}${dormant ? ' dormant' : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}${dormant ? '<span class="zz">💤</span>' : ''}</button>`;
   }
   if (p.bagSlots > shownBag) grid += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${p.bagSlots - shownBag} more empty slots</div>`;
   const charmNote = nCharms > CHARM_LIMIT
@@ -8675,18 +8717,20 @@ function showItemPopup(it, ref, equipped) {
     : '';
   const setHtml = it.set && SETS[it.set] ? (() => {
     const def = SETS[it.set];
+    const tcol = setTierColor(it) || '#4adf6a';
+    const tierTag = it.st === 2 ? ' · purple set' : it.st === 1 ? ' · gold set' : '';
     const worn = SLOTS.filter(s => p.equip[s] && p.equip[s].set === it.set).length;
     const lines = [];
     for (let n = 2; n < def.bonuses.length; n++) {
       const b = def.bonuses[n];
       if (!b) continue;
       const txt = Object.keys(b).map(k => { const a = AFFIXES.find(a => a.stat === k); return a ? a.txt(b[k]) : ''; }).filter(Boolean).join(', ');
-      lines.push(`<span style="color:${worn >= n ? '#4adf6a' : '#5a6a5a'}">(${n} pieces) ${txt}</span>`);
+      lines.push(`<span style="color:${worn >= n ? tcol : '#5a6a5a'}">(${n} pieces) ${txt}</span>`);
     }
-    return `<div class="setinfo"><b style="color:#4adf6a">◈ ${def.name}</b> · ${worn}/${Object.keys(def.pieces).length} worn<br>${lines.join('<br>')}</div>`;
+    return `<div class="setinfo"><b style="color:${tcol}">◈ ${def.name}</b>${tierTag} · ${worn}/${Object.keys(def.pieces).length} worn<br>${lines.join('<br>')}</div>`;
   })() : '';
   pop.innerHTML = `
-    <div class="iname rc-${it.rarity}">${it.icon} ${it.name}</div>
+    <div class="iname rc-${it.rarity}"${setTierColor(it) ? ` style="color:${setTierColor(it)}"` : ''}>${it.icon} ${it.name}</div>
     <div class="ibase">${it.base !== it.name && !it.g ? it.base + ' · ' : ''}${it.slot} · item level ${it.lvl}${it.grade ? ` · <span style="color:${rarityColor(it.grade)}">${it.grade} grade</span>` : ''}</div>
     ${rwHtml}
     ${setHtml}
