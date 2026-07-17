@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.29.0';
+const SANCTUARY_VERSION = '1.30.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.30.0', date: '2026-07-17', title: 'No more bricks in the wild',
+    notes: [
+      'Open-world walls stop being masonry: the fields are edged by a forest treeline with sunlit crowns, the caldera by jagged basalt crags rimmed in ember light, the tundra by snowdrifts spiked with glacier shards, the sands by wind-smoothed dune crests, the gardens by ragged thorn hedges, and the sky isles by banks of sunlit cumulus',
+      'Canopies, crags and cloud-crowns rise above the tile line, so boundaries read as living horizon instead of brickwork',
+      'The true dungeons keep their bones, coral, fungus, crystal, runes and rivets — walls belong down there',
+    ],
+  },
   {
     v: '1.29.0', date: '2026-07-17', title: 'The hordes arrive',
     notes: [
