@@ -3,11 +3,18 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.20.0';
+const SANCTUARY_VERSION = '1.21.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.21.0', date: '2026-07-17', title: 'No beast left behind by accident',
+    notes: [
+      'Leaving a beast lair while the beast still lives now asks for confirmation — the egg is already spent, so abandoning the lair loses the beast forever',
+      'The town portal button inside a lair shows the same warning instead of silently whisking you home',
+    ],
+  },
   {
     v: '1.20.0', date: '2026-07-17', title: 'The long way down',
     notes: [
