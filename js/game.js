@@ -7701,7 +7701,22 @@ function renderStairs() {
   if (pots) bits.push(pots + ' potion' + (pots > 1 ? 's' : ''));
   const leaving = G.cowLevel || G.rift || G.petLair;   // these stairs lead back to town
   const up = G.stairsDir === 'up';
-  $('stairsPanel').innerHTML = `
+  // abandoning an unbeaten lair costs the beast — say so, loudly
+  const lairBeast = G.stairsDir === 'lair' ? G.lvl.monsters.find(mm => mm.wild && mm.hp > 0) : null;
+  if (lairBeast) {
+    $('stairsPanel').innerHTML = `
+      <button class="pclose" data-close>✕</button>
+      <div class="ptitle">🐣 Abandon the beast?</div>
+      <div class="derived" style="text-align:center; font-size:14px">
+        The <b style="color:#e8c14d">${PET_SPECIES[lairBeast.wild.data.sp].name}</b>
+        (<span class="rc-${lairBeast.wild.data.rarity}">${lairBeast.wild.data.rarity}</span>) still prowls this lair.<br>
+        The egg is already spent — <b style="color:#ff8a7a">leave now and the beast is lost forever.</b>
+      </div>
+      <div class="invactions" style="margin-top:12px">
+        <button class="smallbtn" data-stay>⚔ Stay & tame it</button>
+        <button class="smallbtn" data-descend style="border-color:#c85a4a; color:#ff8a7a">🌀 Abandon & leave</button>
+      </div>`;
+  } else $('stairsPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">${leaving ? '🌀 Return to town?' : up ? '⬆ Climb back up?' : '⬇ Descend?'}</div>
     <div class="derived" style="text-align:center; font-size:14px">
@@ -8736,6 +8751,10 @@ cvs.addEventListener('pointerup', e => {
         if (t2 === T_DOWN && G.lvl.locked) {
           banner('The door is sealed — slay ' + (G.lvl.boss ? G.lvl.boss.name : 'the guardian') + '!');
           sfx.hurt();
+        } else if (G.petLair && G.lvl.monsters.some(mm => mm.wild && mm.hp > 0)) {
+          // the egg is spent — leaving an unbeaten lair forfeits the beast
+          G.stairsDir = 'lair';
+          togglePanel('stairsPanel');
         } else if (G.drops.length > 0) {
           G.stairsDir = t2 === T_UP ? 'up' : 'down';
           togglePanel('stairsPanel');
@@ -8797,6 +8816,14 @@ $('btnPortal').addEventListener('click', () => {
   if (G.dlvl === 0) {
     if (G.anchor) returnThroughPortal();
     else banner('You are already in town');
+    return;
+  }
+  if (G.petLair) {
+    // portals can't anchor a pocket dimension — leaving forfeits the beast
+    if (G.lvl.monsters.some(mm => mm.wild && mm.hp > 0)) {
+      G.stairsDir = 'lair';
+      togglePanel('stairsPanel');
+    } else enterLevel(0, false);
     return;
   }
   // anchor the portal to this exact spot; the whole floor is preserved
