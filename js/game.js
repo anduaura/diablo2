@@ -3973,26 +3973,40 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
   const h2 = thash(tx * 7 + 3, ty * 11 + 5), h3 = thash(tx * 13 + 9, ty * 5 + 1);
 
   if (deco === 'snow') {
-    /* ---- ice blocks: glassy slabs, frost mortar, icicles ---- */
-    const g = c2.createLinearGradient(px, py, px + TILE, py + TILE);
-    g.addColorStop(0, '#8fb8d8'); g.addColorStop(0.5, '#6f9cc0'); g.addColorStop(1, '#54809f');
+    /* ---- wind-packed snowbanks spiked with glacier shards ---- */
+    const g = c2.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#dcecf8'); g.addColorStop(1, '#9cb8d0');
     c2.fillStyle = g;
     c2.fillRect(px, py, TILE, TILE);
-    c2.strokeStyle = '#2f5a78'; c2.lineWidth = 2;
-    for (let row = 0; row < 2; row++) {
-      const ry = py + 2 + row * 21;
-      c2.beginPath(); c2.moveTo(px, ry + 19); c2.lineTo(px + TILE, ry + 19); c2.stroke();
-      const off = ((tx + ty * 3 + row) % 2) * 14 + 8;
-      c2.beginPath(); c2.moveTo(px + off, ry); c2.lineTo(px + off, ry + 19); c2.stroke();
+    // drift mounds, back to front
+    for (let k = 2; k >= 0; k--) {
+      const hh = thash(tx * 5 + k * 9, ty * 7 + k);
+      const cx0 = px + 8 + k * 14 + hh * 8, top = py + 7 - hh * 10 + k * 3, r = 15 + hh * 5;
+      c2.fillStyle = k % 2 ? '#e8f2fa' : '#cfe2f2';
+      c2.beginPath();
+      c2.moveTo(cx0 - r, py + TILE);
+      c2.quadraticCurveTo(cx0 - r * 0.2, top, cx0 + r * 0.3, top + 3);
+      c2.quadraticCurveTo(cx0 + r * 0.75, top + 7, cx0 + r, py + TILE);
+      c2.closePath(); c2.fill();
     }
-    // diagonal glassy glints
-    c2.strokeStyle = '#dff2ffaa'; c2.lineWidth = 1.4;
-    c2.beginPath(); c2.moveTo(px + 6 + h * 10, py + 30); c2.lineTo(px + 20 + h * 10, py + 8); c2.stroke();
-    if (h2 > 0.5) { c2.beginPath(); c2.moveTo(px + 24 + h2 * 8, py + 36); c2.lineTo(px + 36 + h2 * 6, py + 18); c2.stroke(); }
-    // snow cap
-    c2.fillStyle = '#e8f2fa';
-    c2.fillRect(px, py, TILE, 4.5);
-    c2.beginPath(); c2.ellipse(px + TILE * h2, py + 4.5, 8, 2.5, 0, 0, 7); c2.fill();
+    // glacier shards thrust up through the drifts
+    for (let k = 0; k < 2; k++) {
+      const hs = thash(tx * 3 + k * 9, ty * 5 + k);
+      if (hs < 0.3) continue;
+      const bx2 = px + 8 + k * 20 + hs * 8;
+      const g2 = c2.createLinearGradient(bx2 - 6, 0, bx2 + 7, 0);
+      g2.addColorStop(0, '#b8d8ee'); g2.addColorStop(0.6, '#8fb8d8'); g2.addColorStop(1, '#5a86ab');
+      c2.fillStyle = g2;
+      c2.beginPath();
+      c2.moveTo(bx2 - 6, py + 16); c2.lineTo(bx2 + 1 - hs * 5, py - 4 - hs * 14); c2.lineTo(bx2 + 7, py + 14);
+      c2.lineTo(bx2 + 4, py + 26); c2.lineTo(bx2 - 4, py + 26);
+      c2.closePath(); c2.fill();
+      c2.strokeStyle = '#f0f8ffcc'; c2.lineWidth = 1.2;
+      c2.beginPath(); c2.moveTo(bx2 + 1 - hs * 5, py - 3 - hs * 14); c2.lineTo(bx2 - 3, py + 12); c2.stroke();
+    }
+    // cold shadow pooling at the foot
+    c2.fillStyle = '#2f5a7833';
+    c2.fillRect(px, py + TILE - 5, TILE, 5);
     // icicles hanging over the passage below
     if (floorBelow) {
       c2.fillStyle = '#cfe8f8';
@@ -4004,37 +4018,36 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
       }
     }
   } else if (deco === 'flowers') {
-    /* ---- mossy fieldstone: rounded boulders and creeping ivy ---- */
-    c2.fillStyle = '#3a4430';
+    /* ---- forest edge: a wall of trees, canopy rising over the field ---- */
+    const g = c2.createLinearGradient(px, py, px, py + TILE);
+    g.addColorStop(0, '#1c2a14'); g.addColorStop(1, '#243318');
+    c2.fillStyle = g;
     c2.fillRect(px, py, TILE, TILE);
-    for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
-      const hh = thash(tx * 9 + col, ty * 9 + row);
-      const sx = px + 7 + col * 15 + (row % 2) * 6, sy = py + 7 + row * 15;
-      c2.fillStyle = ['#5c6a4a', '#66755a', '#525f42'][Math.floor(hh * 3) % 3];
-      c2.beginPath(); c2.ellipse(sx, sy, 8.5, 6.5, hh * 3, 0, 7); c2.fill();
-      c2.fillStyle = '#ffffff14';
-      c2.beginPath(); c2.ellipse(sx - 2, sy - 2, 4, 2.6, hh * 3, 0, 7); c2.fill();
+    // trunks in the understory gloom
+    c2.fillStyle = '#3a2c1a';
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 5 + k * 7, ty * 3 + k);
+      c2.fillRect(px + 4 + k * 15 + hh * 4, py + 16, 3.5, TILE - 16);
     }
-    // moss patches
-    if (h > 0.35) {
-      c2.fillStyle = '#4a7a3466';
-      c2.beginPath(); c2.ellipse(px + TILE * h, py + TILE * h2, 9, 6, h * 4, 0, 7); c2.fill();
+    // leafy crowns, tops breaking above the tile line
+    for (let k = 0; k < 3; k++) {
+      const hh = thash(tx * 9 + k * 3, ty * 7 + k);
+      const cx0 = px + 7 + k * 15 + hh * 5, cy0 = py + 10 - hh * 12;
+      c2.fillStyle = ['#3a5c2c', '#446a30', '#365426'][Math.floor(hh * 3) % 3];
+      c2.beginPath(); c2.arc(cx0, cy0, 11 + hh * 3, 0, 7); c2.fill();
+      c2.beginPath(); c2.arc(cx0 - 7, cy0 + 7, 8, 0, 7); c2.fill();
+      c2.beginPath(); c2.arc(cx0 + 7, cy0 + 8, 8.5, 0, 7); c2.fill();
+      // sunlit top
+      c2.fillStyle = '#5c8a44';
+      c2.beginPath(); c2.arc(cx0 - 3, cy0 - 4, 4.5, 0, 7); c2.fill();
     }
-    // ivy trailing down the face
-    if (h2 > 0.55) {
-      c2.strokeStyle = '#4a7a34'; c2.lineWidth = 1.4;
-      for (let k = 0; k < 2; k++) {
-        const ix = px + 10 + k * 20 + h * 8;
-        c2.beginPath();
-        c2.moveTo(ix, py);
-        c2.quadraticCurveTo(ix + 4, py + 14, ix - 2, py + 24 + h3 * 14);
-        c2.stroke();
-        c2.fillStyle = '#5c8a44';
-        c2.beginPath(); c2.ellipse(ix - 1, py + 12 + k * 8, 2.6, 1.8, 0.6, 0, 7); c2.fill();
-      }
+    if (h > 0.7) {   // bright blossoms tucked in the leaves
+      c2.fillStyle = '#d8b84a';
+      c2.beginPath(); c2.arc(px + 8 + h2 * 28, py + 2 + h3 * 12, 1.6, 0, 7); c2.fill();
+      c2.beginPath(); c2.arc(px + 30 - h3 * 18, py + 8 - h2 * 8, 1.4, 0, 7); c2.fill();
     }
   } else if (deco === 'lava') {
-    /* ---- basalt columns with glowing lava seams ---- */
+    /* ---- volcanic ridge: columned basalt under a jagged dark crest ---- */
     c2.fillStyle = '#181210';
     c2.fillRect(px, py, TILE, TILE);
     for (let col = 0; col < 4; col++) {
@@ -4043,18 +4056,38 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
       const g = c2.createLinearGradient(cxp, 0, cxp + 11, 0);
       g.addColorStop(0, '#120c0a'); g.addColorStop(0.5, ['#2c2220', '#342826', '#241c1a'][Math.floor(hh * 3) % 3]); g.addColorStop(1, '#0e0806');
       c2.fillStyle = g;
-      c2.fillRect(cxp + 0.5, py, 10, TILE);
-      // column cap line at varying height
-      c2.fillStyle = '#3c2e2a';
-      c2.fillRect(cxp + 1, py + 4 + hh * 10, 9, 2);
+      c2.fillRect(cxp + 0.5, py + 6, 10, TILE - 6);
     }
-    // molten seam glowing between columns
+    // jagged crags breaking above the tile line
+    c2.fillStyle = '#241c1a';
+    c2.beginPath();
+    c2.moveTo(px - 4, py + 12);
+    for (let k = 0; k < 4; k++) {
+      const hh = thash(tx * 7 + k * 5, ty * 9 + k);
+      c2.lineTo(px + 4 + k * 12 + hh * 5, py - 2 - hh * 15);
+      c2.lineTo(px + 10 + k * 12, py + 3 + hh * 5);
+    }
+    c2.lineTo(px + TILE + 4, py + 12);
+    c2.closePath(); c2.fill();
+    // ember light rims the tallest crag
+    const hr = thash(tx * 7, ty * 9);
+    c2.strokeStyle = hexA('#ff6a2a', 0.3 + hr * 0.25); c2.lineWidth = 1.2;
+    c2.beginPath();
+    c2.moveTo(px + 4 + hr * 5, py - 2 - hr * 15);
+    c2.lineTo(px + 10, py + 3 + hr * 5);
+    c2.stroke();
+    // a molten seam glowing in one crack
     if (h > 0.55) {
       const sx = px + 11 * (1 + Math.floor(h2 * 3));
       const g2 = c2.createLinearGradient(sx - 3, 0, sx + 3, 0);
       g2.addColorStop(0, '#ff6a2a00'); g2.addColorStop(0.5, h > 0.85 ? '#ffb03add' : '#ff6a2a88'); g2.addColorStop(1, '#ff6a2a00');
       c2.fillStyle = g2;
-      c2.fillRect(sx - 3, py + TILE * 0.2, 6, TILE * 0.8);
+      c2.fillRect(sx - 3, py + TILE * 0.3, 6, TILE * 0.7);
+    }
+    // drifting embers
+    if (h > 0.6) {
+      c2.fillStyle = hexA('#ffb03a', 0.4 + Math.sin(G.time * 2 + tx * 3 + ty) * 0.3);
+      c2.beginPath(); c2.arc(px + 8 + h2 * 28, py + 4 + h3 * 18, 1.5, 0, 7); c2.fill();
     }
     c2.fillStyle = '#00000066';
     c2.fillRect(px, py + TILE - 4, TILE, 4);
@@ -4147,24 +4180,30 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
       c2.beginPath(); c2.arc(px + 30 - h3 * 20, py + 30 - h2 * 20, 1.3, 0, 7); c2.fill();
     }
   } else if (deco === 'sand') {
-    /* ---- layered sandstone strata, wind-carved ---- */
-    const bands = ['#5c4c2c', '#6a5834', '#52442a', '#74603a'];
-    for (let b = 0; b < 5; b++) {
-      c2.fillStyle = bands[(b + tx + ty) % 4];
-      const by = py + b * 9;
+    /* ---- dune crests: wind-smoothed mounds of sun and shadow ---- */
+    c2.fillStyle = '#52442a';
+    c2.fillRect(px, py, TILE, TILE);
+    for (let k = 2; k >= 0; k--) {   // back-to-front mounds
+      const hh = thash(tx * 5 + k * 9, ty * 7 + k);
+      const cx0 = px + 8 + k * 14 + hh * 8, top = py + 6 - hh * 12 + k * 4;
+      const r = 16 + hh * 5;
+      const g = c2.createLinearGradient(cx0 - r, 0, cx0 + r, 0);
+      g.addColorStop(0, '#7a6640'); g.addColorStop(0.55, '#6a5834'); g.addColorStop(1, '#44381e');
+      c2.fillStyle = g;
       c2.beginPath();
-      c2.moveTo(px, by + Math.sin(tx * 2 + b) * 2);
-      c2.quadraticCurveTo(px + TILE / 2, by + 3 + Math.sin(ty + b) * 2, px + TILE, by + Math.sin(tx * 2 + b + 1) * 2);
-      c2.lineTo(px + TILE, by + 12); c2.lineTo(px, by + 12);
+      c2.moveTo(cx0 - r, py + TILE);
+      c2.quadraticCurveTo(cx0 - r * 0.3, top, cx0 + r * 0.25, top + 2);
+      c2.quadraticCurveTo(cx0 + r * 0.7, top + 6, cx0 + r, py + TILE);
       c2.closePath(); c2.fill();
+      // sunlit crest line
+      c2.strokeStyle = '#ffe9b055'; c2.lineWidth = 1.2;
+      c2.beginPath(); c2.moveTo(cx0 - r * 0.3, top + 1); c2.lineTo(cx0 + r * 0.25, top + 2.5); c2.stroke();
     }
-    c2.fillStyle = '#00000033';
-    c2.fillRect(px, py + TILE - 5, TILE, 5);
-    c2.fillStyle = '#ffe9b022';
-    c2.fillRect(px, py, TILE, 4);
-    if (h > 0.9) {   // wind-carved hollow
-      c2.fillStyle = '#3a2e18';
-      c2.beginPath(); c2.ellipse(px + TILE * h2, py + TILE * 0.5, 6, 9, 0, 0, 7); c2.fill();
+    // wind ripples at the foot
+    c2.strokeStyle = '#3a2e18aa'; c2.lineWidth = 1;
+    for (let k = 0; k < 2; k++) {
+      const ry = py + TILE - 5 - k * 6;
+      c2.beginPath(); c2.moveTo(px + 2, ry); c2.quadraticCurveTo(px + TILE / 2, ry + 3, px + TILE - 2, ry); c2.stroke();
     }
   } else if (deco === 'crystal') {
     /* ---- amethyst rock studded with glowing shards ---- */
@@ -4187,29 +4226,37 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
       c2.fillRect(cxp - 0.8, cyp - 6, 1.6, 6);
     }
   } else if (deco === 'veins') {
-    /* ---- fleshy overgrowth crawling with dark veins ---- */
+    /* ---- thorn hedge: bramble walls, ragged-topped and breathing ---- */
     const g = c2.createLinearGradient(px, py, px, py + TILE);
-    g.addColorStop(0, '#3e2026'); g.addColorStop(1, '#2c1418');
+    g.addColorStop(0, '#3c2026'); g.addColorStop(1, '#22101a');
     c2.fillStyle = g;
     c2.fillRect(px, py, TILE, TILE);
-    c2.strokeStyle = '#1a0a0e'; c2.lineWidth = 2.4;
+    // bramble clumps with ragged tops above the line
     for (let k = 0; k < 3; k++) {
-      const hh = thash(tx * 3 + k * 5, ty * 7 + k);
-      c2.beginPath();
-      c2.moveTo(px + hh * TILE, py);
-      c2.bezierCurveTo(px + hh * 30, py + 14, px + (1 - hh) * 30, py + 28, px + (1 - hh) * TILE, py + TILE);
-      c2.stroke();
+      const hh = thash(tx * 9 + k * 5, ty * 3 + k);
+      const cx0 = px + 8 + k * 15 + hh * 4, cy0 = py + 8 - hh * 10;
+      c2.fillStyle = ['#4a2430', '#3c1e2a', '#542a34'][Math.floor(hh * 3) % 3];
+      c2.beginPath(); c2.arc(cx0, cy0, 10 + hh * 3, 0, 7); c2.fill();
+      c2.beginPath(); c2.arc(cx0 - 6, cy0 + 8, 7.5, 0, 7); c2.fill();
+      c2.beginPath(); c2.arc(cx0 + 6, cy0 + 9, 8, 0, 7); c2.fill();
     }
-    // a throbbing vein highlight
+    // thorns jutting from the tangle
+    c2.strokeStyle = '#1a0a0e'; c2.lineWidth = 1.6;
+    for (let k = 0; k < 4; k++) {
+      const hh = thash(tx * 3 + k * 7, ty * 5 + k);
+      const sx = px + 4 + hh * 36, sy = py + 4 + thash(tx + k, ty * 7) * 30;
+      c2.beginPath(); c2.moveTo(sx, sy); c2.lineTo(sx + 5, sy - 5); c2.lineTo(sx + 3, sy - 9); c2.stroke();
+    }
+    // a throbbing blood-vein through the hedge
     const pulse = 0.3 + Math.max(0, Math.sin(G.time * 2.6 + tx + ty * 2)) * 0.35;
     c2.strokeStyle = hexA('#ff5a6a', pulse); c2.lineWidth = 1.4;
     c2.beginPath();
     c2.moveTo(px + h2 * TILE, py);
     c2.quadraticCurveTo(px + TILE / 2, py + TILE / 2, px + h3 * TILE, py + TILE);
     c2.stroke();
-    if (h > 0.88) {   // a blinking growth
-      c2.fillStyle = hexA('#ff8a9a', pulse + 0.2);
-      c2.beginPath(); c2.arc(px + 10 + h2 * 24, py + 10 + h3 * 24, 3.4, 0, 7); c2.fill();
+    if (h > 0.88) {   // a watching bloom
+      c2.fillStyle = hexA('#ff8a9a', pulse + 0.25);
+      c2.beginPath(); c2.arc(px + 10 + h2 * 24, py + 12 + h3 * 20, 3.2, 0, 7); c2.fill();
     }
   } else if (deco === 'void') {
     /* ---- null slabs: black monoliths etched with drifting runes ---- */
@@ -4235,35 +4282,27 @@ function drawWallTile(deco, px, py, tx, ty, h, pal, floorBelow, c2) {
       c2.stroke();
     }
   } else if (deco === 'sky') {
-    /* ---- sun-washed marble crowned with clinging cloud ---- */
+    /* ---- cloud banks: the isle's rim is weather, not wall ---- */
     const g = c2.createLinearGradient(px, py, px, py + TILE);
-    g.addColorStop(0, '#f6f9fd'); g.addColorStop(1, '#c8d2e2');
+    g.addColorStop(0, '#b8cce4'); g.addColorStop(1, '#8a94ac');
     c2.fillStyle = g;
     c2.fillRect(px, py, TILE, TILE);
-    c2.strokeStyle = '#9aa4bc'; c2.lineWidth = 1.4;
-    for (let row = 0; row < 2; row++) {
-      const ry = py + 1 + row * 21;
-      c2.beginPath(); c2.moveTo(px, ry + 20); c2.lineTo(px + TILE, ry + 20); c2.stroke();
-      const off = ((tx + ty + row) % 2) * 14 + 8;
-      c2.beginPath(); c2.moveTo(px + off, ry); c2.lineTo(px + off, ry + 20); c2.stroke();
+    // stacked cumulus puffs, crowns breaking above the tile line
+    const puffs = [[8, 12, 12], [24, 6, 14], [38, 14, 11], [16, 26, 13], [34, 30, 12]];
+    for (let k = 0; k < puffs.length; k++) {
+      const hh = thash(tx * 7 + k * 3, ty * 5 + k);
+      const cx0 = px + puffs[k][0] + hh * 4 - 2, cy0 = py + puffs[k][1] - 8 + hh * 4;
+      c2.fillStyle = k % 2 ? '#e9eff8' : '#f6f9fd';
+      c2.beginPath(); c2.arc(cx0, cy0, puffs[k][2] + hh * 3, 0, 7); c2.fill();
     }
-    // gilded cap
-    c2.fillStyle = '#ffd76a';
-    c2.fillRect(px, py, TILE, 3.5);
-    c2.fillStyle = '#b8922e';
-    c2.fillRect(px, py + 3.5, TILE, 1.2);
-    // sun glints in the polish
-    if (h2 > 0.55) {
-      c2.strokeStyle = '#ffffffbb'; c2.lineWidth = 1.3;
-      c2.beginPath(); c2.moveTo(px + 8 + h * 12, py + 30); c2.lineTo(px + 20 + h * 12, py + 10); c2.stroke();
-    }
-    // cloud wisps clinging to the foot of the wall
-    if (floorBelow && h > 0.4) {
-      c2.fillStyle = '#ffffffcc';
-      const dx2 = Math.sin(G.time * 0.7 + tx) * 3;
-      c2.beginPath(); c2.ellipse(px + 12 + h2 * 18 + dx2, py + TILE - 2, 10, 4, 0, 0, 7); c2.fill();
-      c2.beginPath(); c2.ellipse(px + 26 + h3 * 10 + dx2, py + TILE + 1, 8, 3.4, 0, 0, 7); c2.fill();
-    }
+    // brilliant sunlit crown & shaded underbelly
+    c2.fillStyle = '#ffffff';
+    c2.beginPath(); c2.arc(px + 20 + h2 * 8, py - 2 - h * 8, 9, 0, 7); c2.fill();
+    c2.fillStyle = '#9aa4bcbb';
+    c2.beginPath(); c2.ellipse(px + TILE / 2, py + TILE - 4, 20, 6, 0, 0, 7); c2.fill();
+    // golden light kissing the top
+    c2.fillStyle = hexA('#ffd76a', 0.25 + h3 * 0.15);
+    c2.beginPath(); c2.arc(px + 12 + h3 * 20, py - 6 - h2 * 6, 5, 0, 7); c2.fill();
   } else if (deco === 'tech') {
     /* ---- riveted alloy bulkheads threaded with neon conduit ---- */
     const g = c2.createLinearGradient(px, py, px, py + TILE);
