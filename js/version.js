@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.28.0';
+const SANCTUARY_VERSION = '1.29.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.29.0', date: '2026-07-17', title: 'The hordes arrive',
+    notes: [
+      'Monster packs are three times as thick everywhere — the first field now swarms with sixty foes, deep realms muster nearly two hundred',
+      'The harder the realm, the bigger the horde: later worlds and every New Game+ lap pack still more monsters per stage',
+      'The secret pasture herd more than doubles, and rift guardians demand up to 60 kills before they emerge',
+      'Boss arenas stay clear — the tyrant meets you alone',
+    ],
+  },
   {
     v: '1.28.0', date: '2026-07-17', title: 'Terrain, not architecture',
     notes: [

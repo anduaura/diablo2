@@ -1083,8 +1083,12 @@ function genLevel(dlvl, riftMode) {
   for (let i = 1; i < rooms.length; i++) {
     const room = rooms[i];
     if (isBossFloor && room === exit) continue;         // boss room kept clear for the boss
-    let n = Math.min(riftMode ? 9 : 7, ri(2, 3) + Math.floor(dlvl / 3) + (riftMode ? 2 : 0));
-    if (curse && curse.count) n = Math.min(10, Math.round(n * curse.count));
+    if (monsters.length > 190) break;                   // hard ceiling keeps phones honest
+    // hordes: triple the old counts, and the harder the realm the thicker
+    // the packs — later worlds and NG+ laps add still more per room
+    let n = Math.min((riftMode ? 27 : 21) + wIdx + (G && G.ng ? 3 * G.ng : 0),
+      ri(6, 9) + dlvl + (riftMode ? 6 : 0));
+    if (curse && curse.count) n = Math.min(34, Math.round(n * curse.count));
     for (let k = 0; k < n; k++) {
       const t = wpick();
       const champ = Math.random() < (G && G.p.challenge === 'gauntlet' ? 0.5 : 0.08);
@@ -1287,7 +1291,8 @@ function enterRift(tier) {
   G.dlvl = depth;                        // drives monster & loot scaling
   G.rift = { tier, t: RIFT_TIME, elapsed: 0, kills: 0, need: 0, guardian: false, done: false };
   G.lvl = genLevel(depth, true);
-  G.rift.need = Math.min(30, Math.max(10, Math.floor(G.lvl.monsters.length * 0.75)));
+  // hordes made kills cheap — the guardian demands a bigger tithe
+  G.rift.need = Math.min(60, Math.max(15, Math.floor(G.lvl.monsters.length * 0.4)));
   G.projs = []; G.parts = []; G.texts = []; G.drops = []; G.rings = [];
   G.beams = []; G.meteors = []; G.clouds = []; G.onWp = false;
   G.minions = [];
@@ -1371,7 +1376,7 @@ function genCowLevel(depth, golden) {
   // the herd
   const { hp: scaleHp, dmg: scaleDmg, xp: scaleXp } = depthScales(depth);
   const monsters = [];
-  for (let i = 0; i < 52; i++) {
+  for (let i = 0; i < 120; i++) {   // the herd runs thick since the great tripling
     let mx, my, tries = 0;
     do {
       mx = ri(R.x + 1, R.x + R.w - 2); my = ri(R.y + 1, R.y + R.h - 2);
