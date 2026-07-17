@@ -48,9 +48,12 @@ python3 -m http.server 8000
   catacombs, drowned ruins, fungal depths, screaming sands, crystal
   hollows, blood gardens, the void — then up into **sky isles** among
   the clouds and a futuristic **chrome bastion** patrolled by rogue
-  machines; every realm has its own construction, scenery and exit, a
-  **mini-boss** sealing the stairs every 5th floor, and a unique
-  **dragon tyrant** with elemental breath waiting on floor 25; slay it
+  machines; every realm has its own construction, scenery, exit and
+  **light** — sunlit meadows and blinding sky isles against torch-lit
+  crypts — and its own way of travelling (press on across fields, leap
+  between isles, breach sectors — not "descend floors"); a
+  **mini-boss** seals the way every 5th stage, and a unique
+  **dragon tyrant** with elemental breath waits on stage 25; slay it
   to conquer the world and unlock the next realm's **gate** in town
 - **A living town** — merchant, stash, stable, rift obelisk, the world
   gates, and townsfolk: Elder Maro trades lore & hints, Sister Amara

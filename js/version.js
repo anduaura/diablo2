@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.26.0';
+const SANCTUARY_VERSION = '1.27.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.27.0', date: '2026-07-17', title: 'Worlds, not dungeons',
+    notes: [
+      'Open-air realms now sit in their own light: sunlit meadows, glaring dunes, blinding sky isles, ember-lit lava ridges — only the true underworlds keep their torch-lit gloom (town enjoys the fields\' daylight too)',
+      'You no longer "descend floors" everywhere: you press on across fields, leap between isles, cross ridges, breach sectors — every door, banner and waypoint speaks the world\'s own language',
+      'The top bar and waypoint list now name the leg of the journey: "Skyreach Isles · Isle 3/25", not "Floor 253"',
+    ],
+  },
   {
     v: '1.26.0', date: '2026-07-17', title: 'The boss aegis',
     notes: [

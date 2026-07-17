@@ -58,32 +58,38 @@ const DRAGONS = [
 /* five themed worlds, one per 5-floor arc (cycling after floor 25).
    pal: f = floor variants, w = wall, wt = wall highlight, m = mortar,
    acc = accent · deco picks the floor decoration set · flame = torch color */
+/* Each world is a PLACE, not a dungeon level: `stage` names one leg of
+   the journey (field, isle, sector…), `verb` is how you travel on, and
+   `dark`/`veil` set the ambient light — open-air realms bathe in daylight
+   while the true underworlds keep their torch-lit gloom. */
 const WORLDS = [
-  { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a',
+  { name: 'Verdant Fields', deco: 'flowers', flame: '#ffb03a', stage: 'Field', verb: 'Press on', dark: 0.3, veil: '14,22,10',
     pal: { f: ['#3d5a2e', '#446234', '#37522a'], w: '#4c5a3e', wt: '#66755a', m: '#242e1a', acc: '#d8b84a' } },
-  { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff',
+  { name: 'Frozen Tundra', deco: 'snow', flame: '#9adcff', stage: 'Expanse', verb: 'Push on', dark: 0.3, veil: '22,32,42',
     pal: { f: ['#aebdca', '#b6c5d2', '#a6b5c2'], w: '#6f9cc0', wt: '#b8d8ee', m: '#2f5a78', acc: '#bfe8ff' } },
-  { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a',
+  { name: 'Molten Caldera', deco: 'lava', flame: '#ff6a2a', stage: 'Ridge', verb: 'Cross', dark: 0.58, veil: '36,10,4',
     pal: { f: ['#2c2422', '#302826', '#282020'], w: '#221a18', wt: '#322624', m: '#100a08', acc: '#ff6a2a' } },
-  { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a',
+  { name: 'Plains of Undeath', deco: 'graves', flame: '#9adc8a', stage: 'Plain', verb: 'Wander on', dark: 0.74, veil: '8,10,6',
     pal: { f: ['#38323e', '#3c3642', '#342e3a'], w: '#2a2430', wt: '#38323e', m: '#120e16', acc: '#9adc8a' } },
-  { name: 'Drowned Abyss', deco: 'shells', flame: '#4ad4c8',
+  { name: 'Drowned Abyss', deco: 'shells', flame: '#4ad4c8', stage: 'Depth', verb: 'Sink', dark: 0.78, veil: '2,10,14',
     pal: { f: ['#1f3a42', '#234048', '#1b363e'], w: '#182e34', wt: '#24404a', m: '#0a161a', acc: '#4ad4c8' } },
-  { name: 'Fungal Depths', deco: 'spores', flame: '#6adfb8',
+  { name: 'Fungal Depths', deco: 'spores', flame: '#6adfb8', stage: 'Cavern', verb: 'Burrow down', dark: 0.8, veil: '4,10,8',
     pal: { f: ['#243430', '#283a34', '#20302c'], w: '#1a2824', wt: '#28403a', m: '#0c1512', acc: '#6adfb8' } },
-  { name: 'Screaming Sands', deco: 'sand', flame: '#ffcf6a',
+  { name: 'Screaming Sands', deco: 'sand', flame: '#ffcf6a', stage: 'Dune', verb: 'March on', dark: 0.32, veil: '44,32,12',
     pal: { f: ['#5a4c30', '#625434', '#52442c'], w: '#44381e', wt: '#5a4c2a', m: '#241c0e', acc: '#e8c05a' } },
-  { name: 'Crystal Hollows', deco: 'crystal', flame: '#c28aff',
+  { name: 'Crystal Hollows', deco: 'crystal', flame: '#c28aff', stage: 'Hollow', verb: 'Delve', dark: 0.76, veil: '10,4,18',
     pal: { f: ['#2e2440', '#332948', '#2a203a'], w: '#241c34', wt: '#342a48', m: '#100c1a', acc: '#c28aff' } },
-  { name: 'The Blood Gardens', deco: 'veins', flame: '#ff5a6a',
+  { name: 'The Blood Gardens', deco: 'veins', flame: '#ff5a6a', stage: 'Garden', verb: 'Prowl on', dark: 0.58, veil: '22,4,8',
     pal: { f: ['#3c1e22', '#422226', '#361a1e'], w: '#2c1418', wt: '#3e2026', m: '#160a0c', acc: '#ff5a6a' } },
-  { name: 'Nullvoid', deco: 'void', flame: '#8a9aff',
+  { name: 'Nullvoid', deco: 'void', flame: '#8a9aff', stage: 'Rift', verb: 'Drift on', dark: 0.86, veil: '3,2,10',
     pal: { f: ['#14141e', '#181824', '#10101a'], w: '#0e0e16', wt: '#1c1c2a', m: '#060609', acc: '#8a9aff' } },
-  { name: 'Skyreach Isles', deco: 'sky', flame: '#ffd76a',
+  { name: 'Skyreach Isles', deco: 'sky', flame: '#ffd76a', stage: 'Isle', verb: 'Leap', dark: 0.16, veil: '26,34,52',
     pal: { f: ['#a8c2d8', '#b0cade', '#9fbad2'], w: '#dde4ee', wt: '#f6f9fd', m: '#8a94ac', acc: '#ffd76a' } },
-  { name: 'The Chrome Bastion', deco: 'tech', flame: '#4affd4',
+  { name: 'The Chrome Bastion', deco: 'tech', flame: '#4affd4', stage: 'Sector', verb: 'Breach', dark: 0.56, veil: '4,10,14',
     pal: { f: ['#232830', '#282d36', '#1e232b'], w: '#343b46', wt: '#4a525e', m: '#12151a', acc: '#4affd4' } },
 ];
+/* "Isle 3" instead of "Floor 53" — how a place calls its own legs */
+const stageName = dlvl => WORLDS[worldOf(dlvl)].stage + ' ' + worldFloor(dlvl);
 // worlds no longer cycle: past the last arc the deepest world holds forever
 const worldOf = dlvl => dlvl <= 0 ? 0 : Math.min(Math.floor((dlvl - 1) / 25), WORLDS.length - 1);
 /* world sections: each realm is 25 floors deep. Mini-bosses seal the
@@ -2279,7 +2285,7 @@ function solvePuzzle() {
   if (ex) spark(ex.x * TILE + TILE / 2, ex.y * TILE + TILE / 2, '#ffd76a', 22, 240);
   spark(G.p.x, G.p.y - 12, '#ffd76a', 18, 220);
   G.rings.push({ x: G.p.x, y: G.p.y - 8, r: 8, max: 60, color: '#ffd76a', life: 0.4 });
-  banner('🗝 The exit seal shatters — the way down is open!');
+  banner('🗝 The exit seal shatters — the way onward is open!');
   sfx.level();
 }
 
@@ -2524,7 +2530,7 @@ function killMonster(m) {
   if (m.keyWarden) solvePuzzle();
   if (m.boss) {
     G.lvl.locked = false;
-    banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The stairs open…');
+    banner(m.type.id === 'cowking' ? 'The Cow King is slain! The herd falls silent…' : m.name + ' has fallen! The way onward opens…');
     sfx.boss();
     // conquering a world's boss opens the next world's gate in town
     if (m.type.id === 'dragon' && !G.rift && !G.cowLevel && worldFloor(G.dlvl) === 25) {
@@ -3270,10 +3276,10 @@ function enterLevel(dlvl, fresh, fromBelow) {
     G.world = worldOf(dlvl);
     const tierName = WORLDS[G.world].name;
     const wf = worldFloor(dlvl);
-    $('floorLabel').textContent = tierName + ' · ' + wf + '/25' + (G.ng ? ' · NG+' + G.ng : '');
+    $('floorLabel').textContent = tierName + ' · ' + WORLDS[G.world].stage + ' ' + wf + '/25' + (G.ng ? ' · NG+' + G.ng : '');
     banner(wf === 25 ? tierName + '  ⚠ THE TYRANT OF THIS REALM AWAITS ⚠'
-      : wf % 5 === 0 ? tierName + ' — ' + wf + '/25  ⚠ a great evil stirs…'
-        : tierName + ' — Floor ' + wf + '/25');
+      : wf % 5 === 0 ? tierName + ' — ' + WORLDS[G.world].stage + ' ' + wf + '  ⚠ a great evil stirs…'
+        : tierName + ' — ' + WORLDS[G.world].stage + ' ' + wf + ' of 25');
     if (wf % 5 === 0) sfx.boss(); else sfx.stairs();
     if (G.lvl.puzzle && !G.sealHint) {   // teach the exit seal once per session
       G.sealHint = true;
@@ -5262,7 +5268,11 @@ function drawWeather() {
 function drawLights() {
   lightCtx.setTransform(0.5, 0, 0, 0.5, 0, 0);
   lightCtx.globalCompositeOperation = 'source-over';
-  lightCtx.fillStyle = 'rgba(3,2,6,0.82)';
+  // ambience is the world's, not a dungeon's: meadows and isles sit in
+  // daylight, the crypts and the void keep their gloom. Town and the
+  // secret pasture share the fields' open sky.
+  const wAmb = G.cowLevel || G.dlvl === 0 ? WORLDS[0] : WORLDS[G.world];
+  lightCtx.fillStyle = `rgba(${wAmb.veil},${G.dlvl === 0 ? 0.26 : wAmb.dark})`;
   lightCtx.fillRect(0, 0, VW, VH);
   lightCtx.globalCompositeOperation = 'destination-out';
   const hole = (wx, wy, r, a) => {
@@ -8083,14 +8093,14 @@ function renderStairs() {
       </div>`;
   } else $('stairsPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">${leaving ? '🌀 Return to town?' : up ? '⬆ Climb back up?' : '⬇ Descend?'}</div>
+    <div class="ptitle">${leaving ? '🌀 Return to town?' : up ? `↩ Go back to the last ${WORLDS[G.world].stage.toLowerCase()}?` : `➜ ${WORLDS[G.world].verb} to the next ${WORLDS[G.world].stage.toLowerCase()}?`}</div>
     <div class="derived" style="text-align:center; font-size:14px">
       Still lying on this floor:<br><b style="color:#e8c14d">${bits.join(' · ')}</b><br>
       Loot left behind is lost forever.
     </div>
     <div class="invactions" style="margin-top:12px">
       <button class="smallbtn" data-stay>↩ Stay & collect</button>
-      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : up ? '⬆ Climb anyway' : '⬇ Descend anyway'}</button>
+      <button class="smallbtn" data-descend style="border-color:#d9c65a">${leaving ? '🌀 Leave anyway' : up ? '↩ Go back anyway' : `➜ ${WORLDS[G.world].verb} anyway`}</button>
     </div>`;
   const stay = () => {
     G.p.moveTo = null; G.p.path = null;
@@ -8402,11 +8412,11 @@ function renderRift() {
 function renderWp() {
   const dests = [0, ...G.waypoints.filter(w => w > 0).sort((a, b) => a - b)];
   const nameOf = d => d === 0 ? '⛺ Sanctuary Town'
-    : WORLDS[worldOf(d)].name + ' · Floor ' + worldFloor(d) + '/25';
+    : WORLDS[worldOf(d)].name + ' · ' + stageName(d) + '/25';
   const ret = G.anchor && G.anchor.dlvl !== G.dlvl
-    ? `<button class="smallbtn" data-portal-return style="border-color:#5ab0ff">🌀 Return through portal — Floor ${G.anchor.dlvl}</button>`
+    ? `<button class="smallbtn" data-portal-return style="border-color:#5ab0ff">🌀 Return through portal — ${stageName(G.anchor.dlvl)}</button>`
     : (G.portalFloor && G.portalFloor !== G.dlvl && !dests.includes(G.portalFloor)
-      ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to Floor ${G.portalFloor}</button>` : '');
+      ? `<button class="smallbtn" data-wp="${G.portalFloor}" style="border-color:#5ab0ff">🌀 Return to ${stageName(G.portalFloor)}</button>` : '');
   $('wpPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
     <div class="ptitle">🌀 Waypoint</div>
