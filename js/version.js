@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.22.0';
+const SANCTUARY_VERSION = '1.23.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.23.0', date: '2026-07-17', title: 'Death rejoins the game',
+    notes: [
+      'Life steal now caps at 15% total and heals at most a fifth of your life per hit — it sustains you, it no longer makes you unkillable',
+      'Monsters grow meaner with depth: later worlds scale harder, monster damage climbs faster, and New Game+ toughens every world more the deeper you go instead of a flat bonus',
+      'Challenge runs mean it: any active challenge hardens every monster (+25% life, +35% damage) on top of its own twist',
+      'The first world is untouched — new heroes feel no difference',
+    ],
+  },
   {
     v: '1.22.0', date: '2026-07-17', title: 'Exit seals',
     notes: [
