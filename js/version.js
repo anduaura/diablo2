@@ -3,11 +3,17 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.32.0';
+const SANCTUARY_VERSION = '1.32.1';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.32.1', date: '2026-07-18', title: 'Banners fit the screen',
+    notes: [
+      'Long announcement banners (floor names, curses, quest updates) now wrap onto multiple lines instead of running off the edges of the screen on phones',
+    ],
+  },
   {
     v: '1.32.0', date: '2026-07-18', title: 'The skill tree grows deep',
     notes: [
