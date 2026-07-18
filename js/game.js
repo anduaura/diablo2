@@ -1331,20 +1331,27 @@ function genLevel(dlvl, riftMode) {
 
   // exit seal: on every ordinary floor the end door is locked behind a
   // small puzzle — rune stones tapped in order, a crystal song to echo,
-  // linked levers to set upright, or a Key Warden to hunt down. Boss
-  // floors keep their guardian lock instead.
+  // linked levers to set upright, a Key Warden to hunt down, braziers to
+  // keep burning at once, twin orbs to pair up, or a restless wisp to
+  // catch. Boss floors keep their guardian lock instead.
   let puzzle = null;
   if (!riftMode && G && !isBossFloor) {
-    const kind = ri(0, 3);
+    const kind = ri(0, 6);
     const prooms = rooms.filter(r => r !== r0 && r !== exit);
-    // a random open tile inside a room, in world px
-    const spot = room => {
-      for (let t = 0; t < 12; t++) {
-        const x = ri(room.x + 1, room.x + room.w - 2), y = ri(room.y + 1, room.y + room.h - 2);
+    // a random open tile inside a rect of a room, in world px
+    const spotIn = (x0, y0, x1, y1) => {
+      for (let t = 0; t < 14; t++) {
+        const x = ri(x0, x1), y = ri(y0, y1);
         if (map[y][x] === T_FLOOR && !propSet.has(y * MAP_W + x))
           return { x: x * TILE + TILE / 2, y: y * TILE + TILE / 2 };
       }
       return null;
+    };
+    const spot = room => spotIn(room.x + 1, room.y + 1, room.x + room.w - 2, room.y + room.h - 2);
+    // a roomy room for puzzles that need space to breathe
+    const bigRoom = () => {
+      const big = prooms.filter(r => r.w >= 7 && r.h >= 6);
+      return big.length ? choice(big) : (prooms.length ? choice(prooms) : null);
     };
     if (kind === 0 && prooms.length) {          // rune stones, tapped I → IV
       const order = [1, 2, 3, 4];
@@ -1374,6 +1381,41 @@ function genLevel(dlvl, riftMode) {
         const flip = i => { for (let j = Math.max(0, i - 1); j <= Math.min(2, i + 1); j++) on[j] = !on[j]; };
         while (on[0] && on[1] && on[2]) for (let k = 0; k < ri(1, 3); k++) flip(ri(0, 2));
         puzzle = { kind: 2, solved: false, levers: on.map((v, i) => ({ x: s.x + (i - 1) * 46, y: s.y, on: v })) };
+      }
+    } else if (kind === 4 && prooms.length) {   // braziers: all four must burn at once
+      const room = bigRoom();
+      if (room) {
+        const mx = room.x + Math.floor(room.w / 2), my = room.y + Math.floor(room.h / 2);
+        const quads = [
+          [room.x + 1, room.y + 1, mx, my], [mx, room.y + 1, room.x + room.w - 2, my],
+          [room.x + 1, my, mx, room.y + room.h - 2], [mx, my, room.x + room.w - 2, room.y + room.h - 2],
+        ];
+        const braziers = [];
+        for (const q of quads) {
+          const s = spotIn(q[0], q[1], q[2], q[3]) || spot(room);
+          if (s) braziers.push({ x: s.x, y: s.y, lit: 0 });
+        }
+        if (braziers.length === 4) puzzle = { kind: 4, solved: false, braziers, burn: 8 };
+      }
+    } else if (kind === 5 && prooms.length) {   // twin orbs: match the pairs from memory
+      const s = spot(choice(prooms));
+      if (s) {
+        const cs = [0, 0, 1, 1, 2, 2];
+        for (let i = cs.length - 1; i > 0; i--) { const j = ri(0, i); [cs[i], cs[j]] = [cs[j], cs[i]]; }
+        const orbs = cs.map((c, i) => ({
+          x: s.x + (i % 3 - 1) * 46, y: s.y + (i < 3 ? -22 : 20), c, st: 0,
+        }));
+        puzzle = { kind: 5, solved: false, px: s.x, py: s.y, orbs, pick: -1, hideT: 0 };
+      }
+    } else if (kind === 6 && prooms.length) {   // the restless wisp flits about a room
+      const room = bigRoom();
+      const s = room && spot(room);
+      if (s) {
+        puzzle = {
+          kind: 6, solved: false, wx: s.x, wy: s.y, tx: s.x, ty: s.y,
+          bx0: room.x + 1, by0: room.y + 1, bx1: room.x + room.w - 2, by1: room.y + room.h - 2,
+          hits: 0, need: 3, retarget: 0,
+        };
       }
     } else if (prooms.length) {                 // the Key Warden roams the floor
       const room = choice(prooms);
@@ -2437,12 +2479,16 @@ function updateWonders(dt) {
 /* ---------------- exit seals ----------------
    Every ordinary floor locks its end door behind a small puzzle; solving
    it forges the exit key. 0 rune stones · 1 singing crystals · 2 ancient
-   levers · 3 Key Warden (solved from killMonster). */
+   levers · 3 Key Warden (solved from killMonster) · 4 braziers ·
+   5 twin orbs · 6 restless wisp. */
 const SEAL_HINTS = [
   '🔒 Sealed — wake the four rune stones in order, I to IIII',
   '🔒 Sealed — echo the singing crystals\' song',
   '🔒 Sealed — set every ancient lever upright',
   '🔒 Sealed — the Key Warden roams this floor with the key',
+  '🔒 Sealed — all four braziers must burn at once',
+  '🔒 Sealed — pair the twin orbs, two by two',
+  '🔒 Sealed — catch the restless wisp, three times',
 ];
 const CRYSTAL_COLORS = ['#ff6a5a', '#5ab0ff', '#7adf6a', '#e8c14d'];
 const CRYSTAL_NOTES = [392, 523, 659, 784];
@@ -2462,25 +2508,67 @@ function solvePuzzle() {
 
 function updatePuzzle(dt) {
   const pz = G.lvl.puzzle;
-  if (!pz || pz.solved || pz.kind !== 1) return;
-  pz.flashT = Math.max(0, pz.flashT - dt);
-  if (pz.showing) {
-    pz.t -= dt;
-    if (pz.t <= 0) {
-      if (pz.showIdx >= pz.seq.length) { pz.showing = false; pz.cd = 5; }
-      else {
-        pz.flash = pz.seq[pz.showIdx];
-        pz.flashT = 0.42;
-        blip(CRYSTAL_NOTES[pz.flash], 0.3, 'sine', 0.05, 0);
-        pz.showIdx++;
-        pz.t = 0.6;
+  if (!pz || pz.solved) return;
+  if (pz.kind === 1) {
+    pz.flashT = Math.max(0, pz.flashT - dt);
+    if (pz.showing) {
+      pz.t -= dt;
+      if (pz.t <= 0) {
+        if (pz.showIdx >= pz.seq.length) { pz.showing = false; pz.cd = 5; }
+        else {
+          pz.flash = pz.seq[pz.showIdx];
+          pz.flashT = 0.42;
+          blip(CRYSTAL_NOTES[pz.flash], 0.3, 'sine', 0.05, 0);
+          pz.showIdx++;
+          pz.t = 0.6;
+        }
+      }
+    } else {
+      // the pedestal sings its riddle whenever an untangled hero draws near
+      pz.cd = Math.max(0, pz.cd - dt);
+      if (pz.cd <= 0 && pz.progress === 0 && dist(G.p.x, G.p.y, pz.px, pz.py) < 300) {
+        pz.showing = true; pz.showIdx = 0; pz.t = 0.4;
       }
     }
-  } else {
-    // the pedestal sings its riddle whenever an untangled hero draws near
-    pz.cd = Math.max(0, pz.cd - dt);
-    if (pz.cd <= 0 && pz.progress === 0 && dist(G.p.x, G.p.y, pz.px, pz.py) < 300) {
-      pz.showing = true; pz.showIdx = 0; pz.t = 0.4;
+  } else if (pz.kind === 4) {
+    // lit braziers burn down; an expired flame gutters out
+    for (const b of pz.braziers) {
+      if (b.lit <= 0) continue;
+      b.lit -= dt;
+      if (b.lit <= 0) {
+        b.lit = 0;
+        spark(b.x, b.y - 16, '#8a8078', 6, 90);
+        blip(140, 0.15, 'sine', 0.04, -60);
+        ftext(b.x, b.y - 32, 'the flame gutters out…', '#c9b98a', 11);
+      }
+    }
+  } else if (pz.kind === 5) {
+    // a mismatched pair lingers a beat, then both go dark again
+    if (pz.hideT > 0) {
+      pz.hideT -= dt;
+      if (pz.hideT <= 0) {
+        pz.hideT = 0;
+        for (const o of pz.orbs) if (o.st === 1) o.st = 0;
+        pz.pick = -1;
+      }
+    }
+  } else if (pz.kind === 6) {
+    // the wisp flits between spots in its room, quicker each time it's caught
+    pz.retarget -= dt;
+    const d = dist(pz.wx, pz.wy, pz.tx, pz.ty);
+    if (pz.retarget <= 0 || d < 8) {
+      for (let t = 0; t < 10; t++) {
+        const x = ri(pz.bx0, pz.bx1), y = ri(pz.by0, pz.by1);
+        if (tileAt(x, y) !== T_FLOOR) continue;
+        pz.tx = x * TILE + TILE / 2; pz.ty = y * TILE + TILE / 2;
+        break;
+      }
+      pz.retarget = rand(1.0, 2.2);
+    }
+    if (d > 2) {
+      const spd = 78 + pz.hits * 26;
+      pz.wx += (pz.tx - pz.wx) / d * spd * dt;
+      pz.wy += (pz.ty - pz.wy) / d * spd * dt;
     }
   }
 }
@@ -2544,6 +2632,67 @@ function puzzleTap(w) {
       blip(220, 0.1, 'square', 0.05, -80);
       spark(lv.x, lv.y - 10, '#c9b98a', 6, 120);
       if (pz.levers.every(l2 => l2.on)) solvePuzzle();
+      return true;
+    }
+  } else if (pz.kind === 4) {
+    for (const b of pz.braziers) {
+      if (dist(w.x, w.y, b.x, b.y - 10) > 30) continue;
+      if (dist(p.x, p.y, b.x, b.y) > 95) return go(b.x, b.y);
+      b.lit = pz.burn;
+      spark(b.x, b.y - 18, '#ff8a3a', 12, 160);
+      blip(330, 0.15, 'sine', 0.05, 80);
+      const burning = pz.braziers.filter(b2 => b2.lit > 0).length;
+      if (burning >= pz.braziers.length) solvePuzzle();
+      else ftext(b.x, b.y - 34, burning + ' / ' + pz.braziers.length + ' alight', '#ffc46a', 12);
+      return true;
+    }
+  } else if (pz.kind === 5) {
+    for (let i = 0; i < pz.orbs.length; i++) {
+      const o = pz.orbs[i];
+      if (dist(w.x, w.y, o.x, o.y - 6) > 24) continue;
+      if (dist(p.x, p.y, o.x, o.y) > 95) return go(o.x, o.y);
+      // a lingering mismatch clears the moment a new orb is touched
+      if (pz.hideT > 0) {
+        pz.hideT = 0;
+        for (const o2 of pz.orbs) if (o2.st === 1) o2.st = 0;
+        pz.pick = -1;
+      }
+      if (o.st !== 0) return true;
+      o.st = 1;
+      blip(CRYSTAL_NOTES[o.c], 0.22, 'sine', 0.05, 0);
+      if (pz.pick < 0) { pz.pick = i; return true; }
+      const first = pz.orbs[pz.pick];
+      if (first.c === o.c) {
+        first.st = 2; o.st = 2; pz.pick = -1;
+        spark(o.x, o.y - 8, CRYSTAL_COLORS[o.c], 10, 150);
+        spark(first.x, first.y - 8, CRYSTAL_COLORS[o.c], 10, 150);
+        if (pz.orbs.every(o2 => o2.st === 2)) solvePuzzle();
+        else ftext(o.x, o.y - 30, 'a pair!', '#7adf6a', 12);
+      } else {
+        pz.hideT = 0.85;
+        ftext(o.x, o.y - 30, 'no twin — they fade…', '#ff8a7a', 12);
+        sfx.hurt();
+      }
+      return true;
+    }
+  } else if (pz.kind === 6) {
+    if (dist(w.x, w.y, pz.wx, pz.wy - 8) < 34) {
+      if (dist(p.x, p.y, pz.wx, pz.wy) > 120) return go(pz.wx, pz.wy);
+      pz.hits++;
+      spark(pz.wx, pz.wy - 8, '#8fe8ff', 14, 180);
+      blip(520 + pz.hits * 120, 0.2, 'sine', 0.05, 100);
+      if (pz.hits >= pz.need) { solvePuzzle(); return true; }
+      ftext(pz.wx, pz.wy - 28, (pz.need - pz.hits) + ' more…', '#8fe8ff', 12);
+      // it slips away — darts to a far corner of its room
+      for (let t = 0; t < 14; t++) {
+        const x = ri(pz.bx0, pz.bx1), y = ri(pz.by0, pz.by1);
+        if (tileAt(x, y) !== T_FLOOR) continue;
+        const nx = x * TILE + TILE / 2, ny = y * TILE + TILE / 2;
+        if (dist(nx, ny, p.x, p.y) < 110) continue;
+        pz.wx = nx; pz.wy = ny; pz.tx = nx; pz.ty = ny;
+        break;
+      }
+      pz.retarget = rand(0.8, 1.4);
       return true;
     }
   }
@@ -2624,6 +2773,86 @@ function drawPuzzle() {
     ctx.beginPath(); ctx.moveTo(m.x, ky); ctx.lineTo(m.x, ky + 10); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(m.x, ky + 9); ctx.lineTo(m.x + 4, ky + 9); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(m.x, ky + 5); ctx.lineTo(m.x + 3, ky + 5); ctx.stroke();
+  } else if (pz.kind === 4) {
+    for (const b of pz.braziers) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(b.x, b.y + 4, 11, 5, 0, 0, 7); ctx.fill();
+      // iron bowl on a stout stem
+      ctx.fillStyle = '#3c3833';
+      ctx.fillRect(b.x - 3, b.y - 10, 6, 14);
+      ctx.fillRect(b.x - 8, b.y + 2, 16, 3);
+      ctx.fillStyle = '#565048';
+      ctx.beginPath();
+      ctx.moveTo(b.x - 11, b.y - 16); ctx.lineTo(b.x + 11, b.y - 16);
+      ctx.lineTo(b.x + 7, b.y - 7); ctx.lineTo(b.x - 7, b.y - 7);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.2; ctx.stroke();
+      if (b.lit > 0 && !pz.solved) {
+        // the flame shrinks as it burns down — a visible fuse
+        const h = 8 + 12 * Math.min(1, b.lit / 3) + Math.sin(G.time * 13 + b.x) * 2;
+        ctx.fillStyle = '#ff8a3a';
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y - 18 - h);
+        ctx.quadraticCurveTo(b.x + 7, b.y - 22, b.x, b.y - 15);
+        ctx.quadraticCurveTo(b.x - 7, b.y - 22, b.x, b.y - 18 - h);
+        ctx.fill();
+        ctx.fillStyle = '#ffd76a';
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y - 18 - h * 0.55);
+        ctx.quadraticCurveTo(b.x + 3.5, b.y - 20, b.x, b.y - 16);
+        ctx.quadraticCurveTo(b.x - 3.5, b.y - 20, b.x, b.y - 18 - h * 0.55);
+        ctx.fill();
+      } else if (pz.solved) {
+        ctx.fillStyle = '#ffd76a';
+        ctx.beginPath(); ctx.arc(b.x, b.y - 21, 4, 0, 7); ctx.fill();
+      } else {
+        // cold coals with a faint waiting glimmer
+        ctx.fillStyle = `rgba(255,138,58,${0.25 * pulse})`;
+        ctx.beginPath(); ctx.arc(b.x, b.y - 18, 4, 0, 7); ctx.fill();
+      }
+    }
+  } else if (pz.kind === 5) {
+    for (const o of pz.orbs) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + 3, 9, 4, 0, 0, 7); ctx.fill();
+      // stone cradle
+      ctx.fillStyle = '#4e4a44';
+      ctx.fillRect(o.x - 7, o.y - 3, 14, 6);
+      const shown = o.st !== 0 || pz.solved;
+      ctx.fillStyle = shown ? CRYSTAL_COLORS[o.c] : '#5c564e';
+      ctx.beginPath(); ctx.arc(o.x, o.y - 10, 8, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.2; ctx.stroke();
+      if (shown) {
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.arc(o.x - 2.5, o.y - 12.5, 2.5, 0, 7); ctx.fill();
+        if (o.st === 2 && !pz.solved) {
+          ctx.fillStyle = `rgba(255,255,255,${0.12 * pulse})`;
+          ctx.beginPath(); ctx.arc(o.x, o.y - 10, 13, 0, 7); ctx.fill();
+        }
+      } else {
+        // a faint rune sleeps on the dark shell
+        ctx.strokeStyle = '#8a8078'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y - 15); ctx.lineTo(o.x, o.y - 8);
+        ctx.moveTo(o.x - 3, o.y - 13); ctx.lineTo(o.x + 3, o.y - 11);
+        ctx.stroke();
+      }
+    }
+  } else if (pz.kind === 6) {
+    const bob = Math.sin(G.time * 4) * 3;
+    const wy = pz.wy - 14 + bob;
+    ctx.fillStyle = `rgba(143,232,255,${0.14 + 0.08 * pulse})`;
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 15, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(143,232,255,${0.4 + 0.2 * pulse})`;
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 8, 0, 7); ctx.fill();
+    ctx.fillStyle = '#eafcff';
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 3.5, 0, 7); ctx.fill();
+    // two motes trail the light on fixed orbits
+    for (let k = 0; k < 2; k++) {
+      const a = G.time * (2.4 + k) + k * 2.7;
+      ctx.fillStyle = 'rgba(143,232,255,0.7)';
+      ctx.beginPath(); ctx.arc(pz.wx + Math.cos(a) * 12, wy + Math.sin(a) * 7, 1.6, 0, 7); ctx.fill();
+    }
   }
 }
 
@@ -5727,6 +5956,9 @@ function drawLights() {
     if (pzl.kind === 0) for (const st of pzl.stones) hole(st.x, st.y - 12, 70, 0.7);
     else if (pzl.kind === 1) hole(pzl.px, pzl.py - 10, 110, 0.8);
     else if (pzl.kind === 2) hole(pzl.levers[1].x, pzl.levers[1].y - 8, 95, 0.75);
+    else if (pzl.kind === 4) for (const b of pzl.braziers) hole(b.x, b.y - 14, b.lit > 0 ? 100 : 55, b.lit > 0 ? 0.85 : 0.5);
+    else if (pzl.kind === 5) hole(pzl.px, pzl.py - 8, 110, 0.75);
+    else if (pzl.kind === 6) hole(pzl.wx, pzl.wy - 14, 85, 0.8);
   }
   if (G.lvl.crack && !G.lvl.crack.open) hole(G.lvl.crack.tx * TILE + TILE / 2, G.lvl.crack.ty * TILE + TILE / 2, 55, 0.4);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
@@ -8406,7 +8638,9 @@ function drawMinimap() {
   // discovered exit-seal pieces glow cyan so a found puzzle is never lost again
   const pzm = G.lvl.puzzle;
   if (pzm && !pzm.solved) {
-    const spots = pzm.kind === 0 ? pzm.stones : pzm.kind === 1 ? [{ x: pzm.px, y: pzm.py }] : pzm.kind === 2 ? [pzm.levers[1]] : [];
+    const spots = pzm.kind === 0 ? pzm.stones : pzm.kind === 1 || pzm.kind === 5 ? [{ x: pzm.px, y: pzm.py }]
+      : pzm.kind === 2 ? [pzm.levers[1]] : pzm.kind === 4 ? pzm.braziers
+        : pzm.kind === 6 ? [{ x: pzm.wx, y: pzm.wy }] : [];
     for (const sp2 of spots) {
       const tx3 = Math.floor(sp2.x / TILE), ty3 = Math.floor(sp2.y / TILE);
       if (!G.lvl.seen[ty3 * MAP_W + tx3]) continue;
@@ -9917,4 +10151,5 @@ window.__sanctuary = {
   enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
   killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES, ASCENSIONS,
   CHALLENGES, showVictory, loadBadges, fusableGroups, makeSetPiece,
+  puzzleTap, updatePuzzle, solvePuzzle,
 };
