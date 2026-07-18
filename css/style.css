@@ -51,7 +51,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   font-size:clamp(17px, 4.5vw, 26px); color:#e8d9a8; letter-spacing:2px;
   text-shadow:0 0 14px #000, 0 2px 3px #000;
   background:linear-gradient(90deg, transparent, #00000090 20%, #00000090 80%, transparent);
-  animation:bannerFade 2.8s ease forwards; white-space:nowrap;
+  animation:bannerFade 2.8s ease forwards;
+  /* size to content but never past the screen — long floor announcements
+     wrap instead of running off both edges on phones */
+  box-sizing:border-box; width:max-content; max-width:96vw; line-height:1.35;
 }
 @keyframes bannerFade { 0%{opacity:0} 12%{opacity:1} 75%{opacity:1} 100%{opacity:0} }
 
@@ -371,6 +374,7 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   padding:10px 16px; font-family:Georgia, serif; font-size:13px;
   z-index:60; cursor:pointer; box-shadow:0 4px 18px #000c;
   animation:toastIn 0.4s ease-out;
+  box-sizing:border-box; max-width:92vw; text-align:center;
 }
 @keyframes toastIn { from { opacity:0; transform:translate(-50%, 16px); } to { opacity:1; transform:translate(-50%, 0); } }
 #changelogPanel { z-index:35; }   /* readable over the z-30 menu screen */

@@ -3,17 +3,32 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.31.2';
+const SANCTUARY_VERSION = '1.32.2';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
   {
-    v: '1.31.2', date: '2026-07-18', title: 'Second wind — more speed',
+    v: '1.32.2', date: '2026-07-18', title: 'Second wind — more speed',
     notes: [
       'The darkness-and-torchlight layer renders at a fraction of its old cost, and the screen composites without wasted blending work',
       'While you stand your ground in a fight, the whole tile floor collapses into a single cached image instead of hundreds of draws per frame',
       'Particle storms from big battles are now bounded, so even the wildest meteor-and-multishot brawls cannot snowball the frame time',
+    ],
+  },
+  {
+    v: '1.32.1', date: '2026-07-18', title: 'Banners fit the screen',
+    notes: [
+      'Long announcement banners (floor names, curses, quest updates) now wrap onto multiple lines instead of running off the edges of the screen on phones',
+    ],
+  },
+  {
+    v: '1.32.0', date: '2026-07-18', title: 'The skill tree grows deep',
+    notes: [
+      'Skills now rank up to 15: ranks past 10 unlock with hero level — rank 11 at level 45, one more every 5 levels',
+      'Every class gains four new passives, unlocking at levels 15, 25, 35 and 45: armor, crit, hybrid power and a new cooldown-reduction line',
+      'Transcendence, the endless capstone: from level 60, pour any spare points into +1% damage & +1% life per rank — forever',
+      'Old heroes keep every point they\'ve placed; banked skill points finally have somewhere to go',
     ],
   },
   {
