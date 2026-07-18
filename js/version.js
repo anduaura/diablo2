@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.31.1';
+const SANCTUARY_VERSION = '1.31.2';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.31.2', date: '2026-07-18', title: 'Second wind — more speed',
+    notes: [
+      'The darkness-and-torchlight layer renders at a fraction of its old cost, and the screen composites without wasted blending work',
+      'While you stand your ground in a fight, the whole tile floor collapses into a single cached image instead of hundreds of draws per frame',
+      'Particle storms from big battles are now bounded, so even the wildest meteor-and-multishot brawls cannot snowball the frame time',
+    ],
+  },
   {
     v: '1.31.1', date: '2026-07-18', title: 'Lightning-fast under the horde',
     notes: [

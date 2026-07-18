@@ -686,7 +686,9 @@ const UNIQUES = [
 
 /* ---------------- DOM refs ---------------- */
 const $ = id => document.getElementById(id);
-const cvs = $('game'), ctx = cvs.getContext('2d');
+// the world fills every pixel each frame, so an opaque backing store lets
+// the compositor skip blending the canvas against the page
+const cvs = $('game'), ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
 const mmCvs = $('minimap'), mmCtx = mmCvs.getContext('2d');
 const lightCvs = document.createElement('canvas'), lightCtx = lightCvs.getContext('2d');
 const holeSpr = document.createElement('canvas');
@@ -706,7 +708,7 @@ function resize() {
   VW = window.innerWidth; VH = window.innerHeight;
   cvs.width = VW * DPR; cvs.height = VH * DPR;
   cvs.style.width = VW + 'px'; cvs.style.height = VH + 'px';
-  lightCvs.width = Math.ceil(VW * 0.5); lightCvs.height = Math.ceil(VH * 0.5);   // darkness is soft — half res is invisible, quarter the pixels
+  lightCvs.width = Math.ceil(VW * 0.25); lightCvs.height = Math.ceil(VH * 0.25);   // darkness is soft gradients — quarter res is invisible, 1/16th the pixels
   mmCvs.width = 124 * DPR; mmCvs.height = 124 * DPR;
   ZOOM = clamp(Math.min(VW, VH) / 560, 1.0, 1.7);
 }
@@ -3970,25 +3972,40 @@ function chaseStep(m, mspd, dt, T) {
 
 function updateWorldFx(dt) {
   G.shakeT = Math.max(0, (G.shakeT || 0) - dt);
-  for (let i = G.parts.length - 1; i >= 0; i--) {
-    const q = G.parts[i];
+  // single-pass compaction: no per-death splice churn
+  const parts = G.parts;
+  // a mass-battle safety valve — shed the oldest embers past the cap
+  if (parts.length > 700) parts.splice(0, parts.length - 700);
+  let w = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const q = parts[i];
     q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 260 * dt; q.life -= dt;
-    if (q.life <= 0) G.parts.splice(i, 1);
+    if (q.life > 0) parts[w++] = q;
   }
-  for (let i = G.texts.length - 1; i >= 0; i--) {
-    const t = G.texts[i];
+  parts.length = w;
+  const texts = G.texts;
+  w = 0;
+  for (let i = 0; i < texts.length; i++) {
+    const t = texts[i];
     t.y += t.vy * dt; t.life -= dt * 0.9;
-    if (t.life <= 0) G.texts.splice(i, 1);
+    if (t.life > 0) texts[w++] = t;
   }
-  for (let i = G.rings.length - 1; i >= 0; i--) {
-    const r = G.rings[i];
+  texts.length = w;
+  const rings = G.rings;
+  w = 0;
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
     r.life -= dt;
-    if (r.life <= 0) G.rings.splice(i, 1);
+    if (r.life > 0) rings[w++] = r;
   }
-  for (let i = G.beams.length - 1; i >= 0; i--) {
-    G.beams[i].life -= dt;
-    if (G.beams[i].life <= 0) G.beams.splice(i, 1);
+  rings.length = w;
+  const beams = G.beams;
+  w = 0;
+  for (let i = 0; i < beams.length; i++) {
+    beams[i].life -= dt;
+    if (beams[i].life > 0) beams[w++] = beams[i];
   }
+  beams.length = w;
 }
 
 function setMoveTarget(wx, wy) {
@@ -4758,7 +4775,7 @@ const tileCache = new Map();
 const ANIM_WALL_DECO = new Set(['lava', 'shells', 'spores', 'crystal', 'veins', 'void', 'tech']);
 const ANIM_FLOOR_DECO = new Set(['lava', 'shells', 'spores', 'crystal', 'veins', 'void', 'sky', 'tech']);
 let tileRepaintBudget = 0;   // animated repaints allowed this frame (reset in render)
-function blitTile(kind, deco, px, py, tx, ty, pal, floorBelow) {
+function blitTile(kind, deco, px, py, tx, ty, pal, floorBelow, tc) {
   const key = kind + deco + ((tx & 7) * 8 + (ty & 7)) + (floorBelow ? 'f' : '');
   let e = tileCache.get(key);
   let paint = false;
@@ -4782,9 +4799,177 @@ function blitTile(kind, deco, px, py, tx, ty, pal, floorBelow) {
     if (kind === 'w') drawWallTile(deco, TPAD_X, TPAD_TOP, btx, bty, h, pal, floorBelow, e.c2);
     else drawFloorTile(deco, TPAD_X, TPAD_TOP, btx, bty, h, pal, e.c2);
   }
-  ctx.drawImage(e.cv, px - TPAD_X, py - TPAD_TOP);
+  (tc || ctx).drawImage(e.cv, px - TPAD_X, py - TPAD_TOP);
 }
-tileCacheClear = () => tileCache.clear();
+tileCacheClear = () => { tileCache.clear(); tlKey = ''; tlPrev = ''; };
+
+/* one pass over the visible tile grid, drawn into `tc` — the main ctx
+   while the camera moves, or the stationary-camera cache canvas. Waypoint
+   and exit tiles animate every frame, so they are only collected into
+   `spots` here and stamped live on top of whichever path ran. */
+function drawTileLayer(tc, x0, x1, y0, y1, wrld, pal, bossGate, spots) {
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
+    if (t === T_WALL) {
+      // prop tiles are walls for physics but painted as open ground —
+      // the prop itself is drawn y-sorted among the entities
+      if (G.lvl.propSet && G.lvl.propSet.has(ty * MAP_W + tx)) {
+        blitTile('f', wrld.deco, px, py, tx, ty, pal, false, tc);
+        continue;
+      }
+      // only draw walls bordering floor (rest stays black)
+      let border = false;
+      for (let dy = -1; dy <= 1 && !border; dy++) for (let dx = -1; dx <= 1; dx++)
+        if (tileAt(tx + dx, ty + dy) >= T_FLOOR) { border = true; break; }
+      if (!border) continue;
+      const pillar = walkable(tx - 1, ty) && walkable(tx + 1, ty) && walkable(tx, ty - 1) && walkable(tx, ty + 1);
+      if (pillar) {
+        // free-standing column on a floor base
+        tc.fillStyle = pal.f[Math.floor(h * 3) % 3];
+        tc.fillRect(px, py, TILE, TILE);
+        tc.fillStyle = '#00000066';
+        tc.beginPath(); tc.ellipse(px + TILE / 2, py + TILE - 8, 15, 6, 0, 0, 7); tc.fill();
+        tc.fillStyle = pal.wt;
+        tc.fillRect(px + 8, py + TILE - 14, TILE - 16, 8);
+        const cg = tc.createLinearGradient(px + 11, 0, px + TILE - 11, 0);
+        cg.addColorStop(0, pal.m); cg.addColorStop(0.4, pal.wt); cg.addColorStop(1, pal.m);
+        tc.fillStyle = cg;
+        tc.fillRect(px + 11, py - 16, TILE - 22, TILE + 2);
+        tc.fillStyle = pal.wt;
+        tc.fillRect(px + 7, py - 22, TILE - 14, 7);
+        tc.fillStyle = '#00000044';
+        tc.fillRect(px + 11, py - 15, TILE - 22, 3);
+      } else {
+        blitTile('w', wrld.deco, px, py, tx, ty, pal, tileAt(tx, ty + 1) >= T_FLOOR, tc);
+      }
+    } else {
+      blitTile('f', wrld.deco, px, py, tx, ty, pal, false, tc);
+      if (h > 0.9) { // per-world floor decoration
+        const cx3 = px + TILE * 0.5, cy3 = py + TILE * 0.55;
+        if (wrld.deco === 'flowers') {
+          tc.strokeStyle = '#4a6a34'; tc.lineWidth = 1.2;
+          for (let k = 0; k < 3; k++) {
+            tc.beginPath(); tc.moveTo(cx3 - 4 + k * 4, cy3 + 4); tc.lineTo(cx3 - 6 + k * 4 + h * 4, cy3 - 4); tc.stroke();
+          }
+          if (h > 0.95) {
+            tc.fillStyle = ['#d8b84a', '#c86a8a', '#e8e4da'][Math.floor(h * 40) % 3];
+            tc.fillRect(cx3 - 1, cy3 - 6, 2.6, 2.6);
+          }
+        } else if (wrld.deco === 'snow') {
+          tc.fillStyle = '#c8d2dc';
+          tc.beginPath(); tc.ellipse(cx3, cy3, 9 + h * 8, 5, h * 3, 0, 7); tc.fill();
+          tc.fillStyle = '#e8f0f8';
+          tc.fillRect(cx3 - 1 + h * 6, cy3 - 1, 2, 2);
+        } else if (wrld.deco === 'lava') {
+          tc.fillStyle = '#1a1210';
+          tc.beginPath(); tc.ellipse(cx3, cy3, 6, 4, h, 0, 7); tc.fill();
+          tc.fillStyle = '#ff6a2a';
+          tc.fillRect(cx3 - 1, cy3 - 1, 2.2, 2.2);
+        } else if (wrld.deco === 'graves') {
+          if (h > 0.955) {   // leaning tombstone
+            tc.fillStyle = '#6a6472';
+            tc.fillRect(cx3 - 5, cy3 - 10, 10, 12);
+            tc.beginPath(); tc.arc(cx3, cy3 - 10, 5, Math.PI, 0); tc.fill();
+            tc.fillStyle = '#514b59';
+            tc.fillRect(cx3 - 3, cy3 - 8, 6, 1.6);
+            tc.fillRect(cx3 - 3, cy3 - 5, 4.5, 1.4);
+          } else {   // scattered bones
+            tc.fillStyle = '#b8ab8f';
+            tc.fillRect(cx3 - 6, cy3 - 2, 9, 2.4);
+            tc.fillRect(cx3 - 1, cy3 + 1, 6, 2);
+          }
+        } else if (wrld.deco === 'spores') {   // glowing mushrooms
+          tc.strokeStyle = '#3a5248'; tc.lineWidth = 1.6;
+          tc.beginPath(); tc.moveTo(cx3, cy3 + 3); tc.lineTo(cx3, cy3 - 4); tc.stroke();
+          tc.fillStyle = '#6adfb8';
+          tc.beginPath(); tc.ellipse(cx3, cy3 - 5, 4.5, 2.6, 0, Math.PI, 0); tc.fill();
+          if (h > 0.95) {
+            tc.fillStyle = '#6adfb866';
+            tc.beginPath(); tc.arc(cx3 + 7, cy3 - 8 + Math.sin(G.time * 2 + cx3) * 2, 1.6, 0, 7); tc.fill();
+          }
+        } else if (wrld.deco === 'sand') {   // dunes & sun-bleached skulls
+          tc.strokeStyle = '#6a5a36'; tc.lineWidth = 1.3;
+          tc.beginPath(); tc.moveTo(cx3 - 9, cy3 + 2); tc.quadraticCurveTo(cx3, cy3 - 3 + h * 4, cx3 + 9, cy3 + 2); tc.stroke();
+          if (h > 0.96) {
+            tc.fillStyle = '#d8ccb0';
+            tc.beginPath(); tc.arc(cx3, cy3 - 3, 3.2, 0, 7); tc.fill();
+            tc.fillStyle = '#241c0e';
+            tc.fillRect(cx3 - 1.8, cy3 - 4, 1.3, 1.3); tc.fillRect(cx3 + 0.6, cy3 - 4, 1.3, 1.3);
+          }
+        } else if (wrld.deco === 'crystal') {   // amethyst shards
+          tc.fillStyle = '#c28aff';
+          tc.beginPath();
+          tc.moveTo(cx3 - 3, cy3 + 3); tc.lineTo(cx3 - 1, cy3 - 7 - h * 4); tc.lineTo(cx3 + 1.5, cy3 + 3);
+          tc.closePath(); tc.fill();
+          tc.fillStyle = '#e8d4ff';
+          tc.beginPath();
+          tc.moveTo(cx3 + 2, cy3 + 3); tc.lineTo(cx3 + 3.5, cy3 - 3); tc.lineTo(cx3 + 5, cy3 + 3);
+          tc.closePath(); tc.fill();
+        } else if (wrld.deco === 'veins') {   // pulsing flesh-veins
+          tc.strokeStyle = hexA('#ff5a6a', 0.35 + Math.sin(G.time * 2.2 + cx3 * 0.05) * 0.15);
+          tc.lineWidth = 1.8;
+          tc.beginPath();
+          tc.moveTo(cx3 - 10, cy3 - 4);
+          tc.quadraticCurveTo(cx3 - 2, cy3 + 2 + h * 4, cx3 + 4, cy3 - 2);
+          tc.quadraticCurveTo(cx3 + 8, cy3 - 5, cx3 + 11, cy3 + 3);
+          tc.stroke();
+        } else if (wrld.deco === 'void') {   // starlike motes in the dark
+          tc.fillStyle = hexA('#8a9aff', 0.5 + Math.sin(G.time * 3 + h * 30) * 0.3);
+          tc.fillRect(cx3 - 1 + h * 10, cy3 - 6 + h * 8, 1.8, 1.8);
+          tc.fillRect(cx3 - 8 + h * 4, cy3 + 2, 1.3, 1.3);
+          if (h > 0.97) {
+            tc.strokeStyle = '#8a9aff44'; tc.lineWidth = 1;
+            tc.beginPath(); tc.arc(cx3, cy3 - 2, 5 + Math.sin(G.time * 1.6) * 1.5, 0, 7); tc.stroke();
+          }
+        } else if (wrld.deco === 'sky') {   // drifting cloud tufts
+          tc.fillStyle = '#ffffffbb';
+          const cdx = Math.sin(G.time * 0.6 + cx3 * 0.1) * 4;
+          tc.beginPath(); tc.ellipse(cx3 + cdx, cy3, 8, 3.2, 0, 0, 7); tc.fill();
+          tc.beginPath(); tc.ellipse(cx3 + cdx - 5, cy3 + 2, 5, 2.4, 0, 0, 7); tc.fill();
+          if (h > 0.96) {   // a golden feather left behind
+            tc.strokeStyle = '#ffd76a'; tc.lineWidth = 1.4;
+            tc.beginPath(); tc.moveTo(cx3 - 4, cy3 + 4); tc.quadraticCurveTo(cx3, cy3 - 4, cx3 + 5, cy3 - 6); tc.stroke();
+          }
+        } else if (wrld.deco === 'tech') {   // scattered machine litter
+          if (h > 0.96) {   // sparking severed cable
+            const on = Math.sin(G.time * 6 + cx3) > 0.4;
+            tc.strokeStyle = '#5a6472'; tc.lineWidth = 2;
+            tc.beginPath(); tc.moveTo(cx3 - 7, cy3 + 3); tc.quadraticCurveTo(cx3, cy3 - 3, cx3 + 6, cy3 + 1); tc.stroke();
+            if (on) { tc.fillStyle = '#8adfff'; tc.fillRect(cx3 + 5, cy3 - 2, 2.4, 2.4); }
+          } else {   // loose bolts and a gear
+            tc.fillStyle = '#5a6472';
+            tc.beginPath(); tc.arc(cx3 - 3, cy3, 3, 0, 7); tc.fill();
+            tc.fillStyle = '#232830';
+            tc.beginPath(); tc.arc(cx3 - 3, cy3, 1.2, 0, 7); tc.fill();
+            tc.fillStyle = '#454d5a';
+            tc.fillRect(cx3 + 4, cy3 - 1, 2, 2); tc.fillRect(cx3 + 7, cy3 + 2, 2, 2);
+          }
+        } else {   // shells & bubbles
+          tc.strokeStyle = '#7ac8bc'; tc.lineWidth = 1.4;
+          tc.beginPath(); tc.arc(cx3, cy3, 4.2, Math.PI * 0.15, Math.PI * 0.85); tc.stroke();
+          tc.beginPath(); tc.arc(cx3, cy3, 2, Math.PI * 0.15, Math.PI * 0.85); tc.stroke();
+          if (h > 0.96) {
+            tc.fillStyle = '#bfe8ff44';
+            tc.beginPath(); tc.arc(cx3 + 8, cy3 - 9, 2.2, 0, 7); tc.fill();
+          }
+        }
+      }
+      if (t === T_WP) spots.wp.push({ px, py });
+      if (t === T_UP) {
+        tc.fillStyle = '#1a1208'; tc.fillRect(px + 5, py + 5, TILE - 10, TILE - 10);
+        tc.fillStyle = '#6a5a3a';
+        for (let s = 0; s < 3; s++) tc.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
+      }
+      if (t === T_DOWN && !bossGate) spots.exit.push({ px, py });
+    }
+  }
+}
+
+/* stationary-camera tile cache: while the camera sits still (typical in a
+   fight) the whole tile pass collapses to one drawImage; any camera motion
+   falls back to direct drawing at no extra cost. Animated worlds rebake at
+   10fps so their tile-art shimmer keeps breathing. */
+let tlCvs = null, tlCtx = null, tlKey = '', tlPrev = '', tlLvl = null, tlSpots = null;
 
 function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -4810,170 +4995,47 @@ function render() {
   const wrld = WORLDS[G.world || 0], pal = wrld.pal;
   // boss floors replace the plain stairs with the next world's gate
   const bossGate = G.dlvl > 0 && worldFloor(G.dlvl) === 25 && !G.rift && !G.cowLevel && !G.petLair;
-  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-    const t = G.lvl.map[ty][tx], px = tx * TILE, py = ty * TILE, h = thash(tx, ty);
-    if (t === T_WALL) {
-      // prop tiles are walls for physics but painted as open ground —
-      // the prop itself is drawn y-sorted among the entities
-      if (G.lvl.propSet && G.lvl.propSet.has(ty * MAP_W + tx)) {
-        blitTile('f', wrld.deco, px, py, tx, ty, pal, false);
-        continue;
-      }
-      // only draw walls bordering floor (rest stays black)
-      let border = false;
-      for (let dy = -1; dy <= 1 && !border; dy++) for (let dx = -1; dx <= 1; dx++)
-        if (tileAt(tx + dx, ty + dy) >= T_FLOOR) { border = true; break; }
-      if (!border) continue;
-      const pillar = walkable(tx - 1, ty) && walkable(tx + 1, ty) && walkable(tx, ty - 1) && walkable(tx, ty + 1);
-      if (pillar) {
-        // free-standing column on a floor base
-        ctx.fillStyle = pal.f[Math.floor(h * 3) % 3];
-        ctx.fillRect(px, py, TILE, TILE);
-        ctx.fillStyle = '#00000066';
-        ctx.beginPath(); ctx.ellipse(px + TILE / 2, py + TILE - 8, 15, 6, 0, 0, 7); ctx.fill();
-        ctx.fillStyle = pal.wt;
-        ctx.fillRect(px + 8, py + TILE - 14, TILE - 16, 8);
-        const cg = ctx.createLinearGradient(px + 11, 0, px + TILE - 11, 0);
-        cg.addColorStop(0, pal.m); cg.addColorStop(0.4, pal.wt); cg.addColorStop(1, pal.m);
-        ctx.fillStyle = cg;
-        ctx.fillRect(px + 11, py - 16, TILE - 22, TILE + 2);
-        ctx.fillStyle = pal.wt;
-        ctx.fillRect(px + 7, py - 22, TILE - 14, 7);
-        ctx.fillStyle = '#00000044';
-        ctx.fillRect(px + 11, py - 15, TILE - 22, 3);
-      } else {
-        blitTile('w', wrld.deco, px, py, tx, ty, pal, tileAt(tx, ty + 1) >= T_FLOOR);
-      }
-    } else {
-      blitTile('f', wrld.deco, px, py, tx, ty, pal, false);
-      if (h > 0.9) { // per-world floor decoration
-        const cx3 = px + TILE * 0.5, cy3 = py + TILE * 0.55;
-        if (wrld.deco === 'flowers') {
-          ctx.strokeStyle = '#4a6a34'; ctx.lineWidth = 1.2;
-          for (let k = 0; k < 3; k++) {
-            ctx.beginPath(); ctx.moveTo(cx3 - 4 + k * 4, cy3 + 4); ctx.lineTo(cx3 - 6 + k * 4 + h * 4, cy3 - 4); ctx.stroke();
-          }
-          if (h > 0.95) {
-            ctx.fillStyle = ['#d8b84a', '#c86a8a', '#e8e4da'][Math.floor(h * 40) % 3];
-            ctx.fillRect(cx3 - 1, cy3 - 6, 2.6, 2.6);
-          }
-        } else if (wrld.deco === 'snow') {
-          ctx.fillStyle = '#c8d2dc';
-          ctx.beginPath(); ctx.ellipse(cx3, cy3, 9 + h * 8, 5, h * 3, 0, 7); ctx.fill();
-          ctx.fillStyle = '#e8f0f8';
-          ctx.fillRect(cx3 - 1 + h * 6, cy3 - 1, 2, 2);
-        } else if (wrld.deco === 'lava') {
-          ctx.fillStyle = '#1a1210';
-          ctx.beginPath(); ctx.ellipse(cx3, cy3, 6, 4, h, 0, 7); ctx.fill();
-          ctx.fillStyle = '#ff6a2a';
-          ctx.fillRect(cx3 - 1, cy3 - 1, 2.2, 2.2);
-        } else if (wrld.deco === 'graves') {
-          if (h > 0.955) {   // leaning tombstone
-            ctx.fillStyle = '#6a6472';
-            ctx.fillRect(cx3 - 5, cy3 - 10, 10, 12);
-            ctx.beginPath(); ctx.arc(cx3, cy3 - 10, 5, Math.PI, 0); ctx.fill();
-            ctx.fillStyle = '#514b59';
-            ctx.fillRect(cx3 - 3, cy3 - 8, 6, 1.6);
-            ctx.fillRect(cx3 - 3, cy3 - 5, 4.5, 1.4);
-          } else {   // scattered bones
-            ctx.fillStyle = '#b8ab8f';
-            ctx.fillRect(cx3 - 6, cy3 - 2, 9, 2.4);
-            ctx.fillRect(cx3 - 1, cy3 + 1, 6, 2);
-          }
-        } else if (wrld.deco === 'spores') {   // glowing mushrooms
-          ctx.strokeStyle = '#3a5248'; ctx.lineWidth = 1.6;
-          ctx.beginPath(); ctx.moveTo(cx3, cy3 + 3); ctx.lineTo(cx3, cy3 - 4); ctx.stroke();
-          ctx.fillStyle = '#6adfb8';
-          ctx.beginPath(); ctx.ellipse(cx3, cy3 - 5, 4.5, 2.6, 0, Math.PI, 0); ctx.fill();
-          if (h > 0.95) {
-            ctx.fillStyle = '#6adfb866';
-            ctx.beginPath(); ctx.arc(cx3 + 7, cy3 - 8 + Math.sin(G.time * 2 + cx3) * 2, 1.6, 0, 7); ctx.fill();
-          }
-        } else if (wrld.deco === 'sand') {   // dunes & sun-bleached skulls
-          ctx.strokeStyle = '#6a5a36'; ctx.lineWidth = 1.3;
-          ctx.beginPath(); ctx.moveTo(cx3 - 9, cy3 + 2); ctx.quadraticCurveTo(cx3, cy3 - 3 + h * 4, cx3 + 9, cy3 + 2); ctx.stroke();
-          if (h > 0.96) {
-            ctx.fillStyle = '#d8ccb0';
-            ctx.beginPath(); ctx.arc(cx3, cy3 - 3, 3.2, 0, 7); ctx.fill();
-            ctx.fillStyle = '#241c0e';
-            ctx.fillRect(cx3 - 1.8, cy3 - 4, 1.3, 1.3); ctx.fillRect(cx3 + 0.6, cy3 - 4, 1.3, 1.3);
-          }
-        } else if (wrld.deco === 'crystal') {   // amethyst shards
-          ctx.fillStyle = '#c28aff';
-          ctx.beginPath();
-          ctx.moveTo(cx3 - 3, cy3 + 3); ctx.lineTo(cx3 - 1, cy3 - 7 - h * 4); ctx.lineTo(cx3 + 1.5, cy3 + 3);
-          ctx.closePath(); ctx.fill();
-          ctx.fillStyle = '#e8d4ff';
-          ctx.beginPath();
-          ctx.moveTo(cx3 + 2, cy3 + 3); ctx.lineTo(cx3 + 3.5, cy3 - 3); ctx.lineTo(cx3 + 5, cy3 + 3);
-          ctx.closePath(); ctx.fill();
-        } else if (wrld.deco === 'veins') {   // pulsing flesh-veins
-          ctx.strokeStyle = hexA('#ff5a6a', 0.35 + Math.sin(G.time * 2.2 + cx3 * 0.05) * 0.15);
-          ctx.lineWidth = 1.8;
-          ctx.beginPath();
-          ctx.moveTo(cx3 - 10, cy3 - 4);
-          ctx.quadraticCurveTo(cx3 - 2, cy3 + 2 + h * 4, cx3 + 4, cy3 - 2);
-          ctx.quadraticCurveTo(cx3 + 8, cy3 - 5, cx3 + 11, cy3 + 3);
-          ctx.stroke();
-        } else if (wrld.deco === 'void') {   // starlike motes in the dark
-          ctx.fillStyle = hexA('#8a9aff', 0.5 + Math.sin(G.time * 3 + h * 30) * 0.3);
-          ctx.fillRect(cx3 - 1 + h * 10, cy3 - 6 + h * 8, 1.8, 1.8);
-          ctx.fillRect(cx3 - 8 + h * 4, cy3 + 2, 1.3, 1.3);
-          if (h > 0.97) {
-            ctx.strokeStyle = '#8a9aff44'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(cx3, cy3 - 2, 5 + Math.sin(G.time * 1.6) * 1.5, 0, 7); ctx.stroke();
-          }
-        } else if (wrld.deco === 'sky') {   // drifting cloud tufts
-          ctx.fillStyle = '#ffffffbb';
-          const cdx = Math.sin(G.time * 0.6 + cx3 * 0.1) * 4;
-          ctx.beginPath(); ctx.ellipse(cx3 + cdx, cy3, 8, 3.2, 0, 0, 7); ctx.fill();
-          ctx.beginPath(); ctx.ellipse(cx3 + cdx - 5, cy3 + 2, 5, 2.4, 0, 0, 7); ctx.fill();
-          if (h > 0.96) {   // a golden feather left behind
-            ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 1.4;
-            ctx.beginPath(); ctx.moveTo(cx3 - 4, cy3 + 4); ctx.quadraticCurveTo(cx3, cy3 - 4, cx3 + 5, cy3 - 6); ctx.stroke();
-          }
-        } else if (wrld.deco === 'tech') {   // scattered machine litter
-          if (h > 0.96) {   // sparking severed cable
-            const on = Math.sin(G.time * 6 + cx3) > 0.4;
-            ctx.strokeStyle = '#5a6472'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(cx3 - 7, cy3 + 3); ctx.quadraticCurveTo(cx3, cy3 - 3, cx3 + 6, cy3 + 1); ctx.stroke();
-            if (on) { ctx.fillStyle = '#8adfff'; ctx.fillRect(cx3 + 5, cy3 - 2, 2.4, 2.4); }
-          } else {   // loose bolts and a gear
-            ctx.fillStyle = '#5a6472';
-            ctx.beginPath(); ctx.arc(cx3 - 3, cy3, 3, 0, 7); ctx.fill();
-            ctx.fillStyle = '#232830';
-            ctx.beginPath(); ctx.arc(cx3 - 3, cy3, 1.2, 0, 7); ctx.fill();
-            ctx.fillStyle = '#454d5a';
-            ctx.fillRect(cx3 + 4, cy3 - 1, 2, 2); ctx.fillRect(cx3 + 7, cy3 + 2, 2, 2);
-          }
-        } else {   // shells & bubbles
-          ctx.strokeStyle = '#7ac8bc'; ctx.lineWidth = 1.4;
-          ctx.beginPath(); ctx.arc(cx3, cy3, 4.2, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
-          ctx.beginPath(); ctx.arc(cx3, cy3, 2, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
-          if (h > 0.96) {
-            ctx.fillStyle = '#bfe8ff44';
-            ctx.beginPath(); ctx.arc(cx3 + 8, cy3 - 9, 2.2, 0, 7); ctx.fill();
-          }
-        }
-      }
-      if (t === T_WP) {
-        ctx.strokeStyle = '#5ab0ff';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 15 + Math.sin(G.time * 2.5) * 1.5, 0, 7); ctx.stroke();
-        ctx.strokeStyle = '#9adcff';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 9, G.time * 1.4, G.time * 1.4 + 4.2); ctx.stroke();
-        ctx.fillStyle = '#bfe8ff';
-        ctx.beginPath(); ctx.arc(px + TILE / 2, py + TILE / 2, 2.5 + Math.sin(G.time * 4) * 0.8, 0, 7); ctx.fill();
-      }
-      if (t === T_UP) {
-        ctx.fillStyle = '#1a1208'; ctx.fillRect(px + 5, py + 5, TILE - 10, TILE - 10);
-        ctx.fillStyle = '#6a5a3a';
-        for (let s = 0; s < 3; s++) ctx.fillRect(px + 8 + s * 4, py + 8 + s * 4, TILE - 16 - s * 8, 3);
-      }
-      if (t === T_DOWN && !bossGate) drawExit(px, py, G.lvl.locked || G.lvl.keyLock, wrld);
-    }
+  let spots = { wp: [], exit: [] };
+  // worlds whose tile art itself animates keep the direct path — a cache
+  // would have to rebake constantly and just adds jank
+  const animWorld = ANIM_WALL_DECO.has(wrld.deco) || ANIM_FLOOR_DECO.has(wrld.deco);
+  const tlNow = animWorld ? 'anim' : cam.x + '|' + cam.y + '|' + G.dlvl + '|' + G.world + '|' + VW + 'x' + VH + '|' + DPR + '|' + ZOOM +
+    '|' + ((G.lvl.crack && G.lvl.crack.open) ? 1 : 0);
+  if (!animWorld && tlLvl === G.lvl && tlKey === tlNow && tlSpots) {
+    spots = tlSpots;
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.drawImage(tlCvs, 0, 0, VW, VH);
+    ctx.restore();
+  } else if (!animWorld && tlPrev === tlNow) {
+    // second frame with an identical scene — bake the layer, then reuse it
+    if (!tlCvs) { tlCvs = document.createElement('canvas'); tlCtx = tlCvs.getContext('2d'); }
+    if (tlCvs.width !== cvs.width || tlCvs.height !== cvs.height) { tlCvs.width = cvs.width; tlCvs.height = cvs.height; }
+    tlCtx.setTransform(1, 0, 0, 1, 0, 0);
+    tlCtx.clearRect(0, 0, tlCvs.width, tlCvs.height);
+    tlCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    tlCtx.translate(VW / 2, VH / 2); tlCtx.scale(ZOOM, ZOOM); tlCtx.translate(-cam.x, -cam.y);
+    drawTileLayer(tlCtx, x0, x1, y0, y1, wrld, pal, bossGate, spots);
+    tlKey = tlNow; tlLvl = G.lvl; tlSpots = spots;
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.drawImage(tlCvs, 0, 0, VW, VH);
+    ctx.restore();
+  } else {
+    drawTileLayer(ctx, x0, x1, y0, y1, wrld, pal, bossGate, spots);
+    tlKey = '';   // camera on the move: cache is stale
   }
+  tlPrev = tlNow;
+  /* live art on top of the tile layer: waypoint rings & the exit */
+  for (const s of spots.wp) {
+    ctx.strokeStyle = '#5ab0ff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(s.px + TILE / 2, s.py + TILE / 2, 15 + Math.sin(G.time * 2.5) * 1.5, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#9adcff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(s.px + TILE / 2, s.py + TILE / 2, 9, G.time * 1.4, G.time * 1.4 + 4.2); ctx.stroke();
+    ctx.fillStyle = '#bfe8ff';
+    ctx.beginPath(); ctx.arc(s.px + TILE / 2, s.py + TILE / 2, 2.5 + Math.sin(G.time * 4) * 0.8, 0, 7); ctx.fill();
+  }
+  for (const s of spots.exit) drawExit(s.px, s.py, G.lvl.locked || G.lvl.keyLock, wrld);
 
   /* the cracked wall hiding a vault */
   const ck2 = G.lvl.crack;
@@ -5387,21 +5449,8 @@ function drawWeather() {
   ctx.restore();
 }
 
-// one shared radial falloff sprite: light holes stamp this scaled instead
-// of building a fresh radial gradient per light per frame
-const lightSprite = (() => {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = 128;
-  const c = cv.getContext('2d');
-  const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, 'rgba(0,0,0,1)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  c.fillStyle = g;
-  c.fillRect(0, 0, 128, 128);
-  return cv;
-})();
 function drawLights() {
-  lightCtx.setTransform(0.5, 0, 0, 0.5, 0, 0);
+  lightCtx.setTransform(0.25, 0, 0, 0.25, 0, 0);
   lightCtx.globalCompositeOperation = 'source-over';
   lightCtx.globalAlpha = 1;
   // ambience is the world's, not a dungeon's: meadows and isles sit in
@@ -5416,7 +5465,7 @@ function drawLights() {
     if (s.x < -r || s.x > VW + r || s.y < -r || s.y > VH + r) return;
     const R = r * ZOOM;
     lightCtx.globalAlpha = a;
-    lightCtx.drawImage(lightSprite, s.x - R, s.y - R, R * 2, R * 2);
+    lightCtx.drawImage(holeSpr, s.x - R, s.y - R, R * 2, R * 2);
   };
   hole(G.p.x, G.p.y, 280, 1);
   for (const t of G.lvl.torches) hole(t.x, t.y - 12, 110 + Math.sin(G.time * 8 + t.x) * 8, 0.9);
@@ -8189,8 +8238,11 @@ function updateBadge() {
 }
 
 /* panels */
+let panelEls = null;   // resolved once — this runs every frame
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden') || !$('sellPopup').classList.contains('hidden');
+  if (!panelEls) panelEls = ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel', 'itemPopup', 'sellPopup'].map($);
+  for (const el of panelEls) if (!el.classList.contains('hidden')) return true;
+  return false;
 }
 function closePanels() {
   ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel', 'itemPopup', 'sellPopup'].forEach(id => $(id).classList.add('hidden'));
