@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.32.2';
+const SANCTUARY_VERSION = '1.33.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.33.0', date: '2026-07-18', title: 'Ascension',
+    notes: [
+      'Ascension classes: at level 50, push both of a path\'s keystone skills to rank 12 and ascend — Berserker or Champion, Pyromancer or Stormcaller, Windrunner or Viper, Archlich or Overlord. The choice is forever',
+      'Each ascension grants a stat bundle, empowers its two keystone skills (wider War Cry, triple Bone Spear, 8-arc Chain Lightning, +3 skeletons…) and unlocks a fifth skill all its own — Bladestorm, Banner of War, Firestorm, Tempest, Arrow Rain, Venom Nova, Death Nova, Army of the Dead',
+      'Tap any skill or passive in the hero panel to unfold what it does: real damage numbers at your rank, mana, cooldown and next-rank preview',
+      'Fixed skills 3 and 4 never coming off cooldown',
+    ],
+  },
   {
     v: '1.32.2', date: '2026-07-18', title: 'Second wind — more speed',
     notes: [

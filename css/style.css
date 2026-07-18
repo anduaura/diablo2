@@ -115,9 +115,10 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 }
 #btnAuto:active { transform:scale(.94); }
 #xpFill { height:100%; width:0%; background:linear-gradient(90deg, #7a6a2c, #d9c65a); transition:width .25s; }
-#skillrow { display:flex; gap:min(1.5vw, 9px); justify-content:center; }
+#skillrow { display:flex; gap:min(1.5vw, 9px); justify-content:center; width:100%; }
+/* buttons share the row and shrink as one so a fifth (ascension) skill fits */
 .skillbtn {
-  position:relative; width:min(13.5vw, 66px); height:min(13.5vw, 66px);
+  position:relative; flex:1 1 0; max-width:min(13.5vw, 66px); aspect-ratio:1/1;
   border-radius:12px; overflow:hidden;
   background:radial-gradient(circle at 35% 28%, #46351d, #201409);
   border:2px solid #6b5326; box-shadow:0 3px 8px #000b, inset 0 1px 0 #ffffff1a;
@@ -216,6 +217,14 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   background:linear-gradient(#4d3a1a, #241708); border:1px solid #8a6a2a; border-radius:8px;
 }
 .statbtn:disabled { opacity:.25; }
+/* tap a skill/passive row to unfold its detail drawer */
+.statrow[data-inforow] { cursor:pointer; }
+.skillinfo {
+  font-size:13px; line-height:1.55; color:#93835f; padding:7px 10px 9px;
+  background:#221708; border-bottom:1px solid #2c2012; border-radius:0 0 8px 8px;
+}
+.skillinfo b { color:#c9b98a; font-weight:normal; }
+.skillinfo small { color:#6f6248; }
 .derived { margin-top:10px; font-size:13.5px; color:#93835f; line-height:1.7; }
 .derived b { color:#c9b98a; font-weight:normal; }
 .ptsleft { text-align:center; color:#ffd76a; font-size:14px; margin:8px 0 2px; }
@@ -343,7 +352,7 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 @media (max-height:460px) { /* landscape phones */
   .globe { width:64px; height:64px; }
   .potbtn { width:38px; height:38px; font-size:18px; }
-  .skillbtn { width:50px; height:50px; }
+  .skillbtn { max-width:50px; }
   .skillbtn .sicon { font-size:24px; }
   #minimap { width:96px; height:96px; }
 }
