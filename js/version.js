@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.34.0';
+const SANCTUARY_VERSION = '1.34.1';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.34.1', date: '2026-07-18', title: 'Third wind — sprite-cached hordes',
+    notes: [
+      'Monster bodies now render from cached sprites shared across the pack — a packed screen of two hundred foes draws in a fraction of the old time',
+      'Each body repaints on a classic 12fps animation clock while movement, bobbing and hit flashes stay buttery per-frame',
+      'Verified pixel-faithful against the old renderer across every monster type, facing and pose',
+    ],
+  },
   {
     v: '1.34.0', date: '2026-07-18', title: 'Three new exit seals',
     notes: [
