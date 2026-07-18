@@ -10,7 +10,7 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rand = (a, b) => a + Math.random() * (b - a);
 const ri = (a, b) => Math.floor(rand(a, b + 1));
 const choice = a => a[Math.floor(Math.random() * a.length)];
-const dist = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
+const dist = (ax, ay, bx, by) => Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
 // deterministic per-tile hash for floor decoration
 const thash = (x, y) => {
   let h = (x * 374761393 + y * 668265263) | 0;
@@ -1721,7 +1721,12 @@ function los(x1, y1, x2, y2) {
   return true;
 }
 
-/* A* on the tile grid */
+/* A* on the tile grid — binary-heap open list, and the search gives up
+   past MAX_PATH_G tiles of travel cost (callers discard paths longer
+   than 24 waypoints anyway, so a wider search is pure waste; it also
+   bounds the cost of chasing an unreachable hero to a small circle) */
+const MAX_PATH_G = 27;
+const PATH_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 function findPath(sx, sy, tx, ty) {
   if (!walkable(tx, ty)) return null;
   if (sx === tx && sy === ty) return [];
@@ -1730,9 +1735,22 @@ function findPath(sx, sy, tx, ty) {
   const came = new Map(), gScore = new Map([[idx(sx, sy), 0]]);
   const closed = new Set();
   let expand = 0;
-  while (open.length && expand++ < 3500) {
-    let bi = 0; for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
-    const cur = open.splice(bi, 1)[0];
+  while (open.length && expand++ < 2000) {
+    // pop the smallest-f node off the heap
+    const cur = open[0];
+    const last = open.pop();
+    if (open.length) {
+      open[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let s = i;
+        if (l < open.length && open[l].f < open[s].f) s = l;
+        if (r < open.length && open[r].f < open[s].f) s = r;
+        if (s === i) break;
+        const t = open[i]; open[i] = open[s]; open[s] = t; i = s;
+      }
+    }
     const ci = idx(cur.x, cur.y);
     if (cur.x === tx && cur.y === ty) {
       const path = []; let k = ci;
@@ -1740,17 +1758,27 @@ function findPath(sx, sy, tx, ty) {
       path.reverse();
       return path;
     }
+    if (closed.has(ci)) continue;   // stale duplicate left on the heap
     closed.add(ci);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (const [dx, dy] of PATH_DIRS) {
       const nx = cur.x + dx, ny = cur.y + dy;
       if (!walkable(nx, ny)) continue;
       if (dx && dy && (!walkable(cur.x + dx, cur.y) || !walkable(cur.x, cur.y + dy))) continue;
       const ni = idx(nx, ny);
       if (closed.has(ni)) continue;
       const g = cur.g + (dx && dy ? 1.4 : 1);
+      if (g > MAX_PATH_G) continue;
       if (g < (gScore.get(ni) ?? Infinity)) {
         gScore.set(ni, g); came.set(ni, ci);
-        open.push({ x: nx, y: ny, g, f: g + Math.hypot(tx - nx, ty - ny) });
+        const nd = { x: nx, y: ny, g, f: g + dist(nx, ny, tx, ty) };
+        // push onto the heap
+        open.push(nd);
+        let i = open.length - 1;
+        while (i > 0) {
+          const pi = (i - 1) >> 1;
+          if (open[pi].f <= open[i].f) break;
+          const t = open[i]; open[i] = open[pi]; open[pi] = t; i = pi;
+        }
       }
     }
   }
@@ -3103,8 +3131,9 @@ function updateMinions(dt) {
     // gentle separation between minions
     for (let j = i - 1; j >= 0; j--) {
       const o = G.minions[j];
-      const dx = o.x - mi.x, dy = o.y - mi.y, dd = Math.hypot(dx, dy), min = o.r + mi.r;
-      if (dd > 0.01 && dd < min) {
+      const dx = o.x - mi.x, dy = o.y - mi.y, d2 = dx * dx + dy * dy, min = o.r + mi.r;
+      if (d2 > 0.0001 && d2 < min * min) {
+        const dd = Math.sqrt(d2);
         const push = (min - dd) / 2;
         moveCircle(mi, -dx / dd * push, -dy / dd * push);
         moveCircle(o, dx / dd * push, dy / dd * push);
@@ -3433,6 +3462,7 @@ function startGame(clsId, save, slot) {
 
 /* ---------------- update loop ---------------- */
 const keys = {};
+let pathBudget = 0;   // findPath calls left this frame (reset in update)
 function update(dt) {
   const p = G.p, d = G.d;
   G.time += dt;
@@ -3693,6 +3723,7 @@ function update(dt) {
   collectDropsAt(p.x, p.y);
 
   /* --- monsters --- */
+  pathBudget = 4;   // per-frame A* allowance shared by the whole horde
   const ms = G.lvl.monsters;
   for (const m of ms) {
     if (m.hp <= 0) continue;
@@ -3831,14 +3862,20 @@ function update(dt) {
       }
     }
   }
-  // separation (nearby only)
-  for (let i = 0; i < ms.length; i++) {
-    const a = ms[i]; if (a.hp <= 0) continue;
-    for (let j = i + 1; j < ms.length; j++) {
-      const b = ms[j]; if (b.hp <= 0) continue;
-      const dx = b.x - a.x, dy = b.y - a.y, dd = Math.hypot(dx, dy), min = a.r + b.r;
-      if (dd > 0.01 && dd < min) {
-        const push = (min - dd) / 2, nx = dx / dd, ny = dy / dd;
+  // separation (nearby only): sweep along x so distant pairs cost nothing
+  const alive = [];
+  let maxR = 0;
+  for (const m of ms) if (m.hp > 0) { alive.push(m); if (m.r > maxR) maxR = m.r; }
+  alive.sort((a, b) => a.x - b.x);
+  for (let i = 0; i < alive.length; i++) {
+    const a = alive[i], reach = a.r + maxR;
+    for (let j = i + 1; j < alive.length; j++) {
+      const b = alive[j];
+      const dx = b.x - a.x;
+      if (dx >= reach) break;   // everything further right is out of range too
+      const dy = b.y - a.y, min = a.r + b.r, d2 = dx * dx + dy * dy;
+      if (d2 > 0.0001 && d2 < min * min) {
+        const dd = Math.sqrt(d2), push = (min - dd) / 2, nx = dx / dd, ny = dy / dd;
         moveCircle(a, -nx * push, -ny * push); moveCircle(b, nx * push, ny * push);
       }
     }
@@ -3853,7 +3890,8 @@ function update(dt) {
     if (!dead && pr.from === 'p') {
       for (const m of ms) {
         if (m.hp <= 0 || pr.hit.has(m)) continue;
-        if (dist(pr.x, pr.y, m.x, m.y) < m.r + pr.r) {
+        const rr = m.r + pr.r, hdx = m.x - pr.x, hdy = m.y - pr.y;
+        if (hdx * hdx + hdy * hdy < rr * rr) {
           pr.hit.add(m);
           if (pr.aoe) {
             for (const m2 of ms) if (m2.hp > 0 && dist(pr.x, pr.y, m2.x, m2.y) < pr.aoe + m2.r) hitMonster(m2, pr.dmg);
@@ -3915,10 +3953,12 @@ function chaseStep(m, mspd, dt, T) {
     if (dist(ox, oy, m.x, m.y) < mspd * dt * 0.25) m.blocked += dt; else m.blocked = 0;
   } else {
     m.pathT -= dt;
-    if ((!m.path || !m.path.length) && m.pathT <= 0) {
-      m.pathT = 0.8;
+    if ((!m.path || !m.path.length) && m.pathT <= 0 && pathBudget > 0) {
+      pathBudget--;   // a few searches per frame, spread across the horde
+      m.pathT = 0.7 + Math.random() * 0.3;   // jitter so packs don't re-path in sync
       m.path = findPath(Math.floor(m.x / TILE), Math.floor(m.y / TILE), Math.floor(p.x / TILE), Math.floor(p.y / TILE));
       if (m.path && m.path.length > 24) m.path = null; // too far, give up quietly
+      if (!m.path || !m.path.length) m.pathT = 1.2 + Math.random() * 0.8;   // unreachable: back off harder
     }
     if (m.path && m.path.length) {
       const wp = m.path[0];
@@ -4713,16 +4753,27 @@ function drawFloorTile(deco, px, py, tx, ty, h, pal, c2) {
    their tile bounds (icicles, caps), so cells carry padding. */
 const TPAD_X = 12, TPAD_TOP = 26, TPAD_BOT = 24;
 const tileCache = new Map();
+// only these themes bake G.time animation into the tile art itself; the
+// rest render once and never need a cache repaint
+const ANIM_WALL_DECO = new Set(['lava', 'shells', 'spores', 'crystal', 'veins', 'void', 'tech']);
+const ANIM_FLOOR_DECO = new Set(['lava', 'shells', 'spores', 'crystal', 'veins', 'void', 'sky', 'tech']);
+let tileRepaintBudget = 0;   // animated repaints allowed this frame (reset in render)
 function blitTile(kind, deco, px, py, tx, ty, pal, floorBelow) {
   const key = kind + deco + ((tx & 7) * 8 + (ty & 7)) + (floorBelow ? 'f' : '');
   let e = tileCache.get(key);
+  let paint = false;
   if (!e) {
     const cv = document.createElement('canvas');
     cv.width = TILE + TPAD_X * 2; cv.height = TILE + TPAD_TOP + TPAD_BOT;
     e = { cv, c2: cv.getContext('2d'), t: -9 };
     tileCache.set(key, e);
+    paint = true;   // first use always paints, whatever the budget says
+  } else if (G.time - e.t > 0.3 && tileRepaintBudget > 0 &&
+    (kind === 'w' ? ANIM_WALL_DECO : ANIM_FLOOR_DECO).has(deco)) {
+    tileRepaintBudget--;   // animated art refreshes a few tiles per frame
+    paint = true;
   }
-  if (G.time - e.t > 0.3) {
+  if (paint) {
     e.t = G.time;
     e.c2.clearRect(0, 0, e.cv.width, e.cv.height);
     // bucket coords keep the hash pattern stable per cache cell
@@ -4740,6 +4791,7 @@ function render() {
   ctx.fillStyle = '#070404';
   ctx.fillRect(0, 0, VW, VH);
   if (!G) return;
+  tileRepaintBudget = 6;
   const p = G.p;
   cam.x = clamp(p.x, VW / 2 / ZOOM, MAP_W * TILE - VW / 2 / ZOOM);
   cam.y = clamp(p.y, VH / 2 / ZOOM, MAP_H * TILE - VH / 2 / ZOOM);
@@ -4946,7 +4998,7 @@ function render() {
 
   /* torches */
   for (const t of G.lvl.torches) {
-    if (t.x < cam.x - VW / ZOOM || t.x > cam.x + VW / ZOOM || t.y < cam.y - VH / ZOOM || t.y > cam.y + VH / ZOOM) continue;
+    if (t.x < cam.x - VW / 2 / ZOOM - 40 || t.x > cam.x + VW / 2 / ZOOM + 40 || t.y < cam.y - VH / 2 / ZOOM - 50 || t.y > cam.y + VH / 2 / ZOOM + 50) continue;
     ctx.fillStyle = '#4a3418';
     ctx.fillRect(t.x - 2, t.y - 10, 4, 12);
     const fl = Math.sin(G.time * 9 + t.x) * 1.6;
@@ -4958,7 +5010,9 @@ function render() {
 
   /* drops */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const dCullX = VW / 2 / ZOOM + 100, dCullY = VH / 2 / ZOOM + 120;
   for (const dr of G.drops) {
+    if (dr.x < cam.x - dCullX || dr.x > cam.x + dCullX || dr.y < cam.y - dCullY || dr.y > cam.y + dCullY) continue;
     const bob = Math.sin(G.time * 3 + dr.x) * 1.5;
     ctx.fillStyle = '#00000055';
     ctx.beginPath(); ctx.ellipse(dr.x, dr.y + 5, 8, 3.5, 0, 0, 7); ctx.fill();
@@ -5069,8 +5123,11 @@ function render() {
 
   /* entities sorted by y (scenery props take part so heroes pass behind) */
   const ents = [];
-  for (const m of G.lvl.monsters) if (m.hp > 0 && m.x > cam.x - VW / ZOOM && m.x < cam.x + VW / ZOOM && m.y > cam.y - VH / ZOOM && m.y < cam.y + VH / ZOOM) ents.push(m);
-  for (const pr of G.lvl.props || []) if (pr.x > cam.x - VW / ZOOM && pr.x < cam.x + VW / ZOOM && pr.y > cam.y - VH / ZOOM && pr.y < cam.y + VH / ZOOM) ents.push(pr);
+  // half-viewport plus a generous pad for tall sprites — anything past
+  // that cannot reach the screen, so it never joins the y-sort
+  const cullX = VW / 2 / ZOOM + 150, cullY = VH / 2 / ZOOM + 190;
+  for (const m of G.lvl.monsters) if (m.hp > 0 && m.x > cam.x - cullX && m.x < cam.x + cullX && m.y > cam.y - cullY && m.y < cam.y + cullY) ents.push(m);
+  for (const pr of G.lvl.props || []) if (pr.x > cam.x - cullX && pr.x < cam.x + cullX && pr.y > cam.y - cullY && pr.y < cam.y + cullY) ents.push(pr);
   for (const mi of G.minions) ents.push(mi);
   for (const tp of G.townPets || []) ents.push(tp);
   if (G.pet) ents.push(G.pet);
@@ -5330,9 +5387,23 @@ function drawWeather() {
   ctx.restore();
 }
 
+// one shared radial falloff sprite: light holes stamp this scaled instead
+// of building a fresh radial gradient per light per frame
+const lightSprite = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 128;
+  const c = cv.getContext('2d');
+  const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g;
+  c.fillRect(0, 0, 128, 128);
+  return cv;
+})();
 function drawLights() {
   lightCtx.setTransform(0.5, 0, 0, 0.5, 0, 0);
   lightCtx.globalCompositeOperation = 'source-over';
+  lightCtx.globalAlpha = 1;
   // ambience is the world's, not a dungeon's: meadows and isles sit in
   // daylight, the crypts and the void keep their gloom. Town and the
   // secret pasture share the fields' open sky.
@@ -5343,11 +5414,9 @@ function drawLights() {
   const hole = (wx, wy, r, a) => {
     const s = worldToScreen(wx, wy);
     if (s.x < -r || s.x > VW + r || s.y < -r || s.y > VH + r) return;
-    const g = lightCtx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * ZOOM);
-    g.addColorStop(0, 'rgba(0,0,0,' + a + ')');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    lightCtx.fillStyle = g;
-    lightCtx.beginPath(); lightCtx.arc(s.x, s.y, r * ZOOM, 0, 7); lightCtx.fill();
+    const R = r * ZOOM;
+    lightCtx.globalAlpha = a;
+    lightCtx.drawImage(lightSprite, s.x - R, s.y - R, R * 2, R * 2);
   };
   hole(G.p.x, G.p.y, 280, 1);
   for (const t of G.lvl.torches) hole(t.x, t.y - 12, 110 + Math.sin(G.time * 8 + t.x) * 8, 0.9);
@@ -8078,25 +8147,41 @@ function buildSkillbar() {
     btn.title = sk.name + (sk.lvl ? ' (level ' + sk.lvl + ')' : '') + ' — ' + sk.desc;
   }
 }
+// the HUD runs every frame: keep element handles + last-written values so
+// an unchanged frame costs a handful of comparisons and zero DOM work
+let hudEls = null;
+const hudPrev = {};
 function updateHUD() {
   if (!G) return;
-  const p = G.p, d = G.d;
-  $('hpFill').style.height = clamp(p.hp / d.maxHp * 100, 0, 100) + '%';
-  $('mpFill').style.height = clamp(p.mp / d.maxMp * 100, 0, 100) + '%';
-  $('hpText').textContent = Math.ceil(p.hp);
-  $('mpText').textContent = Math.ceil(p.mp);
-  $('xpFill').style.width = clamp(p.xp / xpNext(p.level) * 100, 0, 100) + '%';
-  $('goldLabel').textContent = '🪙 ' + p.gold;
-  $('hpPotCount').textContent = p.potions.hp;
-  $('mpPotCount').textContent = p.potions.mp;
+  if (!hudEls) {
+    hudEls = {
+      hpFill: $('hpFill'), mpFill: $('mpFill'), hpText: $('hpText'), mpText: $('mpText'),
+      xpFill: $('xpFill'), goldLabel: $('goldLabel'), hpPotCount: $('hpPotCount'), mpPotCount: $('mpPotCount'),
+      skills: [],
+    };
+    for (let i = 0; i < 4; i++) {
+      const btn = $('btnSkill' + (i + 1));
+      hudEls.skills.push({ btn, cdmask: btn.querySelector('.cdmask'), cost: btn.querySelector('.cost') });
+    }
+  }
+  const p = G.p, d = G.d, H = hudEls, P = hudPrev;
+  const set = (k, v, apply) => { if (P[k] !== v) { P[k] = v; apply(v); } };
+  set('hpH', clamp(p.hp / d.maxHp * 100, 0, 100).toFixed(1) + '%', v => H.hpFill.style.height = v);
+  set('mpH', clamp(p.mp / d.maxMp * 100, 0, 100).toFixed(1) + '%', v => H.mpFill.style.height = v);
+  set('hpT', Math.ceil(p.hp), v => H.hpText.textContent = v);
+  set('mpT', Math.ceil(p.mp), v => H.mpText.textContent = v);
+  set('xpW', clamp(p.xp / xpNext(p.level) * 100, 0, 100).toFixed(1) + '%', v => H.xpFill.style.width = v);
+  set('gold', p.gold, v => H.goldLabel.textContent = '🪙 ' + v);
+  set('hpPot', p.potions.hp, v => H.hpPotCount.textContent = v);
+  set('mpPot', p.potions.mp, v => H.mpPotCount.textContent = v);
   const c = CLASSES[p.cls];
   for (let i = 0; i < 4; i++) {
-    const btn = $('btnSkill' + (i + 1)), sk = c.skills[i];
+    const el = H.skills[i], sk = c.skills[i];
     const locked = p.level < (sk.lvl || 1);
-    btn.querySelector('.cdmask').style.height = locked ? '0%' : (p.cd[i] / sk.cd * 100) + '%';
-    btn.querySelector('.cost').textContent = locked ? 'Lv' + sk.lvl : sk.mana;
-    btn.classList.toggle('lockedskill', locked);
-    btn.classList.toggle('nomana', !locked && p.mp < sk.mana);
+    set('cd' + i, locked ? '0%' : (p.cd[i] / sk.cd * 100).toFixed(1) + '%', v => el.cdmask.style.height = v);
+    set('cost' + i, locked ? 'Lv' + sk.lvl : sk.mana, v => el.cost.textContent = v);
+    set('lock' + i, locked, v => el.btn.classList.toggle('lockedskill', v));
+    set('mana' + i, !locked && p.mp < sk.mana, v => el.btn.classList.toggle('nomana', v));
   }
 }
 function updateBadge() {
