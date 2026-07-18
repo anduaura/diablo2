@@ -232,6 +232,14 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
 }
 .islot .socks i { font-style:normal; }
 .islot.eq .socks { bottom:auto; top:2px; }
+.islot .ilvl {
+  position:absolute; top:2px; left:3px; font-size:9px; line-height:1;
+  color:#b8a878; pointer-events:none; text-shadow:0 1px 2px #000;
+}
+.islot .iprice {
+  position:absolute; bottom:2px; right:3px; font-size:9px; line-height:1;
+  color:#e8c14d; pointer-events:none; text-shadow:0 1px 2px #000;
+}
 .islot .gradepip {
   position:absolute; top:1px; right:3px; font-size:10px; line-height:1;
   pointer-events:none; text-shadow:0 0 4px currentColor;
@@ -287,6 +295,33 @@ button { font-family:inherit; color:inherit; cursor:pointer; }
   font-size:12.5px; text-align:center; margin-bottom:10px; color:#8a7a58;
   border-top:1px solid #2c2012; padding-top:7px; line-height:1.5;
 }
+
+/* bulk-sell popup */
+#sellPopup {
+  position:fixed; z-index:40; left:50%; top:50%; transform:translate(-50%, -50%);
+  width:min(92vw, 380px); max-height:min(84vh, 84dvh); overflow-y:auto;
+  background:#0d0803fa; border:2px solid #6b5326; border-radius:12px;
+  box-shadow:0 8px 30px #000e; padding:13px;
+  -webkit-overflow-scrolling:touch;
+}
+.selltabs { display:flex; gap:6px; margin-bottom:10px; }
+.selltab {
+  flex:1; padding:8px 2px; font-size:13px; color:#8a7a58;
+  background:#1a1108; border:1px solid #3a2c1a; border-radius:8px;
+}
+.selltab.on { color:#ffe9b0; border-color:#8a6a2a; background:linear-gradient(#4d3a1a, #241708); }
+.sellchips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; }
+.sellchip {
+  flex:1 1 30%; min-width:100px; padding:8px 5px; font-size:12.5px; color:#c9b98a;
+  background:#1a1108; border:1px solid #3a2c1a; border-radius:8px;
+}
+.sellchip.on { color:#ffe9b0; border-color:#8a6a2a; background:linear-gradient(#4d3a1a, #241708); }
+.sellchip:disabled { opacity:.35; }
+#sellPopup input[type=range] { width:100%; margin:8px 0 2px; accent-color:#d9a94d; }
+.sellsum { text-align:center; font-size:14.5px; color:#c9b98a; margin:8px 0 4px; }
+.sellsum b { color:#ffd76a; }
+#sellPopup .ibtns { display:flex; gap:7px; flex-wrap:wrap; margin-top:6px; }
+#sellPopup .ibtns .smallbtn { min-width:90px; }
 
 /* shop rows */
 .shoprow {
