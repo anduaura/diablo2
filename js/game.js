@@ -370,29 +370,64 @@ function makePetData(spIdx, rarity) {
   return { sp: spIdx, rarity, mods, price: Math.round(sp.price * (1 + rIdx * 0.6)) };
 }
 
-/* class passives: two per class, up to 5 ranks each, bought with skill points */
-const SKILL_MAX = 10, PASSIVE_MAX = 5;
+/* class passives: six per class plus an endless capstone, bought with skill
+   points. Each carries a declarative fx map (per-rank bonuses) that derived()
+   folds in, and a level gate. The first two of every class predate the rest —
+   their indices are frozen for old saves. Skills rank to 10 normally; ranks
+   11-15 open with hero level (11 at 45, +1 every 5 levels). */
+const SKILL_MAX = 15, PASSIVE_MAX = 5;
+const skillCapAt = lvl => Math.min(SKILL_MAX, 10 + Math.max(0, Math.floor((lvl - 40) / 5)));
+/* fx keys: dmg/hp/mp/ele/armor/spd/minion = +% per rank, crit = +pts per
+   rank, cdr = -% skill cooldown per rank (total cdr capped at 40%) */
+const TRANSCEND = { id: 'transcend', name: 'Transcendence', icon: '✨', lvl: 60, endless: true, desc: '+1% damage & +1% life per rank · no cap', fx: { dmg: 1, hp: 1 } };
 const PASSIVES = {
   warrior: [
-    { id: 'mastery', name: 'Weapon Mastery', icon: '⚔️', desc: '+4% damage per rank' },
-    { id: 'juggernaut', name: 'Juggernaut', icon: '🛡️', desc: '+5% life per rank' }],
+    { id: 'mastery', name: 'Weapon Mastery', icon: '⚔️', desc: '+4% damage per rank', fx: { dmg: 4 } },
+    { id: 'juggernaut', name: 'Juggernaut', icon: '🛡️', desc: '+5% life per rank', fx: { hp: 5 } },
+    { id: 'ironhide', name: 'Iron Hide', icon: '🧱', lvl: 15, desc: '+6% armor per rank', fx: { armor: 6 } },
+    { id: 'battletrance', name: 'Battle Trance', icon: '⏳', lvl: 25, desc: '-3% skill cooldowns per rank', fx: { cdr: 3 } },
+    { id: 'executioner', name: 'Executioner', icon: '🪓', lvl: 35, desc: '+2% crit chance per rank', fx: { crit: 2 } },
+    { id: 'warlord', name: 'Warlord', icon: '👑', lvl: 45, desc: '+3% damage & +2% life per rank', fx: { dmg: 3, hp: 2 } },
+    TRANSCEND],
   sorceress: [
-    { id: 'attune', name: 'Elemental Attunement', icon: '🌀', desc: '+8% elemental damage per rank' },
-    { id: 'focus', name: 'Arcane Focus', icon: '🔮', desc: '+6% mana & regen per rank' }],
+    { id: 'attune', name: 'Elemental Attunement', icon: '🌀', desc: '+8% elemental damage per rank', fx: { ele: 8 } },
+    { id: 'focus', name: 'Arcane Focus', icon: '🔮', desc: '+6% mana & regen per rank', fx: { mp: 6 } },
+    { id: 'frostmantle', name: 'Frozen Mantle', icon: '🧊', lvl: 15, desc: '+6% armor per rank', fx: { armor: 6 } },
+    { id: 'quicken', name: 'Quickening', icon: '⏳', lvl: 25, desc: '-3% skill cooldowns per rank', fx: { cdr: 3 } },
+    { id: 'archmage', name: 'Archmage', icon: '🧙', lvl: 35, desc: '+3% damage & +4% elemental per rank', fx: { dmg: 3, ele: 4 } },
+    { id: 'thirdeye', name: 'Third Eye', icon: '👁️', lvl: 45, desc: '+2% crit & +3% mana per rank', fx: { crit: 2, mp: 3 } },
+    TRANSCEND],
   huntress: [
-    { id: 'precision', name: 'Precision', icon: '🎯', desc: '+2% crit chance per rank' },
-    { id: 'fleet', name: 'Fleetfoot', icon: '🌬️', desc: '+3% move & attack speed per rank' }],
+    { id: 'precision', name: 'Precision', icon: '🎯', desc: '+2% crit chance per rank', fx: { crit: 2 } },
+    { id: 'fleet', name: 'Fleetfoot', icon: '🌬️', desc: '+3% move & attack speed per rank', fx: { spd: 3 } },
+    { id: 'camouflage', name: 'Camouflage', icon: '🍃', lvl: 15, desc: '+6% armor per rank', fx: { armor: 6 } },
+    { id: 'deadlyaim', name: 'Deadly Aim', icon: '🏹', lvl: 25, desc: '+4% damage per rank', fx: { dmg: 4 } },
+    { id: 'trickshot', name: 'Trick Shooter', icon: '⏳', lvl: 35, desc: '-3% skill cooldowns per rank', fx: { cdr: 3 } },
+    { id: 'predator', name: 'Predator', icon: '🐆', lvl: 45, desc: '+3% damage & +1% crit per rank', fx: { dmg: 3, crit: 1 } },
+    TRANSCEND],
   necromancer: [
-    { id: 'gravemight', name: 'Grave Might', icon: '💀', desc: '+8% minion damage & life per rank' },
-    { id: 'occult', name: 'Occult Focus', icon: '🕯️', desc: '+6% mana & regen per rank' }],
+    { id: 'gravemight', name: 'Grave Might', icon: '💀', desc: '+8% minion damage & life per rank', fx: { minion: 8 } },
+    { id: 'occult', name: 'Occult Focus', icon: '🕯️', desc: '+6% mana & regen per rank', fx: { mp: 6 } },
+    { id: 'tombplate', name: 'Tombplate', icon: '🪦', lvl: 15, desc: '+6% armor per rank', fx: { armor: 6 } },
+    { id: 'darkritual', name: 'Dark Ritual', icon: '🩸', lvl: 25, desc: '-3% skill cooldowns per rank', fx: { cdr: 3 } },
+    { id: 'deathlord', name: 'Deathlord', icon: '⚰️', lvl: 35, desc: '+3% damage & +4% minion power per rank', fx: { dmg: 3, minion: 4 } },
+    { id: 'lichform', name: 'Lich Form', icon: '🌑', lvl: 45, desc: '+4% life & +4% mana per rank', fx: { hp: 4, mp: 4 } },
+    TRANSCEND],
 };
+const passiveMax = pa => pa.endless ? Infinity : PASSIVE_MAX;
 const skillRank = (p, i) => (p.skillLvls && p.skillLvls[i]) || 1;
 const skillMult = (p, i) => 1 + 0.15 * (skillRank(p, i) - 1);
-const passiveRank = (p, id) => {
+/* total per-rank fx across all of a hero's passive ranks */
+function passiveFx(p) {
+  const t = { dmg: 0, hp: 0, mp: 0, ele: 0, armor: 0, spd: 0, minion: 0, crit: 0, cdr: 0 };
   const defs = PASSIVES[p.cls];
-  const i = defs.findIndex(d => d.id === id);
-  return i >= 0 && p.passives ? (p.passives[i] || 0) : 0;
-};
+  for (let i = 0; i < defs.length; i++) {
+    const r = (p.passives && p.passives[i]) || 0;
+    if (!r) continue;
+    for (const k in defs[i].fx) t[k] += defs[i].fx[k] * r;
+  }
+  return t;
+}
 
 /* ---------------- monster data ---------------- */
 const MTYPES = [
@@ -753,7 +788,7 @@ function newPlayer(clsId) {
     pets: starter, activePet: starter.length ? 0 : -1,
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
-    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: [0, 0],
+    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: PASSIVES[clsId].map(() => 0),
     hardcore: false, challenge: null,
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
@@ -814,13 +849,13 @@ function derived(p) {
   const str = p.stats.str + m.str, dex = p.stats.dex + m.dex,
     vit = p.stats.vit + m.vit, ene = p.stats.ene + m.ene;
   const prim = { str, dex, ene }[c.primary] ?? str;
-  // class passives
-  m.dmgPct += 4 * passiveRank(p, 'mastery');
+  // class passives (declarative fx, summed across every rank owned)
+  const fx = passiveFx(p);
+  m.dmgPct += fx.dmg;
   if (p.challenge === 'glass') m.dmgPct += 50;   // Glass Cannon challenge
-  const hpMult = (1 + 0.05 * passiveRank(p, 'juggernaut')) * (p.challenge === 'glass' ? 0.5 : 1);
-  const mpMult = 1 + 0.06 * (passiveRank(p, 'focus') + passiveRank(p, 'occult'));
-  const eleMult = 1 + 0.08 * passiveRank(p, 'attune');
-  const fleet = passiveRank(p, 'fleet');
+  const hpMult = (1 + fx.hp / 100) * (p.challenge === 'glass' ? 0.5 : 1);
+  const mpMult = 1 + fx.mp / 100;
+  const eleMult = 1 + fx.ele / 100;
   // primary stat and +dmg% both taper off — power keeps growing at the
   // top end, it just stops going vertical
   const primEff = prim <= 150 ? prim : 150 + (prim - 150) * 0.5;
@@ -834,15 +869,16 @@ function derived(p) {
     maxMp: Math.round((20 + ene * 2.5 + p.level * 3 + m.mp) * mpMult),
     dmgLo: Math.max(1, Math.round(wdmg[0] * mult)),
     dmgHi: Math.max(2, Math.round(wdmg[1] * mult)),
-    armor: Math.round(warmor + m.armor + dex * 0.25),
-    crit: Math.min(0.6, 0.05 + dex * 0.002 + 0.02 * passiveRank(p, 'precision')),
+    armor: Math.round((warmor + m.armor + dex * 0.25) * (1 + fx.armor / 100)),
+    crit: Math.min(0.6, 0.05 + dex * 0.002 + fx.crit / 100),
     leech: Math.min(m.leech, 15) / 100, mf: m.mf,   // life steal caps at 15% total
     fire: Math.round(m.fireDmg * eleMult), cold: Math.round(m.coldDmg * eleMult),
     light: Math.round(m.lightDmg * eleMult), poison: Math.round(m.poisonDmg * eleMult),
     hpRegen: 1 + vit * 0.03,
     mpRegen: (1.6 + ene * 0.06) * mpMult,
-    spdMult: 1 + 0.03 * fleet, atkSpd: 1 + 0.03 * fleet,
-    minionMult: 1 + 0.08 * passiveRank(p, 'gravemight'),
+    spdMult: 1 + fx.spd / 100, atkSpd: 1 + fx.spd / 100,
+    minionMult: 1 + fx.minion / 100,
+    cdr: Math.min(40, fx.cdr) / 100,   // cooldown reduction, hard-capped
   };
 }
 function domEle(d) {   // dominant elemental color, or null
@@ -2720,7 +2756,7 @@ function castSkill(i) {
   if (p.level < (sk.lvl || 1)) { ftext(p.x, p.y - 30, 'Unlocks at level ' + sk.lvl, '#c9b98a', 12); return; }
   if (p.cd[i] > 0) return;
   if (p.mp < sk.mana) { ftext(p.x, p.y - 30, 'Not enough mana', '#8fb3ff', 12); return; }
-  p.mp -= sk.mana; p.cd[i] = sk.cd; p.swingT = 0.22;
+  p.mp -= sk.mana; p.cd[i] = sk.cd * (1 - (G.d.cdr || 0)); p.swingT = 0.22;
   // aim: current target if alive, else facing
   let aim = p.dir;
   const t = p.target && p.target.hp > 0 ? p.target : nearestMonster(p.x, p.y, 420);
@@ -3406,7 +3442,8 @@ function startGame(clsId, save, slot) {
       // pre-skill-point saves get one point per level already earned
       skillPts: save.skillPts !== undefined ? save.skillPts : Math.max(0, save.level - 1),
       skillLvls: save.skillLvls || [1, 1, 1, 1],
-      passives: save.passives || [0, 0],
+      // pad older saves out to the full passive roster
+      passives: PASSIVES[clsId].map((_, i) => (save.passives && save.passives[i]) || 0),
       hardcore: !!save.hardcore,
       challenge: save.challenge || null,
       pets: save.pets || (STARTER_PET[clsId] >= 0 ? [makePetData(STARTER_PET[clsId], 'common')] : []),
@@ -8662,18 +8699,23 @@ function renderChar() {
   const row = (key, label) =>
     `<div class="statrow"><span class="sname">${label}${c.primary === key ? ' ★' : ''}</span><span class="sval">${d[key]}</span>
      <button class="statbtn" data-stat="${key}" ${p.statPts <= 0 ? 'disabled' : ''}>+</button></div>`;
+  const cap = skillCapAt(p.level);
   const skillRow = (sk, i) => {
     const locked = p.level < (sk.lvl || 1);
     const rank = skillRank(p, i);
-    return `<div class="statrow"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : ''}</span>
+    // at the current cap but below the true max: show the level that opens the next rank
+    const nextLvl = rank >= cap && rank < SKILL_MAX ? 40 + (rank - 9) * 5 : 0;
+    return `<div class="statrow"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : nextLvl ? ` <small>(rank ${rank + 1} at lvl ${nextLvl})</small>` : ''}</span>
       <span class="sval">${locked ? '—' : rank + '/' + SKILL_MAX}</span>
-      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= SKILL_MAX ? 'disabled' : ''}>+</button></div>`;
+      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= cap ? 'disabled' : ''}>+</button></div>`;
   };
   const passiveRow = (pa, i) => {
+    const locked = p.level < (pa.lvl || 1);
     const rank = (p.passives && p.passives[i]) || 0;
-    return `<div class="statrow"><span class="sname">${pa.icon} ${pa.name} <small>· ${pa.desc}</small></span>
-      <span class="sval">${rank}/${PASSIVE_MAX}</span>
-      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || rank >= PASSIVE_MAX ? 'disabled' : ''}>+</button></div>`;
+    const max = passiveMax(pa);
+    return `<div class="statrow"><span class="sname">${pa.icon} ${pa.name} <small>· ${locked ? 'unlocks at lvl ' + pa.lvl : pa.desc}</small></span>
+      <span class="sval">${locked ? '—' : rank + '/' + (max === Infinity ? '∞' : max)}</span>
+      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || locked || rank >= max ? 'disabled' : ''}>+</button></div>`;
   };
   const spent = p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
   const respecCost = 100 * p.level;
@@ -8705,13 +8747,13 @@ function renderChar() {
   }));
   $('charPanel').querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.skill, sk = c.skills[i];
-    if (p.skillPts <= 0 || p.level < (sk.lvl || 1) || skillRank(p, i) >= SKILL_MAX) return;
+    if (p.skillPts <= 0 || p.level < (sk.lvl || 1) || skillRank(p, i) >= skillCapAt(p.level)) return;
     p.skillPts--; p.skillLvls[i]++;
     sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
   $('charPanel').querySelectorAll('[data-passive]').forEach(b => b.addEventListener('click', () => {
-    const i = +b.dataset.passive;
-    if (p.skillPts <= 0 || (p.passives[i] || 0) >= PASSIVE_MAX) return;
+    const i = +b.dataset.passive, pa = PASSIVES[p.cls][i];
+    if (p.skillPts <= 0 || p.level < (pa.lvl || 1) || (p.passives[i] || 0) >= passiveMax(pa)) return;
     p.skillPts--; p.passives[i] = (p.passives[i] || 0) + 1;
     sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
@@ -8720,7 +8762,7 @@ function renderChar() {
     if (p.gold < respecCost) return;
     p.gold -= respecCost;
     p.skillPts += p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
-    p.skillLvls = [1, 1, 1, 1]; p.passives = [0, 0];
+    p.skillLvls = [1, 1, 1, 1]; p.passives = PASSIVES[p.cls].map(() => 0);
     banner('Skills reset — points refunded');
     sfx.level(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   });
