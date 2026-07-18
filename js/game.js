@@ -8105,10 +8105,10 @@ function updateBadge() {
 
 /* panels */
 function anyPanelOpen() {
-  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden');
+  return ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel'].some(id => !$(id).classList.contains('hidden')) || !$('itemPopup').classList.contains('hidden') || !$('sellPopup').classList.contains('hidden');
 }
 function closePanels() {
-  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel', 'itemPopup'].forEach(id => $(id).classList.add('hidden'));
+  ['charPanel', 'invPanel', 'pausePanel', 'wpPanel', 'shopPanel', 'stashPanel', 'riftPanel', 'stablePanel', 'stairsPanel', 'npcPanel', 'fusePanel', 'itemPopup', 'sellPopup'].forEach(id => $(id).classList.add('hidden'));
   paused = false;
 }
 function togglePanel(id) {
@@ -8644,11 +8644,21 @@ function renderChar() {
 
 const BAG_MAX = 1000;   // 100g per +6 slots, all the way up
 const RARITY_ORDER = ['common', 'magic', 'rare', 'set', 'unique', 'exotic'];
-// bulk-sellable: everything of the tier (gems included) except socketed
-// gem hosts, charms (their power is live from the bag) and quest sigils
-const sellListUpTo = (p, tier) =>
-  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' && i.slot !== 'egg' &&
-    RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier));
+// bulk-sellable: everything (gems included) except socketed gem hosts,
+// charms (their power is live from the bag), quest sigils and eggs
+const sellableInv = p =>
+  p.inv.filter(i => !(i.sockets > 0) && i.slot !== 'charm' && i.slot !== 'sigil' && i.slot !== 'egg');
+
+/* bulk-sell filter — mode + per-mode threshold, kept across popup opens */
+const sellUI = { mode: 'grade', grade: 'common', lvl: 0, cost: 0, types: [] };
+
+const sellMatches = p => {
+  const base = sellableInv(p);
+  if (sellUI.mode === 'grade') return base.filter(i => RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(sellUI.grade));
+  if (sellUI.mode === 'level') return base.filter(i => i.lvl <= sellUI.lvl);
+  if (sellUI.mode === 'cost') return base.filter(i => sellPrice(i) <= sellUI.cost);
+  return base.filter(i => sellUI.types.includes(i.slot));
+};
 
 function sockBadge(it) {
   if (!it || !it.sockets) return '';
@@ -8668,7 +8678,7 @@ function renderInv() {
   const p = G.p;
   const eqSlot = s => {
     const it = p.equip[s];
-    return `<button class="islot eq ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}<span class="slotlabel">${s}</span></button>`;
+    return `<button class="islot eq ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}" data-eq="${s}">${it ? it.icon : ''}${sockBadge(it)}${gradeBadge(it)}${it ? `<span class="ilvl">${it.lvl}</span>` : ''}<span class="slotlabel">${s}</span></button>`;
   };
   let grid = '';
   // beyond the strongest CHARM_LIMIT, charms sleep — mark them so
@@ -8679,7 +8689,7 @@ function renderInv() {
   for (let i = 0; i < shownBag; i++) {
     const it = p.inv[i];
     const dormant = it && it.slot === 'charm' && !actCh.has(it);
-    grid += `<button class="islot ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}${dormant ? ' dormant' : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) : ''}${dormant ? '<span class="zz">💤</span>' : ''}</button>`;
+    grid += `<button class="islot ${it ? 'r-' + it.rarity + (it.st ? ' st' + it.st : '') : ''}${dormant ? ' dormant' : ''}" data-inv="${i}">${it ? it.icon : ''}${it ? sockBadge(it) + gradeBadge(it) + `<span class="ilvl">${it.lvl}</span><span class="iprice">${sellPrice(it)}</span>` : ''}${dormant ? '<span class="zz">💤</span>' : ''}</button>`;
   }
   if (p.bagSlots > shownBag) grid += `<div class="derived" style="grid-column:1/-1; text-align:center">… ${p.bagSlots - shownBag} more empty slots</div>`;
   const charmNote = nCharms > CHARM_LIMIT
@@ -8692,23 +8702,10 @@ function renderInv() {
       ? `<div class="invactions"><button class="smallbtn" data-bag ${p.gold < SLOT_COST ? 'disabled' : ''}>🎒 +6 slots (${SLOT_COST}g)</button></div>`
       : ''}
     <div class="invactions" style="margin-top:-4px">
-      ${['common', 'magic', 'rare'].map(tier => {
-        const list = sellListUpTo(p, tier);
-        const total = list.reduce((s, i) => s + sellPrice(i), 0);
-        const label = tier === 'common' ? 'commons' : '≤ ' + tier;
-        return `<button class="smallbtn" data-sellup="${tier}" ${!list.length ? 'disabled' : ''}>💰 ${label} (${total}g)</button>`;
-      }).join('')}
-    </div>
-    <div class="invactions" style="margin-top:-4px">
-      ${(() => {
-        const list = sellListUpTo(p, 'exotic');
-        const total = list.reduce((s, i) => s + sellPrice(i), 0);
-        return `<button class="smallbtn" data-sellup="exotic" ${!list.length ? 'disabled' : ''}>💰 everything (${total}g)</button>`;
-      })()}
+      <button class="smallbtn" data-sellopen ${!sellableInv(p).length ? 'disabled' : ''} title="Bulk-sell with a filter by grade, level, cost or type">💰 Sell…</button>
       <button class="smallbtn" data-reorg ${p.inv.length > 1 ? '' : 'disabled'} title="Sort the bag by item type, most valuable first">🗂 Reorg</button>
       <button class="smallbtn" data-fuseall ${fusableGroups(p.inv).length ? '' : 'disabled'} title="Fuse every 3-of-a-kind, cascading up the ladder">⚡ Fuse all</button>
     </div>
-    <div class="derived" style="text-align:center; margin:2px 0 8px">Bulk selling includes gems of that tier; socketed items, charms, sigils and eggs always stay.</div>
     ${charmNote}
     <div class="invgrid">${grid}</div>`;
   $('invPanel').querySelector('[data-close]').addEventListener('click', closePanels);
@@ -8720,21 +8717,9 @@ function renderInv() {
     const it = p.equip[b.dataset.eq];
     if (it) showItemPopup(it, b.dataset.eq, true);
   }));
-  $('invPanel').querySelectorAll('[data-sellup]').forEach(b => b.addEventListener('click', () => {
-    const tier = b.dataset.sellup;
-    const list = sellListUpTo(p, tier);
-    if (!list.length) return;
-    const total = list.reduce((s, i) => s + sellPrice(i), 0);
-    const label = tier === 'exotic' ? 'every rarity' : 'rarities up to ' + tier;
-    const gemCount = list.filter(i => i.g).length;
-    if (!confirm('Sell ' + list.length + ' items (' + label + ') for ' + total + ' gold?'
-      + (gemCount ? '\nIncludes ' + gemCount + ' gem' + (gemCount > 1 ? 's' : '') + '.' : '')
-      + '\nSocketed items always stay.')) return;
-    p.inv = p.inv.filter(i => !list.includes(i));
-    p.gold += total;
-    ftext(p.x, p.y - 30, '+' + total + 'g', '#e8c14d', 14);
-    sfx.gold(); renderInv(); updateHUD(); saveDirty = true;
-  }));
+  $('invPanel').querySelector('[data-sellopen]').addEventListener('click', () => {
+    if (sellableInv(p).length) showSellPopup();
+  });
   const bagBtn = $('invPanel').querySelector('[data-bag]');
   if (bagBtn) bagBtn.addEventListener('click', () => {
     if (p.gold < SLOT_COST || p.bagSlots >= BAG_MAX) return;
@@ -8761,6 +8746,98 @@ function renderInv() {
     banner('⚗ ' + count + ' fusion' + (count > 1 ? 's' : '') + ' — finest: ' + finest.name);
     spark(p.x, p.y - 10, fuseColor(finest), 16, 200);
     sfx.level(); recalc(); saveDirty = true; renderInv(); updateHUD();
+  });
+}
+
+/* bulk-sell popup: pick a filter (grade / level / cost / type), see the live
+   count + gold of what would sell, then sell in one tap */
+function showSellPopup() {
+  const p = G.p;
+  const pop = $('sellPopup');
+  const base = sellableInv(p);
+  if (!base.length) { pop.classList.add('hidden'); renderInv(); return; }
+  const lvls = base.map(i => i.lvl), costs = base.map(i => sellPrice(i));
+  const lvlMin = Math.min(...lvls), lvlMax = Math.max(...lvls);
+  const costMin = Math.min(...costs), costMax = Math.max(...costs);
+  sellUI.lvl = Math.max(lvlMin, Math.min(lvlMax, sellUI.lvl || lvlMin));
+  sellUI.cost = Math.max(costMin, Math.min(costMax, sellUI.cost || costMin));
+  const typeOrder = ['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet', 'gem'];
+  const typesHere = typeOrder.filter(t => base.some(i => i.slot === t));
+  sellUI.types = sellUI.types.filter(t => typesHere.includes(t));
+
+  const upToCount = tier => base.filter(i => RARITY_ORDER.indexOf(i.rarity) <= RARITY_ORDER.indexOf(tier)).length;
+  const controls = sellUI.mode === 'grade'
+    ? `<div class="sellchips">${RARITY_ORDER.map((r, k) => {
+        const n = upToCount(r);
+        return `<button class="sellchip${sellUI.grade === r ? ' on' : ''}" data-grade="${r}" ${!n ? 'disabled' : ''}>
+          ${k ? '≤ ' : ''}<span style="color:${rarityColor(r)}">${r}</span> (${n})</button>`;
+      }).join('')}</div>
+      <div class="derived" style="text-align:center; margin-top:2px">sells every item of that grade and below</div>`
+    : sellUI.mode === 'level'
+      ? `<input type="range" min="${lvlMin}" max="${lvlMax}" value="${sellUI.lvl}" data-slide="lvl">
+        <div class="derived" style="text-align:center">item level ≤ <b data-slideval>${sellUI.lvl}</b> (bag holds levels ${lvlMin}–${lvlMax})</div>`
+      : sellUI.mode === 'cost'
+        ? `<input type="range" min="${costMin}" max="${costMax}" value="${sellUI.cost}" data-slide="cost">
+          <div class="derived" style="text-align:center">worth ≤ <b data-slideval>${sellUI.cost}</b>g each (bag ranges ${costMin}–${costMax}g)</div>`
+        : `<div class="sellchips">${typesHere.map(t => {
+            const n = base.filter(i => i.slot === t).length;
+            return `<button class="sellchip${sellUI.types.includes(t) ? ' on' : ''}" data-type="${t}">${t} (${n})</button>`;
+          }).join('')}</div>
+          <div class="derived" style="text-align:center; margin-top:2px">tap one or more types to include them</div>`;
+
+  const list = sellMatches(p);
+  const total = list.reduce((s, i) => s + sellPrice(i), 0);
+  pop.innerHTML = `
+    <button class="pclose" data-close>✕</button>
+    <div class="ptitle">💰 Bulk sell</div>
+    <div class="selltabs">
+      ${[['grade', 'Grade'], ['level', 'Level'], ['cost', 'Cost'], ['type', 'Type']].map(([m, lb]) =>
+        `<button class="selltab${sellUI.mode === m ? ' on' : ''}" data-mode="${m}">${lb}</button>`).join('')}
+    </div>
+    ${controls}
+    <div class="sellsum" data-sellsum>Selling <b>${list.length}</b> of ${base.length} item${base.length > 1 ? 's' : ''} for <b>${total}g</b></div>
+    <div class="ibtns">
+      <button class="smallbtn" data-sellgo ${!list.length ? 'disabled' : ''}>💰 Sell ${list.length} item${list.length === 1 ? '' : 's'} (${total}g)</button>
+      <button class="smallbtn" data-close>Close</button>
+    </div>
+    <div class="derived" style="text-align:center; margin-top:8px">Socketed items, charms, sigils and eggs always stay.</div>`;
+  pop.classList.remove('hidden');
+
+  pop.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => pop.classList.add('hidden')));
+  pop.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+    sellUI.mode = b.dataset.mode; showSellPopup();
+  }));
+  pop.querySelectorAll('[data-grade]').forEach(b => b.addEventListener('click', () => {
+    sellUI.grade = b.dataset.grade; showSellPopup();
+  }));
+  pop.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => {
+    const t = b.dataset.type;
+    sellUI.types = sellUI.types.includes(t) ? sellUI.types.filter(x => x !== t) : [...sellUI.types, t];
+    showSellPopup();
+  }));
+  const slide = pop.querySelector('[data-slide]');
+  if (slide) slide.addEventListener('input', () => {
+    sellUI[slide.dataset.slide] = +slide.value;
+    // live-update the labels in place — a full re-render would drop the drag
+    pop.querySelector('[data-slideval]').textContent = slide.value;
+    const l2 = sellMatches(p), t2 = l2.reduce((s, i) => s + sellPrice(i), 0);
+    pop.querySelector('[data-sellsum]').innerHTML = `Selling <b>${l2.length}</b> of ${base.length} item${base.length > 1 ? 's' : ''} for <b>${t2}g</b>`;
+    const go = pop.querySelector('[data-sellgo]');
+    go.disabled = !l2.length;
+    go.textContent = `💰 Sell ${l2.length} item${l2.length === 1 ? '' : 's'} (${t2}g)`;
+  });
+  pop.querySelector('[data-sellgo]').addEventListener('click', () => {
+    const sale = sellMatches(p);
+    if (!sale.length) return;
+    const gold = sale.reduce((s, i) => s + sellPrice(i), 0);
+    const precious = sale.filter(i => ['set', 'unique', 'exotic'].includes(i.rarity)).length;
+    if (precious && !confirm('This sale includes ' + precious + ' set/unique/exotic item' + (precious > 1 ? 's' : '') + '. Sell anyway?')) return;
+    p.inv = p.inv.filter(i => !sale.includes(i));
+    p.gold += gold;
+    ftext(p.x, p.y - 30, '+' + gold + 'g', '#e8c14d', 14);
+    sfx.gold(); saveDirty = true;
+    pop.classList.add('hidden');
+    renderInv(); updateHUD();
   });
 }
 

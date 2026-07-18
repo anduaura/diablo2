@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.30.0';
+const SANCTUARY_VERSION = '1.31.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.31.0', date: '2026-07-18', title: 'One button to sell them all',
+    notes: [
+      'The row of bulk-sell buttons folds into a single 💰 Sell… button that opens a filter popup: sell by grade, by item level, by gold value or by item type, each with its own threshold',
+      'Every filter shows live how many items it would sell and for how much gold before you commit — and selling set, unique or exotic pieces asks first',
+      'Bag icons now wear their item level in the top-left corner and their sell price in the bottom-right, so no more tapping items just to check',
+    ],
+  },
   {
     v: '1.30.0', date: '2026-07-17', title: 'No more bricks in the wild',
     notes: [
