@@ -417,7 +417,82 @@ const PASSIVES = {
 const passiveMax = pa => pa.endless ? Infinity : PASSIVE_MAX;
 const skillRank = (p, i) => (p.skillLvls && p.skillLvls[i]) || 1;
 const skillMult = (p, i) => 1 + 0.15 * (skillRank(p, i) - 1);
-/* total per-rank fx across all of a hero's passive ranks */
+
+/* ---------------- ascension classes ----------------
+   At level 50, a hero who has pushed both of an ascension's keystone
+   skills to rank 12 may ascend — permanently. Ascending grants a flat
+   stat bundle, empowers the keystone skills, and unlocks a fifth skill
+   unique to the ascension (it ranks up like any other). Two paths per
+   class; the choice cannot be undone, even by respec. */
+const ASC_LEVEL = 50, ASC_RANK = 12;
+const ASCENSIONS = {
+  berserker: {
+    cls: 'warrior', name: 'Berserker', icon: '🔥', keys: [2, 3],
+    desc: 'The storm of blades made flesh.',
+    bonus: { dmg: 12, spd: 5 },
+    perk: 'Berserker Rage lasts 12s · Whirlwind deals 200% damage',
+    skill: { id: 'bladestorm', name: 'Bladestorm', icon: '🌀', mana: 24, cd: 14, desc: 'Become a living storm: whirlwind strikes around you every half-second for 4s' },
+  },
+  champion: {
+    cls: 'warrior', name: 'Champion', icon: '🏆', keys: [0, 1],
+    desc: 'The unbreakable wall at the front of every charge.',
+    bonus: { hp: 12, armor: 10 },
+    perk: 'War Cry stuns 2.8s in a wider ring · Cleave arcs wider',
+    skill: { id: 'warbanner', name: 'Banner of War', icon: '🚩', mana: 22, cd: 20, desc: 'Plant the banner: you and your minions deal +40% damage for 8s' },
+  },
+  pyromancer: {
+    cls: 'sorceress', name: 'Pyromancer', icon: '🌋', keys: [0, 3],
+    desc: 'Fire answers when she calls.',
+    bonus: { ele: 15, dmg: 8 },
+    perk: 'Fireball explodes half again as wide · Meteor deals 360% damage',
+    skill: { id: 'firestorm', name: 'Firestorm', icon: '💥', mana: 30, cd: 12, desc: 'Rain five meteors on the target area, 150% damage each' },
+  },
+  stormcaller: {
+    cls: 'sorceress', name: 'Stormcaller', icon: '⛈️', keys: [1, 2],
+    desc: 'Winter and thunder obey the same voice.',
+    bonus: { ele: 12, mp: 10 },
+    perk: 'Chain Lightning arcs through 8 enemies · Frost Nova reaches further',
+    skill: { id: 'tempest', name: 'Tempest', icon: '🌩️', mana: 26, cd: 10, desc: 'Lightning strikes up to 8 nearby foes for 160% damage, briefly stunning them' },
+  },
+  windrunner: {
+    cls: 'huntress', name: 'Windrunner', icon: '🪶', keys: [0, 3],
+    desc: 'The wind itself nocks her arrows.',
+    bonus: { spd: 8, dmg: 8 },
+    perk: 'Multishot fans 7 arrows · Strafe fires 12',
+    skill: { id: 'arrowrain', name: 'Arrow Rain', icon: '🎆', mana: 26, cd: 11, desc: 'A volley darkens the sky: 200% damage and a chilling slow in the target area' },
+  },
+  viper: {
+    cls: 'huntress', name: 'Viper', icon: '🐍', keys: [1, 2],
+    desc: 'One scratch is enough.',
+    bonus: { crit: 5, dmg: 8 },
+    perk: 'Skewer deals 300% damage · Poison Cloud lingers 7s and burns harder',
+    skill: { id: 'venomnova', name: 'Venom Nova', icon: '🧪', mana: 24, cd: 12, desc: 'Burst three toxic clouds in a line along your aim' },
+  },
+  archlich: {
+    cls: 'necromancer', name: 'Archlich', icon: '👻', keys: [0, 2],
+    desc: 'Death is a tool; he is the hand.',
+    bonus: { mp: 15, dmg: 8 },
+    perk: 'Bone Spear splits into three · Curse of Frailty lasts 12s',
+    skill: { id: 'deathnova', name: 'Death Nova', icon: '☠️', mana: 28, cd: 9, desc: 'A ring of death: 240% damage to everything nearby, cursing survivors' },
+  },
+  overlord: {
+    cls: 'necromancer', name: 'Overlord', icon: '🧟', keys: [1, 3],
+    desc: 'An army is never far behind him.',
+    bonus: { minion: 25, hp: 8 },
+    perk: '+3 skeleton cap · Bone Golem half again as strong',
+    skill: { id: 'armydead', name: 'Army of the Dead', icon: '⚱️', mana: 30, cd: 16, desc: 'Raise skeletons to your full cap and mend every minion to full life' },
+  },
+};
+const ascFor = cls => Object.keys(ASCENSIONS).filter(id => ASCENSIONS[id].cls === cls);
+const ascReady = (p, id) => {
+  const a = ASCENSIONS[id];
+  return p.level >= ASC_LEVEL && a.keys.every(k => skillRank(p, k) >= ASC_RANK);
+};
+/* the hero's live skill list: class skills plus the ascension's fifth */
+const heroSkills = p => p.asc ? CLASSES[p.cls].skills.concat([ASCENSIONS[p.asc].skill]) : CLASSES[p.cls].skills;
+const skelCap = p => Math.min(5, 2 + Math.floor(p.level / 8)) + (p.asc === 'overlord' ? 3 : 0);
+/* total per-rank fx across all of a hero's passive ranks, plus the flat
+   bundle from an ascension if one was chosen */
 function passiveFx(p) {
   const t = { dmg: 0, hp: 0, mp: 0, ele: 0, armor: 0, spd: 0, minion: 0, crit: 0, cdr: 0 };
   const defs = PASSIVES[p.cls];
@@ -425,6 +500,10 @@ function passiveFx(p) {
     const r = (p.passives && p.passives[i]) || 0;
     if (!r) continue;
     for (const k in defs[i].fx) t[k] += defs[i].fx[k] * r;
+  }
+  if (p.asc && ASCENSIONS[p.asc]) {
+    const b = ASCENSIONS[p.asc].bonus;
+    for (const k in b) t[k] += b[k];
   }
   return t;
 }
@@ -790,16 +869,16 @@ function newPlayer(clsId) {
     pets: starter, activePet: starter.length ? 0 : -1,
     cls: clsId, x: 0, y: 0, r: 14, dir: 0,
     level: 1, xp: 0, statPts: 0, gold: 0,
-    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: PASSIVES[clsId].map(() => 0),
+    skillPts: 0, skillLvls: [1, 1, 1, 1], passives: PASSIVES[clsId].map(() => 0), asc: null,
     hardcore: false, challenge: null,
     stats: { ...c.base },
     equip: { weapon: JSON.parse(JSON.stringify(c.weapon)), helm: null, armor: null, boots: null, ring: null, amulet: null },
     inv: [], potions: { hp: 2, mp: 1 },
     hp: 1, mp: 1,                     // set by recalc
     bagSlots: 24,
-    atkT: 0, cd: [0, 0, 0, 0], target: null, path: null, moveTo: null,
+    atkT: 0, cd: [0, 0, 0, 0, 0], target: null, path: null, moveTo: null,
     hurtT: 0, swingT: 0, deaths: 0,
-    rageT: 0, spinT: 0, strafeN: 0, strafeT: 0,
+    rageT: 0, spinT: 0, strafeN: 0, strafeT: 0, stormT: 0, stormTickT: 0,
   };
 }
 
@@ -1252,20 +1331,27 @@ function genLevel(dlvl, riftMode) {
 
   // exit seal: on every ordinary floor the end door is locked behind a
   // small puzzle — rune stones tapped in order, a crystal song to echo,
-  // linked levers to set upright, or a Key Warden to hunt down. Boss
-  // floors keep their guardian lock instead.
+  // linked levers to set upright, a Key Warden to hunt down, braziers to
+  // keep burning at once, twin orbs to pair up, or a restless wisp to
+  // catch. Boss floors keep their guardian lock instead.
   let puzzle = null;
   if (!riftMode && G && !isBossFloor) {
-    const kind = ri(0, 3);
+    const kind = ri(0, 6);
     const prooms = rooms.filter(r => r !== r0 && r !== exit);
-    // a random open tile inside a room, in world px
-    const spot = room => {
-      for (let t = 0; t < 12; t++) {
-        const x = ri(room.x + 1, room.x + room.w - 2), y = ri(room.y + 1, room.y + room.h - 2);
+    // a random open tile inside a rect of a room, in world px
+    const spotIn = (x0, y0, x1, y1) => {
+      for (let t = 0; t < 14; t++) {
+        const x = ri(x0, x1), y = ri(y0, y1);
         if (map[y][x] === T_FLOOR && !propSet.has(y * MAP_W + x))
           return { x: x * TILE + TILE / 2, y: y * TILE + TILE / 2 };
       }
       return null;
+    };
+    const spot = room => spotIn(room.x + 1, room.y + 1, room.x + room.w - 2, room.y + room.h - 2);
+    // a roomy room for puzzles that need space to breathe
+    const bigRoom = () => {
+      const big = prooms.filter(r => r.w >= 7 && r.h >= 6);
+      return big.length ? choice(big) : (prooms.length ? choice(prooms) : null);
     };
     if (kind === 0 && prooms.length) {          // rune stones, tapped I → IV
       const order = [1, 2, 3, 4];
@@ -1295,6 +1381,41 @@ function genLevel(dlvl, riftMode) {
         const flip = i => { for (let j = Math.max(0, i - 1); j <= Math.min(2, i + 1); j++) on[j] = !on[j]; };
         while (on[0] && on[1] && on[2]) for (let k = 0; k < ri(1, 3); k++) flip(ri(0, 2));
         puzzle = { kind: 2, solved: false, levers: on.map((v, i) => ({ x: s.x + (i - 1) * 46, y: s.y, on: v })) };
+      }
+    } else if (kind === 4 && prooms.length) {   // braziers: all four must burn at once
+      const room = bigRoom();
+      if (room) {
+        const mx = room.x + Math.floor(room.w / 2), my = room.y + Math.floor(room.h / 2);
+        const quads = [
+          [room.x + 1, room.y + 1, mx, my], [mx, room.y + 1, room.x + room.w - 2, my],
+          [room.x + 1, my, mx, room.y + room.h - 2], [mx, my, room.x + room.w - 2, room.y + room.h - 2],
+        ];
+        const braziers = [];
+        for (const q of quads) {
+          const s = spotIn(q[0], q[1], q[2], q[3]) || spot(room);
+          if (s) braziers.push({ x: s.x, y: s.y, lit: 0 });
+        }
+        if (braziers.length === 4) puzzle = { kind: 4, solved: false, braziers, burn: 8 };
+      }
+    } else if (kind === 5 && prooms.length) {   // twin orbs: match the pairs from memory
+      const s = spot(choice(prooms));
+      if (s) {
+        const cs = [0, 0, 1, 1, 2, 2];
+        for (let i = cs.length - 1; i > 0; i--) { const j = ri(0, i); [cs[i], cs[j]] = [cs[j], cs[i]]; }
+        const orbs = cs.map((c, i) => ({
+          x: s.x + (i % 3 - 1) * 46, y: s.y + (i < 3 ? -22 : 20), c, st: 0,
+        }));
+        puzzle = { kind: 5, solved: false, px: s.x, py: s.y, orbs, pick: -1, hideT: 0 };
+      }
+    } else if (kind === 6 && prooms.length) {   // the restless wisp flits about a room
+      const room = bigRoom();
+      const s = room && spot(room);
+      if (s) {
+        puzzle = {
+          kind: 6, solved: false, wx: s.x, wy: s.y, tx: s.x, ty: s.y,
+          bx0: room.x + 1, by0: room.y + 1, bx1: room.x + room.w - 2, by1: room.y + room.h - 2,
+          hits: 0, need: 3, retarget: 0,
+        };
       }
     } else if (prooms.length) {                 // the Key Warden roams the floor
       const room = choice(prooms);
@@ -1339,7 +1460,7 @@ function enterRift(tier) {
   G.pet = actPet2 ? spawnPet(actPet2) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
-  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0; p.stormT = 0;
   G.world = worldOf(depth);
   $('floorLabel').textContent = '🌀 Rift · Tier ' + tier + (p.hardcore ? ' ☠' : '');
   banner('RIFT TIER ' + tier + ' — slay ' + G.rift.need + ' to summon the Guardian!');
@@ -1450,7 +1571,7 @@ function enterCowLevel(golden) {
   G.pet = actPet2 ? spawnPet(actPet2) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
-  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0; p.stormT = 0;
   G.world = 0;   // sunny Verdant Fields palette
   $('floorLabel').textContent = (G.goldenPasture ? 'The Gilded Pasture 🐮' : 'The Secret Pasture 🐄') + (G.p.hardcore ? ' ☠' : '');
   banner(G.goldenPasture ? 'MOO! The gilded herd glitters with menace…' : 'MOO?! The herd senses an intruder…');
@@ -1511,7 +1632,7 @@ function enterPetLair(item) {
   G.pet = actPet2 ? spawnPet(actPet2) : null;
   const p = G.p;
   p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
-  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0;
+  p.target = null; p.path = null; p.moveTo = null; p.strafeN = 0; p.stormT = 0;
   G.world = Math.min(spd.world || 0, WORLDS.length - 1);   // the beast's home palette
   $('floorLabel').textContent = '🥚 Beast Lair · ' + spd.name + (G.p.hardcore ? ' ☠' : '');
   banner('🐣 The egg cracks — the ' + spd.name + '\'s lair opens! Subdue it to tame it.');
@@ -2358,12 +2479,16 @@ function updateWonders(dt) {
 /* ---------------- exit seals ----------------
    Every ordinary floor locks its end door behind a small puzzle; solving
    it forges the exit key. 0 rune stones · 1 singing crystals · 2 ancient
-   levers · 3 Key Warden (solved from killMonster). */
+   levers · 3 Key Warden (solved from killMonster) · 4 braziers ·
+   5 twin orbs · 6 restless wisp. */
 const SEAL_HINTS = [
   '🔒 Sealed — wake the four rune stones in order, I to IIII',
   '🔒 Sealed — echo the singing crystals\' song',
   '🔒 Sealed — set every ancient lever upright',
   '🔒 Sealed — the Key Warden roams this floor with the key',
+  '🔒 Sealed — all four braziers must burn at once',
+  '🔒 Sealed — pair the twin orbs, two by two',
+  '🔒 Sealed — catch the restless wisp, three times',
 ];
 const CRYSTAL_COLORS = ['#ff6a5a', '#5ab0ff', '#7adf6a', '#e8c14d'];
 const CRYSTAL_NOTES = [392, 523, 659, 784];
@@ -2383,25 +2508,67 @@ function solvePuzzle() {
 
 function updatePuzzle(dt) {
   const pz = G.lvl.puzzle;
-  if (!pz || pz.solved || pz.kind !== 1) return;
-  pz.flashT = Math.max(0, pz.flashT - dt);
-  if (pz.showing) {
-    pz.t -= dt;
-    if (pz.t <= 0) {
-      if (pz.showIdx >= pz.seq.length) { pz.showing = false; pz.cd = 5; }
-      else {
-        pz.flash = pz.seq[pz.showIdx];
-        pz.flashT = 0.42;
-        blip(CRYSTAL_NOTES[pz.flash], 0.3, 'sine', 0.05, 0);
-        pz.showIdx++;
-        pz.t = 0.6;
+  if (!pz || pz.solved) return;
+  if (pz.kind === 1) {
+    pz.flashT = Math.max(0, pz.flashT - dt);
+    if (pz.showing) {
+      pz.t -= dt;
+      if (pz.t <= 0) {
+        if (pz.showIdx >= pz.seq.length) { pz.showing = false; pz.cd = 5; }
+        else {
+          pz.flash = pz.seq[pz.showIdx];
+          pz.flashT = 0.42;
+          blip(CRYSTAL_NOTES[pz.flash], 0.3, 'sine', 0.05, 0);
+          pz.showIdx++;
+          pz.t = 0.6;
+        }
+      }
+    } else {
+      // the pedestal sings its riddle whenever an untangled hero draws near
+      pz.cd = Math.max(0, pz.cd - dt);
+      if (pz.cd <= 0 && pz.progress === 0 && dist(G.p.x, G.p.y, pz.px, pz.py) < 300) {
+        pz.showing = true; pz.showIdx = 0; pz.t = 0.4;
       }
     }
-  } else {
-    // the pedestal sings its riddle whenever an untangled hero draws near
-    pz.cd = Math.max(0, pz.cd - dt);
-    if (pz.cd <= 0 && pz.progress === 0 && dist(G.p.x, G.p.y, pz.px, pz.py) < 300) {
-      pz.showing = true; pz.showIdx = 0; pz.t = 0.4;
+  } else if (pz.kind === 4) {
+    // lit braziers burn down; an expired flame gutters out
+    for (const b of pz.braziers) {
+      if (b.lit <= 0) continue;
+      b.lit -= dt;
+      if (b.lit <= 0) {
+        b.lit = 0;
+        spark(b.x, b.y - 16, '#8a8078', 6, 90);
+        blip(140, 0.15, 'sine', 0.04, -60);
+        ftext(b.x, b.y - 32, 'the flame gutters out…', '#c9b98a', 11);
+      }
+    }
+  } else if (pz.kind === 5) {
+    // a mismatched pair lingers a beat, then both go dark again
+    if (pz.hideT > 0) {
+      pz.hideT -= dt;
+      if (pz.hideT <= 0) {
+        pz.hideT = 0;
+        for (const o of pz.orbs) if (o.st === 1) o.st = 0;
+        pz.pick = -1;
+      }
+    }
+  } else if (pz.kind === 6) {
+    // the wisp flits between spots in its room, quicker each time it's caught
+    pz.retarget -= dt;
+    const d = dist(pz.wx, pz.wy, pz.tx, pz.ty);
+    if (pz.retarget <= 0 || d < 8) {
+      for (let t = 0; t < 10; t++) {
+        const x = ri(pz.bx0, pz.bx1), y = ri(pz.by0, pz.by1);
+        if (tileAt(x, y) !== T_FLOOR) continue;
+        pz.tx = x * TILE + TILE / 2; pz.ty = y * TILE + TILE / 2;
+        break;
+      }
+      pz.retarget = rand(1.0, 2.2);
+    }
+    if (d > 2) {
+      const spd = 78 + pz.hits * 26;
+      pz.wx += (pz.tx - pz.wx) / d * spd * dt;
+      pz.wy += (pz.ty - pz.wy) / d * spd * dt;
     }
   }
 }
@@ -2465,6 +2632,67 @@ function puzzleTap(w) {
       blip(220, 0.1, 'square', 0.05, -80);
       spark(lv.x, lv.y - 10, '#c9b98a', 6, 120);
       if (pz.levers.every(l2 => l2.on)) solvePuzzle();
+      return true;
+    }
+  } else if (pz.kind === 4) {
+    for (const b of pz.braziers) {
+      if (dist(w.x, w.y, b.x, b.y - 10) > 30) continue;
+      if (dist(p.x, p.y, b.x, b.y) > 95) return go(b.x, b.y);
+      b.lit = pz.burn;
+      spark(b.x, b.y - 18, '#ff8a3a', 12, 160);
+      blip(330, 0.15, 'sine', 0.05, 80);
+      const burning = pz.braziers.filter(b2 => b2.lit > 0).length;
+      if (burning >= pz.braziers.length) solvePuzzle();
+      else ftext(b.x, b.y - 34, burning + ' / ' + pz.braziers.length + ' alight', '#ffc46a', 12);
+      return true;
+    }
+  } else if (pz.kind === 5) {
+    for (let i = 0; i < pz.orbs.length; i++) {
+      const o = pz.orbs[i];
+      if (dist(w.x, w.y, o.x, o.y - 6) > 24) continue;
+      if (dist(p.x, p.y, o.x, o.y) > 95) return go(o.x, o.y);
+      // a lingering mismatch clears the moment a new orb is touched
+      if (pz.hideT > 0) {
+        pz.hideT = 0;
+        for (const o2 of pz.orbs) if (o2.st === 1) o2.st = 0;
+        pz.pick = -1;
+      }
+      if (o.st !== 0) return true;
+      o.st = 1;
+      blip(CRYSTAL_NOTES[o.c], 0.22, 'sine', 0.05, 0);
+      if (pz.pick < 0) { pz.pick = i; return true; }
+      const first = pz.orbs[pz.pick];
+      if (first.c === o.c) {
+        first.st = 2; o.st = 2; pz.pick = -1;
+        spark(o.x, o.y - 8, CRYSTAL_COLORS[o.c], 10, 150);
+        spark(first.x, first.y - 8, CRYSTAL_COLORS[o.c], 10, 150);
+        if (pz.orbs.every(o2 => o2.st === 2)) solvePuzzle();
+        else ftext(o.x, o.y - 30, 'a pair!', '#7adf6a', 12);
+      } else {
+        pz.hideT = 0.85;
+        ftext(o.x, o.y - 30, 'no twin — they fade…', '#ff8a7a', 12);
+        sfx.hurt();
+      }
+      return true;
+    }
+  } else if (pz.kind === 6) {
+    if (dist(w.x, w.y, pz.wx, pz.wy - 8) < 34) {
+      if (dist(p.x, p.y, pz.wx, pz.wy) > 120) return go(pz.wx, pz.wy);
+      pz.hits++;
+      spark(pz.wx, pz.wy - 8, '#8fe8ff', 14, 180);
+      blip(520 + pz.hits * 120, 0.2, 'sine', 0.05, 100);
+      if (pz.hits >= pz.need) { solvePuzzle(); return true; }
+      ftext(pz.wx, pz.wy - 28, (pz.need - pz.hits) + ' more…', '#8fe8ff', 12);
+      // it slips away — darts to a far corner of its room
+      for (let t = 0; t < 14; t++) {
+        const x = ri(pz.bx0, pz.bx1), y = ri(pz.by0, pz.by1);
+        if (tileAt(x, y) !== T_FLOOR) continue;
+        const nx = x * TILE + TILE / 2, ny = y * TILE + TILE / 2;
+        if (dist(nx, ny, p.x, p.y) < 110) continue;
+        pz.wx = nx; pz.wy = ny; pz.tx = nx; pz.ty = ny;
+        break;
+      }
+      pz.retarget = rand(0.8, 1.4);
       return true;
     }
   }
@@ -2545,6 +2773,86 @@ function drawPuzzle() {
     ctx.beginPath(); ctx.moveTo(m.x, ky); ctx.lineTo(m.x, ky + 10); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(m.x, ky + 9); ctx.lineTo(m.x + 4, ky + 9); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(m.x, ky + 5); ctx.lineTo(m.x + 3, ky + 5); ctx.stroke();
+  } else if (pz.kind === 4) {
+    for (const b of pz.braziers) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(b.x, b.y + 4, 11, 5, 0, 0, 7); ctx.fill();
+      // iron bowl on a stout stem
+      ctx.fillStyle = '#3c3833';
+      ctx.fillRect(b.x - 3, b.y - 10, 6, 14);
+      ctx.fillRect(b.x - 8, b.y + 2, 16, 3);
+      ctx.fillStyle = '#565048';
+      ctx.beginPath();
+      ctx.moveTo(b.x - 11, b.y - 16); ctx.lineTo(b.x + 11, b.y - 16);
+      ctx.lineTo(b.x + 7, b.y - 7); ctx.lineTo(b.x - 7, b.y - 7);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.2; ctx.stroke();
+      if (b.lit > 0 && !pz.solved) {
+        // the flame shrinks as it burns down — a visible fuse
+        const h = 8 + 12 * Math.min(1, b.lit / 3) + Math.sin(G.time * 13 + b.x) * 2;
+        ctx.fillStyle = '#ff8a3a';
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y - 18 - h);
+        ctx.quadraticCurveTo(b.x + 7, b.y - 22, b.x, b.y - 15);
+        ctx.quadraticCurveTo(b.x - 7, b.y - 22, b.x, b.y - 18 - h);
+        ctx.fill();
+        ctx.fillStyle = '#ffd76a';
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y - 18 - h * 0.55);
+        ctx.quadraticCurveTo(b.x + 3.5, b.y - 20, b.x, b.y - 16);
+        ctx.quadraticCurveTo(b.x - 3.5, b.y - 20, b.x, b.y - 18 - h * 0.55);
+        ctx.fill();
+      } else if (pz.solved) {
+        ctx.fillStyle = '#ffd76a';
+        ctx.beginPath(); ctx.arc(b.x, b.y - 21, 4, 0, 7); ctx.fill();
+      } else {
+        // cold coals with a faint waiting glimmer
+        ctx.fillStyle = `rgba(255,138,58,${0.25 * pulse})`;
+        ctx.beginPath(); ctx.arc(b.x, b.y - 18, 4, 0, 7); ctx.fill();
+      }
+    }
+  } else if (pz.kind === 5) {
+    for (const o of pz.orbs) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + 3, 9, 4, 0, 0, 7); ctx.fill();
+      // stone cradle
+      ctx.fillStyle = '#4e4a44';
+      ctx.fillRect(o.x - 7, o.y - 3, 14, 6);
+      const shown = o.st !== 0 || pz.solved;
+      ctx.fillStyle = shown ? CRYSTAL_COLORS[o.c] : '#5c564e';
+      ctx.beginPath(); ctx.arc(o.x, o.y - 10, 8, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#2a2622'; ctx.lineWidth = 1.2; ctx.stroke();
+      if (shown) {
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.arc(o.x - 2.5, o.y - 12.5, 2.5, 0, 7); ctx.fill();
+        if (o.st === 2 && !pz.solved) {
+          ctx.fillStyle = `rgba(255,255,255,${0.12 * pulse})`;
+          ctx.beginPath(); ctx.arc(o.x, o.y - 10, 13, 0, 7); ctx.fill();
+        }
+      } else {
+        // a faint rune sleeps on the dark shell
+        ctx.strokeStyle = '#8a8078'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y - 15); ctx.lineTo(o.x, o.y - 8);
+        ctx.moveTo(o.x - 3, o.y - 13); ctx.lineTo(o.x + 3, o.y - 11);
+        ctx.stroke();
+      }
+    }
+  } else if (pz.kind === 6) {
+    const bob = Math.sin(G.time * 4) * 3;
+    const wy = pz.wy - 14 + bob;
+    ctx.fillStyle = `rgba(143,232,255,${0.14 + 0.08 * pulse})`;
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 15, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(143,232,255,${0.4 + 0.2 * pulse})`;
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 8, 0, 7); ctx.fill();
+    ctx.fillStyle = '#eafcff';
+    ctx.beginPath(); ctx.arc(pz.wx, wy, 3.5, 0, 7); ctx.fill();
+    // two motes trail the light on fixed orbits
+    for (let k = 0; k < 2; k++) {
+      const a = G.time * (2.4 + k) + k * 2.7;
+      ctx.fillStyle = 'rgba(143,232,255,0.7)';
+      ctx.beginPath(); ctx.arc(pz.wx + Math.cos(a) * 12, wy + Math.sin(a) * 7, 1.6, 0, 7); ctx.fill();
+    }
   }
 }
 
@@ -2753,7 +3061,7 @@ function hurtPlayer(dmg, mlvl) {
 
 /* skills */
 function castSkill(i) {
-  const p = G.p, c = CLASSES[p.cls], sk = c.skills[i];
+  const p = G.p, sk = heroSkills(p)[i], asc = p.asc;
   if (!sk || p.hp <= 0 || paused) return;
   if (p.level < (sk.lvl || 1)) { ftext(p.x, p.y - 30, 'Unlocks at level ' + sk.lvl, '#c9b98a', 12); return; }
   if (p.cd[i] > 0) return;
@@ -2765,55 +3073,63 @@ function castSkill(i) {
   if (t) { aim = Math.atan2(t.y - p.y, t.x - p.x); p.dir = aim; }
   const atk = Math.round(playerAtk() * skillMult(p, i));
   switch (sk.id) {
-    case 'cleave':
+    case 'cleave': {
+      const arc = asc === 'champion' ? 1.8 : 1.35;
       for (const m of G.lvl.monsters) {
         if (m.hp <= 0) continue;
         const d = dist(p.x, p.y, m.x, m.y);
         if (d < 95 + m.r) {
           let da = Math.atan2(m.y - p.y, m.x - p.x) - aim;
           while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
-          if (Math.abs(da) < 1.35) hitMonster(m, atk * 1.8, { kb: 14, ele: true });
+          if (Math.abs(da) < arc) hitMonster(m, atk * 1.8, { kb: 14, ele: true });
         }
       }
       burst(p.x + Math.cos(aim) * 50, p.y + Math.sin(aim) * 50, '#e8d9a8', 12, 180);
       sfx.fire();
       break;
-    case 'warcry':
+    }
+    case 'warcry': {
+      const wr = asc === 'champion' ? 185 : 135, ws = asc === 'champion' ? 2.8 : 1.7;
       for (const m of G.lvl.monsters) {
         if (m.hp <= 0) continue;
-        if (dist(p.x, p.y, m.x, m.y) < 135 + m.r) hitMonster(m, atk * 0.9, { stun: 1.7, kb: 26, noCrit: true });
+        if (dist(p.x, p.y, m.x, m.y) < wr + m.r) hitMonster(m, atk * 0.9, { stun: ws, kb: 26, noCrit: true });
       }
-      G.rings.push({ x: p.x, y: p.y, r: 10, max: 140, color: '#e8b45a', life: 0.35 });
+      G.rings.push({ x: p.x, y: p.y, r: 10, max: wr + 5, color: '#e8b45a', life: 0.35 });
       burst(p.x, p.y + 8, '#8a7a5a', 14, 140);
       shake(0.16);
       sfx.boss();
       break;
+    }
     case 'fireball':
-      shoot(p.x, p.y, aim, 380, atk * 2.2, 'p', { kind: 'fireball', r: 7, aoe: 72 });
+      shoot(p.x, p.y, aim, 380, atk * 2.2, 'p', { kind: 'fireball', r: 7, aoe: asc === 'pyromancer' ? 105 : 72 });
       sfx.fire();
       break;
-    case 'frostnova':
+    case 'frostnova': {
+      const nr = asc === 'stormcaller' ? 200 : 150;
       for (const m of G.lvl.monsters) {
         if (m.hp <= 0) continue;
-        if (dist(p.x, p.y, m.x, m.y) < 150 + m.r) hitMonster(m, atk * 1.2, { slow: 3.5, noCrit: true });
+        if (dist(p.x, p.y, m.x, m.y) < nr + m.r) hitMonster(m, atk * 1.2, { slow: 3.5, noCrit: true });
       }
-      G.rings.push({ x: p.x, y: p.y, r: 10, max: 155, color: '#9adcff', life: 0.4 });
+      G.rings.push({ x: p.x, y: p.y, r: 10, max: nr + 5, color: '#9adcff', life: 0.4 });
       G.rings.push({ x: p.x, y: p.y, r: 6, max: 120, color: '#ffffff', life: 0.25 });
       spark(p.x, p.y, '#bfe8ff', 24, 240);
       sfx.potion();
       break;
-    case 'multishot':
-      for (let k = -2; k <= 2; k++) shoot(p.x, p.y, aim + k * 0.22, 470, atk * 0.95, 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(G.d) });
+    }
+    case 'multishot': {
+      const nA = asc === 'windrunner' ? 3 : 2;
+      for (let k = -nA; k <= nA; k++) shoot(p.x, p.y, aim + k * 0.22, 470, atk * 0.95, 'p', { kind: 'arrow', r: 4, ele: true, color: domEle(G.d) });
       sfx.shoot();
       break;
+    }
     case 'skewer':
-      shoot(p.x, p.y, aim, 560, atk * 2.2, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true });
+      shoot(p.x, p.y, aim, 560, atk * (asc === 'viper' ? 3.0 : 2.2), 'p', { kind: 'bolt', r: 5, pierce: true, ele: true });
       sfx.shoot();
       break;
     case 'whirlwind':
       for (const m of G.lvl.monsters) {
         if (m.hp <= 0) continue;
-        if (dist(p.x, p.y, m.x, m.y) < 115 + m.r) hitMonster(m, atk * 1.6, { ele: true, kb: 10 });
+        if (dist(p.x, p.y, m.x, m.y) < 115 + m.r) hitMonster(m, atk * (asc === 'berserker' ? 2.0 : 1.6), { ele: true, kb: 10 });
       }
       G.rings.push({ x: p.x, y: p.y, r: 20, max: 115, color: '#e8d9a8', life: 0.3 });
       p.spinT = 0.45;
@@ -2821,7 +3137,7 @@ function castSkill(i) {
       sfx.fire();
       break;
     case 'rage':
-      p.rageT = 6;
+      p.rageT = asc === 'berserker' ? 12 : 6;
       G.rings.push({ x: p.x, y: p.y, r: 8, max: 60, color: '#ff5a3a', life: 0.3 });
       spark(p.x, p.y, '#ff5a3a', 18, 200);
       banner('BERSERKER RAGE!');
@@ -2830,8 +3146,9 @@ function castSkill(i) {
     case 'chain': {
       let cur = (t && los(p.x, p.y, t.x, t.y)) ? t : nearestMonster(p.x, p.y, 320);
       let sx = p.x, sy = p.y - 8, jumps = 0;
+      const maxJumps = asc === 'stormcaller' ? 8 : 5;
       const zapped = new Set();
-      while (cur && jumps < 5) {
+      while (cur && jumps < maxJumps) {
         G.beams.push({ x1: sx, y1: sy, x2: cur.x, y2: cur.y - cur.r * 0.5, life: 0.25 });
         hitMonster(cur, atk * 1.5, { noCrit: true });
         zapped.add(cur);
@@ -2851,26 +3168,30 @@ function castSkill(i) {
     case 'meteor': {
       const tx = t ? t.x : p.x + Math.cos(aim) * 160;
       const ty = t ? t.y : p.y + Math.sin(aim) * 160;
-      G.meteors.push({ x: tx, y: ty, t: 0.85, dmg: Math.round(atk * 3) });
+      G.meteors.push({ x: tx, y: ty, t: 0.85, dmg: Math.round(atk * (asc === 'pyromancer' ? 3.6 : 3)) });
       sfx.fire();
       break;
     }
     case 'poisoncloud': {
       const tx = t ? t.x : p.x + Math.cos(aim) * 130;
       const ty = t ? t.y : p.y + Math.sin(aim) * 130;
-      G.clouds.push({ x: tx, y: ty, life: 4, dps: Math.max(2, Math.round(atk * 0.5)) });
+      G.clouds.push({ x: tx, y: ty, life: asc === 'viper' ? 7 : 4, dps: Math.max(2, Math.round(atk * (asc === 'viper' ? 0.8 : 0.5))) });
       sfx.potion();
       break;
     }
     case 'strafe':
-      p.strafeN = 8; p.strafeT = 0;
+      p.strafeN = asc === 'windrunner' ? 12 : 8; p.strafeT = 0;
       break;
     case 'bonespear':
-      shoot(p.x, p.y, aim, 540, atk * 1.9, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true, color: '#e0dbcc' });
+      if (asc === 'archlich') {
+        for (let k = -1; k <= 1; k++) shoot(p.x, p.y, aim + k * 0.18, 540, atk * 1.9, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true, color: '#e0dbcc' });
+      } else {
+        shoot(p.x, p.y, aim, 540, atk * 1.9, 'p', { kind: 'bolt', r: 5, pierce: true, ele: true, color: '#e0dbcc' });
+      }
       sfx.shoot();
       break;
     case 'raiseskel': {
-      const cap = Math.min(5, 2 + Math.floor(p.level / 8));
+      const cap = skelCap(p);
       if (G.minions.filter(mi => mi.kind === 'skel').length >= cap) {
         p.mp += sk.mana; p.cd[i] = 0;
         ftext(p.x, p.y - 30, 'Your army is full (' + cap + ')', '#9adc8a', 12);
@@ -2889,7 +3210,7 @@ function castSkill(i) {
       let hitAny = false;
       for (const m of G.lvl.monsters) {
         if (m.hp <= 0) continue;
-        if (dist(cx2, cy2, m.x, m.y) < 140 + m.r) { m.curseT = 8; m.aggro = true; hitAny = true; }
+        if (dist(cx2, cy2, m.x, m.y) < 140 + m.r) { m.curseT = asc === 'archlich' ? 12 : 8; m.aggro = true; hitAny = true; }
       }
       G.rings.push({ x: cx2, y: cy2, r: 12, max: 140, color: '#b86adf', life: 0.35 });
       spark(cx2, cy2, '#b86adf', 12, 180);
@@ -2906,6 +3227,89 @@ function castSkill(i) {
       burst(g2.x, g2.y, '#cfc9b8', 18, 160);
       spark(g2.x, g2.y, '#9adc8a', 12, 180);
       shake(0.15);
+      sfx.boss();
+      break;
+    }
+    /* ascension skills */
+    case 'bladestorm':
+      p.stormT = 4; p.stormTickT = 0;
+      G.rings.push({ x: p.x, y: p.y, r: 20, max: 115, color: '#ffd27a', life: 0.3 });
+      banner('BLADESTORM!');
+      sfx.boss();
+      break;
+    case 'warbanner':
+      G.buffDmg = Math.max(G.buffDmg || 0, 8);
+      G.rings.push({ x: p.x, y: p.y, r: 8, max: 120, color: '#ff5a3a', life: 0.4 });
+      spark(p.x, p.y - 10, '#ffd27a', 16, 200);
+      banner('BANNER OF WAR — +40% damage!');
+      sfx.boss();
+      break;
+    case 'firestorm': {
+      const tx = t ? t.x : p.x + Math.cos(aim) * 180;
+      const ty = t ? t.y : p.y + Math.sin(aim) * 180;
+      for (let k = 0; k < 5; k++)
+        G.meteors.push({ x: tx + rand(-75, 75), y: ty + rand(-75, 75), t: 0.5 + k * 0.25, dmg: Math.round(atk * 1.5) });
+      sfx.fire();
+      break;
+    }
+    case 'tempest': {
+      const struck = G.lvl.monsters
+        .filter(m => m.hp > 0 && dist(p.x, p.y, m.x, m.y) < 320)
+        .sort((a, b) => dist(p.x, p.y, a.x, a.y) - dist(p.x, p.y, b.x, b.y))
+        .slice(0, 8);
+      for (const m of struck) {
+        G.beams.push({ x1: m.x + rand(-8, 8), y1: m.y - 170, x2: m.x, y2: m.y - m.r * 0.5, life: 0.3 });
+        hitMonster(m, atk * 1.6, { stun: 0.6, noCrit: true });
+        spark(m.x, m.y - 8, '#ffd23a', 6, 160);
+      }
+      if (struck.length) { shake(0.12); sfx.shoot(); }
+      break;
+    }
+    case 'arrowrain': {
+      const tx = t ? t.x : p.x + Math.cos(aim) * 200;
+      const ty = t ? t.y : p.y + Math.sin(aim) * 200;
+      for (const m of G.lvl.monsters) {
+        if (m.hp <= 0) continue;
+        if (dist(tx, ty, m.x, m.y) < 125 + m.r) hitMonster(m, atk * 2.0, { slow: 2.5, ele: true });
+      }
+      G.rings.push({ x: tx, y: ty, r: 14, max: 125, color: '#bfe8a8', life: 0.35 });
+      for (let k = 0; k < 14; k++) spark(tx + rand(-110, 110), ty + rand(-110, 110), '#e8d9a8', 3, 180);
+      sfx.shoot();
+      break;
+    }
+    case 'venomnova': {
+      for (let k = 0; k < 3; k++) {
+        const dd = 40 + k * 95;
+        G.clouds.push({ x: p.x + Math.cos(aim) * dd, y: p.y + Math.sin(aim) * dd, life: 5, dps: Math.max(2, Math.round(atk * 0.6)) });
+      }
+      G.rings.push({ x: p.x, y: p.y, r: 10, max: 90, color: '#4ad46a', life: 0.3 });
+      sfx.potion();
+      break;
+    }
+    case 'deathnova': {
+      for (const m of G.lvl.monsters) {
+        if (m.hp <= 0) continue;
+        if (dist(p.x, p.y, m.x, m.y) < 175 + m.r) { hitMonster(m, atk * 2.4, { ele: true }); if (m.hp > 0) { m.curseT = 12; m.aggro = true; } }
+      }
+      G.rings.push({ x: p.x, y: p.y, r: 12, max: 180, color: '#b86adf', life: 0.4 });
+      G.rings.push({ x: p.x, y: p.y, r: 8, max: 130, color: '#e0dbcc', life: 0.3 });
+      spark(p.x, p.y, '#b86adf', 20, 260);
+      shake(0.14);
+      sfx.boss();
+      break;
+    }
+    case 'armydead': {
+      const cap = skelCap(p);
+      let n = G.minions.filter(mi => mi.kind === 'skel').length;
+      while (n < cap) {
+        const mi = makeMinion('skel');
+        G.minions.push(mi);
+        burst(mi.x, mi.y, '#cfc9b8', 10, 120);
+        n++;
+      }
+      for (const mi of G.minions) { mi.hp = mi.maxHp; spark(mi.x, mi.y, '#9adc8a', 6, 120); }
+      banner('ARMY OF THE DEAD!');
+      shake(0.12);
       sfx.boss();
       break;
     }
@@ -3037,7 +3441,8 @@ function blinkToMaster(e, flying, force) {
 /* ---------------- minions & pets ---------------- */
 function makeMinion(kind) {
   const p = G.p, lvl = p.level;
-  const mult = (1 + G.d.ene * 0.008) * (G.d.minionMult || 1);
+  const mult = (1 + G.d.ene * 0.008) * (G.d.minionMult || 1)
+    * (kind === 'golem' && p.asc === 'overlord' ? 1.5 : 1);
   const base = kind === 'golem'
     ? { hp: 120 + lvl * 22, dmg: [8 + lvl * 2, 14 + lvl * 3], spd: 100, r: 17, range: 34, atkCd: 1.2 }
     : { hp: 30 + lvl * 8, dmg: [3 + lvl, 6 + Math.round(lvl * 1.6)], spd: 150, r: 11, range: 26, atkCd: 0.9 };
@@ -3094,7 +3499,7 @@ function hurtMinion(mi, dmg) {
   ftext(mi.x, mi.y - mi.r - 6, '-' + Math.round(dmg), '#9aa8b8', 11);
 }
 function minionDmg(mi) {
-  let d = ri(mi.dmg[0], mi.dmg[1]) * bestiaryMult();
+  let d = ri(mi.dmg[0], mi.dmg[1]) * bestiaryMult() * (G.buffDmg > 0 ? 1.4 : 1);
   return Math.round(d);
 }
 
@@ -3356,7 +3761,7 @@ function enterLevel(dlvl, fresh, fromBelow) {
     p.x = G.lvl.entrance.x; p.y = G.lvl.entrance.y;
   }
   p.target = null; p.path = null; p.moveTo = null;
-  p.strafeN = 0;
+  p.strafeN = 0; p.stormT = 0;
   for (const gp of G.lvl.goldPiles || []) {
     G.drops.push({ kind: 'gold', amt: Math.round(ri(12, 35) * (1 + dlvl * 0.3) * (1 + (G.ng || 0) * 0.6)), x: gp.x, y: gp.y });
   }
@@ -3418,7 +3823,7 @@ function saveGame() {
     const p = G.p;
     localStorage.setItem(SLOT_KEY(G.slot || 0), JSON.stringify({
       v: 1, cls: p.cls, level: p.level, xp: p.xp, statPts: p.statPts, gold: p.gold,
-      skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives,
+      skillPts: p.skillPts || 0, skillLvls: p.skillLvls, passives: p.passives, asc: p.asc || null,
       hardcore: p.hardcore || false, challenge: p.challenge || null,
       stats: p.stats, equip: p.equip, inv: p.inv, potions: p.potions,
       hp: p.hp, mp: p.mp, dlvl: G.dlvl, deaths: p.deaths, soundOn, musicOn,
@@ -3444,6 +3849,7 @@ function startGame(clsId, save, slot) {
       // pre-skill-point saves get one point per level already earned
       skillPts: save.skillPts !== undefined ? save.skillPts : Math.max(0, save.level - 1),
       skillLvls: save.skillLvls || [1, 1, 1, 1],
+      asc: save.asc && ASCENSIONS[save.asc] ? save.asc : null,
       // pad older saves out to the full passive roster
       passives: PASSIVES[clsId].map((_, i) => (save.passives && save.passives[i]) || 0),
       hardcore: !!save.hardcore,
@@ -3510,7 +3916,7 @@ function update(dt) {
   // regen & timers
   p.hp = Math.min(d.maxHp, p.hp + d.hpRegen * dt);
   p.mp = Math.min(d.maxMp, p.mp + d.mpRegen * dt);
-  p.cd[0] = Math.max(0, p.cd[0] - dt); p.cd[1] = Math.max(0, p.cd[1] - dt);
+  for (let k = 0; k < p.cd.length; k++) p.cd[k] = Math.max(0, p.cd[k] - dt);
   p.atkT = Math.max(0, p.atkT - dt);
   p.hurtT = Math.max(0, p.hurtT - dt);
   p.swingT = Math.max(0, p.swingT - dt);
@@ -3586,13 +3992,15 @@ function update(dt) {
   if (G.autoSkill) {
     G.autoSkillT = Math.max(0, (G.autoSkillT || 0) - dt);
     if (G.autoSkillT <= 0) {
-      const ranges = { cleave: 110, warcry: 130, whirlwind: 115, rage: 220, fireball: 320, frostnova: 140, chain: 300, meteor: 300, multishot: 320, skewer: 320, poisoncloud: 240, strafe: 350, bonespear: 320, raiseskel: 300, curse: 240, golem: 300 };
-      const cc = CLASSES[p.cls];
-      for (let i = 0; i < 4; i++) {
-        const sk = cc.skills[i];
+      const ranges = { cleave: 110, warcry: 130, whirlwind: 115, rage: 220, fireball: 320, frostnova: 140, chain: 300, meteor: 300, multishot: 320, skewer: 320, poisoncloud: 240, strafe: 350, bonespear: 320, raiseskel: 300, curse: 240, golem: 300, bladestorm: 115, warbanner: 200, firestorm: 300, tempest: 300, arrowrain: 300, venomnova: 240, deathnova: 165, armydead: 300 };
+      const sks = heroSkills(p);
+      for (let i = 0; i < sks.length; i++) {
+        const sk = sks[i];
         if (p.level < (sk.lvl || 1) || p.cd[i] > 0 || p.mp < sk.mana) continue;
         if (sk.id === 'rage' && p.rageT > 0) continue;
-        if (sk.id === 'raiseskel' && G.minions.filter(mi => mi.kind === 'skel').length >= Math.min(5, 2 + Math.floor(p.level / 8))) continue;
+        if (sk.id === 'bladestorm' && p.stormT > 0) continue;
+        if (sk.id === 'warbanner' && G.buffDmg > 0) continue;
+        if ((sk.id === 'raiseskel' || sk.id === 'armydead') && G.minions.filter(mi => mi.kind === 'skel').length >= skelCap(p)) continue;
         if (sk.id === 'golem' && G.minions.some(mi => mi.kind === 'golem')) continue;
         const R = ranges[sk.id] || 300;
         const tgt = (p.target && p.target.hp > 0 && dist(p.x, p.y, p.target.x, p.target.y) < R + p.target.r)
@@ -3602,6 +4010,22 @@ function update(dt) {
         G.autoSkillT = 0.35;
         break;
       }
+    }
+  }
+
+  // bladestorm: the berserker becomes a whirlwind for a few seconds
+  p.stormT = Math.max(0, (p.stormT || 0) - dt);
+  if (p.stormT > 0) {
+    p.spinT = Math.max(p.spinT, 0.2);
+    p.stormTickT = (p.stormTickT || 0) - dt;
+    if (p.stormTickT <= 0) {
+      p.stormTickT = 0.5;
+      const dmg = Math.round(playerAtk() * 1.2 * skillMult(p, 4));
+      for (const m of G.lvl.monsters) {
+        if (m.hp <= 0) continue;
+        if (dist(p.x, p.y, m.x, m.y) < 115 + m.r) hitMonster(m, dmg, { ele: true, kb: 8 });
+      }
+      G.rings.push({ x: p.x, y: p.y, r: 20, max: 115, color: '#ffd27a', life: 0.3 });
     }
   }
 
@@ -5532,6 +5956,9 @@ function drawLights() {
     if (pzl.kind === 0) for (const st of pzl.stones) hole(st.x, st.y - 12, 70, 0.7);
     else if (pzl.kind === 1) hole(pzl.px, pzl.py - 10, 110, 0.8);
     else if (pzl.kind === 2) hole(pzl.levers[1].x, pzl.levers[1].y - 8, 95, 0.75);
+    else if (pzl.kind === 4) for (const b of pzl.braziers) hole(b.x, b.y - 14, b.lit > 0 ? 100 : 55, b.lit > 0 ? 0.85 : 0.5);
+    else if (pzl.kind === 5) hole(pzl.px, pzl.py - 8, 110, 0.75);
+    else if (pzl.kind === 6) hole(pzl.wx, pzl.wy - 14, 85, 0.8);
   }
   if (G.lvl.crack && !G.lvl.crack.open) hole(G.lvl.crack.tx * TILE + TILE / 2, G.lvl.crack.ty * TILE + TILE / 2, 55, 0.4);
   if (G.lvl.vendor) hole(G.lvl.vendor.x, G.lvl.vendor.y, 120, 0.9);
@@ -8255,7 +8682,9 @@ function drawMinimap() {
   // discovered exit-seal pieces glow cyan so a found puzzle is never lost again
   const pzm = G.lvl.puzzle;
   if (pzm && !pzm.solved) {
-    const spots = pzm.kind === 0 ? pzm.stones : pzm.kind === 1 ? [{ x: pzm.px, y: pzm.py }] : pzm.kind === 2 ? [pzm.levers[1]] : [];
+    const spots = pzm.kind === 0 ? pzm.stones : pzm.kind === 1 || pzm.kind === 5 ? [{ x: pzm.px, y: pzm.py }]
+      : pzm.kind === 2 ? [pzm.levers[1]] : pzm.kind === 4 ? pzm.braziers
+        : pzm.kind === 6 ? [{ x: pzm.wx, y: pzm.wy }] : [];
     for (const sp2 of spots) {
       const tx3 = Math.floor(sp2.x / TILE), ty3 = Math.floor(sp2.y / TILE);
       if (!G.lvl.seen[ty3 * MAP_W + tx3]) continue;
@@ -8282,9 +8711,12 @@ function drawMinimap() {
 const rarityColor = r => ({ common: '#e8e4da', magic: '#7f95e8', rare: '#e8d45a', unique: '#d98d4a', set: '#4adf6a', exotic: '#e86ae8' }[r]);
 
 function buildSkillbar() {
-  const c = CLASSES[G.p.cls];
-  for (let i = 0; i < 4; i++) {
-    const btn = $('btnSkill' + (i + 1)), sk = c.skills[i];
+  const sks = heroSkills(G.p);
+  for (let i = 0; i < 5; i++) {
+    const btn = $('btnSkill' + (i + 1)), sk = sks[i];
+    if (!btn) continue;
+    btn.classList.toggle('hidden', !sk);
+    if (!sk) continue;
     btn.querySelector('.sicon').textContent = sk.icon;
     btn.querySelector('.cost').textContent = sk.mana;
     btn.title = sk.name + (sk.lvl ? ' (level ' + sk.lvl + ')' : '') + ' — ' + sk.desc;
@@ -8302,9 +8734,9 @@ function updateHUD() {
       xpFill: $('xpFill'), goldLabel: $('goldLabel'), hpPotCount: $('hpPotCount'), mpPotCount: $('mpPotCount'),
       skills: [],
     };
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const btn = $('btnSkill' + (i + 1));
-      hudEls.skills.push({ btn, cdmask: btn.querySelector('.cdmask'), cost: btn.querySelector('.cost') });
+      hudEls.skills.push(btn ? { btn, cdmask: btn.querySelector('.cdmask'), cost: btn.querySelector('.cost') } : null);
     }
   }
   const p = G.p, d = G.d, H = hudEls, P = hudPrev;
@@ -8317,9 +8749,10 @@ function updateHUD() {
   set('gold', p.gold, v => H.goldLabel.textContent = '🪙 ' + v);
   set('hpPot', p.potions.hp, v => H.hpPotCount.textContent = v);
   set('mpPot', p.potions.mp, v => H.mpPotCount.textContent = v);
-  const c = CLASSES[p.cls];
-  for (let i = 0; i < 4; i++) {
-    const el = H.skills[i], sk = c.skills[i];
+  const sks = heroSkills(p);
+  for (let i = 0; i < 5; i++) {
+    const el = H.skills[i], sk = sks[i];
+    if (!el || !sk) continue;
     const locked = p.level < (sk.lvl || 1);
     set('cd' + i, locked ? '0%' : (p.cd[i] / sk.cd * 100).toFixed(1) + '%', v => el.cdmask.style.height = v);
     set('cost' + i, locked ? 'Lv' + sk.lvl : sk.mana, v => el.cost.textContent = v);
@@ -8803,39 +9236,86 @@ function renderShop() {
   }));
 }
 
+/* which char-panel row has its info drawer open ('s2', 'p3'), and which
+   ascension is one tap from confirmation */
+let charInfoOpen = null, ascArm = null;
+/* base weapon-damage percentages for the info drawer (per hit/tick) */
+const SKILL_PCT = {
+  cleave: 180, warcry: 90, whirlwind: 160, fireball: 220, frostnova: 120, chain: 150,
+  meteor: 300, multishot: 95, skewer: 220, poisoncloud: 50, strafe: 80, bonespear: 190,
+  bladestorm: 120, firestorm: 150, tempest: 160, arrowrain: 200, venomnova: 60, deathnova: 240,
+};
+const FX_LABELS = { dmg: 'damage', hp: 'life', mp: 'mana & regen', ele: 'elemental damage', armor: 'armor', spd: 'move & attack speed', minion: 'minion power', crit: 'crit chance', cdr: 'cooldown reduction' };
 function renderChar() {
   const p = G.p, d = G.d, c = CLASSES[p.cls];
+  const asc = p.asc && ASCENSIONS[p.asc];
   const row = (key, label) =>
     `<div class="statrow"><span class="sname">${label}${c.primary === key ? ' ★' : ''}</span><span class="sval">${d[key]}</span>
      <button class="statbtn" data-stat="${key}" ${p.statPts <= 0 ? 'disabled' : ''}>+</button></div>`;
   const cap = skillCapAt(p.level);
+  const sks = heroSkills(p);
+  const skillInfo = (sk, i) => {
+    const rank = skillRank(p, i), mult = skillMult(p, i);
+    const pct = SKILL_PCT[sk.id];
+    const cd2 = sk.cd * (1 - (d.cdr || 0));
+    return `<div class="skillinfo">${sk.desc}.<br>
+      Rank ${rank}: skill power ×${mult.toFixed(2)} <small>(+15% per rank)</small><br>
+      ${pct ? `Hits for ~<b>${Math.round(d.dmgLo * pct / 100 * mult)}–${Math.round(d.dmgHi * pct / 100 * mult)}</b> <small>(${pct}% weapon damage × rank)</small><br>` : ''}
+      Mana <b>${sk.mana}</b> · Cooldown <b>${cd2.toFixed(1)}s</b>${d.cdr > 0 ? ` <small>(${sk.cd}s base − ${Math.round(d.cdr * 100)}%)</small>` : ''}
+      ${sk.lvl ? ` · Unlocks at level ${sk.lvl}` : ''}</div>`;
+  };
+  const passiveInfo = (pa, i) => {
+    const rank = (p.passives && p.passives[i]) || 0;
+    const cur = Object.keys(pa.fx).map(k => `+${pa.fx[k] * rank}% ${FX_LABELS[k]}`).join(', ');
+    const nxt = Object.keys(pa.fx).map(k => `+${pa.fx[k] * (rank + 1)}% ${FX_LABELS[k]}`).join(', ');
+    return `<div class="skillinfo">${pa.desc}.<br>
+      ${rank > 0 ? `Now: <b>${cur}</b><br>` : ''}${rank < passiveMax(pa) ? `Next rank: ${nxt}` : 'Fully mastered.'}</div>`;
+  };
   const skillRow = (sk, i) => {
     const locked = p.level < (sk.lvl || 1);
     const rank = skillRank(p, i);
     // at the current cap but below the true max: show the level that opens the next rank
     const nextLvl = rank >= cap && rank < SKILL_MAX ? 40 + (rank - 9) * 5 : 0;
-    return `<div class="statrow"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : nextLvl ? ` <small>(rank ${rank + 1} at lvl ${nextLvl})</small>` : ''}</span>
+    return `<div class="statrow" data-inforow="s${i}"><span class="sname">${sk.icon} ${sk.name}${locked ? ` <small>(lvl ${sk.lvl})</small>` : nextLvl ? ` <small>(rank ${rank + 1} at lvl ${nextLvl})</small>` : ''}</span>
       <span class="sval">${locked ? '—' : rank + '/' + SKILL_MAX}</span>
-      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= cap ? 'disabled' : ''}>+</button></div>`;
+      <button class="statbtn" data-skill="${i}" ${p.skillPts <= 0 || locked || rank >= cap ? 'disabled' : ''}>+</button></div>
+      ${charInfoOpen === 's' + i ? skillInfo(sk, i) : ''}`;
   };
   const passiveRow = (pa, i) => {
     const locked = p.level < (pa.lvl || 1);
     const rank = (p.passives && p.passives[i]) || 0;
     const max = passiveMax(pa);
-    return `<div class="statrow"><span class="sname">${pa.icon} ${pa.name} <small>· ${locked ? 'unlocks at lvl ' + pa.lvl : pa.desc}</small></span>
+    return `<div class="statrow" data-inforow="p${i}"><span class="sname">${pa.icon} ${pa.name} <small>· ${locked ? 'unlocks at lvl ' + pa.lvl : pa.desc}</small></span>
       <span class="sval">${locked ? '—' : rank + '/' + (max === Infinity ? '∞' : max)}</span>
-      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || locked || rank >= max ? 'disabled' : ''}>+</button></div>`;
+      <button class="statbtn" data-passive="${i}" ${p.skillPts <= 0 || locked || rank >= max ? 'disabled' : ''}>+</button></div>
+      ${charInfoOpen === 'p' + i ? passiveInfo(pa, i) : ''}`;
   };
+  /* ascension: chosen — show the crown; not yet — show both paths */
+  const ascRow = id => {
+    const a = ASCENSIONS[id];
+    const ready = ascReady(p, id);
+    const need = a.keys.map(k => c.skills[k].name).join(' & ');
+    const armed = ascArm === id;
+    return `<div class="statrow"><span class="sname">${a.icon} ${a.name} <small>· ${ready ? a.desc : `lvl ${ASC_LEVEL} · ${need} rank ${ASC_RANK}`}</small></span>
+      <button class="smallbtn" data-asc="${id}" ${ready ? '' : 'disabled'}>${armed ? '⚠ Confirm' : 'Ascend'}</button></div>
+      ${armed ? `<div class="skillinfo">${a.desc}<br>Grants: <b>${a.perk}</b><br>Unlocks: <b>${a.skill.icon} ${a.skill.name}</b> — ${a.skill.desc}.<br><b>This choice is forever.</b> Tap ⚠ Confirm to ascend.</div>` : ''}`;
+  };
+  const ascSection = asc
+    ? `<div class="ptsleft" style="margin-top:10px">Ascension</div>
+       <div class="statrow"><span class="sname">${asc.icon} <b>${asc.name}</b> <small>· ${asc.perk}</small></span></div>`
+    : `<div class="ptsleft" style="margin-top:10px">Ascension${p.level < ASC_LEVEL ? ` <small>(from level ${ASC_LEVEL})</small>` : ''}</div>
+       ${ascFor(p.cls).map(ascRow).join('')}`;
   const spent = p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
   const respecCost = 100 * p.level;
   $('charPanel').innerHTML = `
     <button class="pclose" data-close>✕</button>
-    <div class="ptitle">${c.icon} ${c.name} — Level ${p.level}</div>
+    <div class="ptitle">${c.icon} ${c.name}${asc ? ` · ${asc.icon} ${asc.name}` : ''} — Level ${p.level}</div>
     <div class="ptsleft">${p.statPts > 0 ? p.statPts + ' stat points to spend' : 'No stat points to spend'}</div>
     ${row('str', 'Strength')}${row('dex', 'Dexterity')}${row('vit', 'Vitality')}${row('ene', 'Energy')}
-    <div class="ptsleft" style="margin-top:10px">${p.skillPts > 0 ? p.skillPts + ' skill points to spend' : 'No skill points to spend'}</div>
-    ${c.skills.map(skillRow).join('')}
+    <div class="ptsleft" style="margin-top:10px">${p.skillPts > 0 ? p.skillPts + ' skill points to spend' : 'No skill points to spend'}<br><small>tap a skill for details</small></div>
+    ${sks.map(skillRow).join('')}
     ${PASSIVES[p.cls].map(passiveRow).join('')}
+    ${ascSection}
     ${spent > 0 ? `<div class="invactions"><button class="smallbtn" data-respec ${p.gold < respecCost ? 'disabled' : ''}>♻ Respec skills (${respecCost}g)</button></div>` : ''}
     <div class="derived">
       Damage: <b>${d.dmgLo}–${d.dmgHi}</b> · Armor: <b>${d.armor}</b> · Crit: <b>${Math.round(d.crit * 100)}%</b><br>
@@ -8854,13 +9334,35 @@ function renderChar() {
     G.p.statPts--; G.p.stats[b.dataset.stat]++;
     recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
-  $('charPanel').querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => {
-    const i = +b.dataset.skill, sk = c.skills[i];
+  $('charPanel').querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const i = +b.dataset.skill, sk = sks[i];
     if (p.skillPts <= 0 || p.level < (sk.lvl || 1) || skillRank(p, i) >= skillCapAt(p.level)) return;
-    p.skillPts--; p.skillLvls[i]++;
+    p.skillPts--; p.skillLvls[i] = skillRank(p, i) + 1;
     sfx.pickup(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   }));
-  $('charPanel').querySelectorAll('[data-passive]').forEach(b => b.addEventListener('click', () => {
+  // tapping a row (not its + button) opens its info drawer
+  $('charPanel').querySelectorAll('[data-inforow]').forEach(r => r.addEventListener('click', e => {
+    if (e.target.closest('.statbtn')) return;
+    const key = r.dataset.inforow;
+    charInfoOpen = charInfoOpen === key ? null : key;
+    renderChar();
+  }));
+  $('charPanel').querySelectorAll('[data-asc]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = b.dataset.asc;
+    if (!ascReady(p, id) || p.asc) return;
+    if (ascArm !== id) { ascArm = id; renderChar(); return; }   // first tap arms, second commits
+    ascArm = null;
+    p.asc = id;
+    while (p.skillLvls.length < 5) p.skillLvls.push(1);
+    while (p.cd.length < 5) p.cd.push(0);
+    const a = ASCENSIONS[id];
+    banner('ASCENDED — ' + a.name.toUpperCase() + '!');
+    sfx.level(); recalc(); buildSkillbar(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
+  }));
+  $('charPanel').querySelectorAll('[data-passive]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
     const i = +b.dataset.passive, pa = PASSIVES[p.cls][i];
     if (p.skillPts <= 0 || p.level < (pa.lvl || 1) || (p.passives[i] || 0) >= passiveMax(pa)) return;
     p.skillPts--; p.passives[i] = (p.passives[i] || 0) + 1;
@@ -8871,11 +9373,14 @@ function renderChar() {
     if (p.gold < respecCost) return;
     p.gold -= respecCost;
     p.skillPts += p.skillLvls.reduce((a, r) => a + (r - 1), 0) + p.passives.reduce((a, r) => a + r, 0);
-    p.skillLvls = [1, 1, 1, 1]; p.passives = PASSIVES[p.cls].map(() => 0);
+    p.skillLvls = heroSkills(p).map(() => 1); p.passives = PASSIVES[p.cls].map(() => 0);
     banner('Skills reset — points refunded');
     sfx.level(); recalc(); renderChar(); updateBadge(); updateHUD(); saveDirty = true;
   });
-  $('charPanel').querySelector('[data-close]').addEventListener('click', closePanels);
+  $('charPanel').querySelector('[data-close]').addEventListener('click', () => {
+    charInfoOpen = null; ascArm = null;
+    closePanels();
+  });
 }
 
 const BAG_MAX = 1000;   // 100g per +6 slots, all the way up
@@ -9552,6 +10057,7 @@ window.addEventListener('keydown', e => {
   if (k === '2') castSkill(1);
   if (k === '3') castSkill(2);
   if (k === '4') castSkill(3);
+  if (k === '5') castSkill(4);
   if (k === 'q') drinkPotion('hp');
   if (k === 'e') drinkPotion('mp');
   if (k === 'i') togglePanel('invPanel');
@@ -9566,6 +10072,7 @@ $('btnSkill1').addEventListener('pointerdown', e => { e.preventDefault(); audioI
 $('btnSkill2').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); castSkill(1); });
 $('btnSkill3').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); castSkill(2); });
 $('btnSkill4').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); castSkill(3); });
+if ($('btnSkill5')) $('btnSkill5').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); castSkill(4); });
 $('btnHpPot').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); drinkPotion('hp'); });
 $('btnMpPot').addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); drinkPotion('mp'); });
 $('btnAuto').addEventListener('click', () => {
@@ -9686,6 +10193,7 @@ window.__sanctuary = {
   get G() { return G; }, startGame, CLASSES, MTYPES,
   makeItem: (...a) => makeItem(...a), genLevel, enterLevel: d => enterLevel(d, false),
   enterRift, enterCowLevel, makeGem, gemItem, makeCharm, makeSigil,
-  killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES,
+  killMonster, hurtPlayer, recalc, derived, togglePanel, castSkill, PASSIVES, ASCENSIONS,
   CHALLENGES, showVictory, loadBadges, fusableGroups, makeSetPiece,
+  puzzleTap, updatePuzzle, solvePuzzle,
 };
