@@ -3,11 +3,20 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.33.0';
+const SANCTUARY_VERSION = '1.34.0';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.34.0', date: '2026-07-18', title: 'Three new exit seals',
+    notes: [
+      'The exit seal now draws from seven riddles instead of four',
+      'Braziers of the Deep: four braziers scattered about a chamber — light them all before the first flame gutters out',
+      'Twin Orbs: six shrouded orbs hide three colored pairs — reveal them two at a time and remember what you saw',
+      'The Restless Wisp: a glowing spirit flits about its chamber — corner it and tap it three times to shatter the seal',
+    ],
+  },
   {
     v: '1.33.0', date: '2026-07-18', title: 'Ascension',
     notes: [
