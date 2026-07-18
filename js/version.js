@@ -3,11 +3,19 @@
    every feature PR (minor for features, patch for fixes).
    SANCTUARY_BUILD is stamped by the deploy workflow at publish time —
    it stays 'dev' when the game runs from a local checkout. */
-const SANCTUARY_VERSION = '1.31.0';
+const SANCTUARY_VERSION = '1.31.1';
 const SANCTUARY_BUILD = 'dev';
 
 /* newest first · v/date/title/notes */
 const SANCTUARY_CHANGELOG = [
+  {
+    v: '1.31.1', date: '2026-07-18', title: 'Lightning-fast under the horde',
+    notes: [
+      'A round of deep performance work: the game stays smooth even with two hundred monsters awake and hunting',
+      'Monster pathfinding is an order of magnitude faster and spreads its work across frames — no more freezes when a whole horde chases you around walls',
+      'Tile art, lighting and the HUD now redraw only what actually changed, killing the periodic stutter spikes',
+    ],
+  },
   {
     v: '1.31.0', date: '2026-07-18', title: 'One button to sell them all',
     notes: [
